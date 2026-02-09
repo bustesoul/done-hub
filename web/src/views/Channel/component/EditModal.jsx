@@ -63,6 +63,7 @@ const getValidationSchema = (t) =>
     type: Yup.number().required(t('channel_edit.requiredChannel')),
     key: Yup.string().when('is_edit', { is: false, then: Yup.string().required(t('channel_edit.requiredKey')) }),
     other: Yup.string(),
+    remark: Yup.string(),
     proxy: Yup.string(),
     test_model: Yup.string(),
     models: Yup.array().min(1, t('channel_edit.requiredModels')),
@@ -997,9 +998,9 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
           data.custom_parameter = '';
         }
 
-        data.base_url = data.base_url ?? '';
-        data.cost_ratio = data.cost_ratio ?? 0;
-        data.is_edit = true;
+        data.base_url = data.base_url ?? ''
+        data.remark = data.remark ?? ''
+        data.is_edit = true
         if (data.plugin === null) {
           data.plugin = {};
         }
@@ -1059,24 +1060,195 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
                     {t('channel_edit.tagGroupOverwriteWarning', { count: tagGroupCount })}
                   </Alert>
                 )}
-                <CollapsibleSection title={t('channel_edit.sectionBasic')} defaultExpanded>
-                  {!isTag && (
-                    <FormControl fullWidth error={Boolean(touched.type && errors.type)} sx={{ ...theme.typography.otherInput }}>
-                      <InputLabel htmlFor="channel-type-label">{customizeT(inputLabel.type)}</InputLabel>
-                      <Select
-                        id="channel-type-label"
-                        label={customizeT(inputLabel.type)}
-                        value={values.type}
-                        name="type"
-                        onBlur={handleBlur}
-                        onChange={(e) => {
-                          handleChange(e);
-                          handleTypeChange(setFieldValue, e.target.value, values);
-                        }}
-                        MenuProps={{
-                          PaperProps: {
-                            style: {
-                              maxHeight: 200
+
+                <FormControl fullWidth error={Boolean(touched.tag && errors.tag)}
+                             sx={{ ...theme.typography.otherInput }}>
+                  <InputLabel htmlFor="channel-tag-label">{customizeT(inputLabel.tag)}</InputLabel>
+                  <OutlinedInput
+                    id="channel-tag-label"
+                    label={customizeT(inputLabel.tag)}
+                    type="text"
+                    value={values.tag}
+                    name="tag"
+                    onBlur={handleBlur}
+                    onChange={handleChange}
+                    inputProps={{}}
+                    aria-describedby="helper-text-channel-tag-label"
+                  />
+                  {touched.tag && errors.tag ? (
+                    <FormHelperText error id="helper-tex-channel-tag-label">
+                      {errors.tag}
+                    </FormHelperText>
+                  ) : (
+                    <FormHelperText id="helper-tex-channel-tag-label"> {customizeT(inputPrompt.tag)} </FormHelperText>
+                  )}
+                </FormControl>
+
+                {!isTag && (
+                  <FormControl fullWidth error={Boolean(touched.name && errors.name)}
+                               sx={{ ...theme.typography.otherInput }}>
+                    <InputLabel htmlFor="channel-name-label">{customizeT(inputLabel.name)}</InputLabel>
+                    <OutlinedInput
+                      id="channel-name-label"
+                      label={customizeT(inputLabel.name)}
+                      type="text"
+                      value={values.name}
+                      name="name"
+                      onBlur={handleBlur}
+                      onChange={handleChange}
+                      inputProps={{ autoComplete: 'name' }}
+                      aria-describedby="helper-text-channel-name-label"
+                    />
+                    {touched.name && errors.name ? (
+                      <FormHelperText error id="helper-tex-channel-name-label">
+                        {errors.name}
+                      </FormHelperText>
+                    ) : (
+                      <FormHelperText
+                        id="helper-tex-channel-name-label"> {customizeT(inputPrompt.name)} </FormHelperText>
+                    )}
+                  </FormControl>
+                )}
+                {inputPrompt.base_url && (
+                  <FormControl fullWidth error={Boolean(touched.base_url && errors.base_url)}
+                               sx={{ ...theme.typography.otherInput }}>
+                    <InputLabel htmlFor="channel-base_url-label">{customizeT(inputLabel.base_url)}</InputLabel>
+                    <OutlinedInput
+                      id="channel-base_url-label"
+                      label={customizeT(inputLabel.base_url)}
+                      type="text"
+                      value={values.base_url}
+                      name="base_url"
+                      onBlur={handleBlur}
+                      onChange={handleChange}
+                      inputProps={{}}
+                      aria-describedby="helper-text-channel-base_url-label"
+                    />
+
+                    {touched.base_url && errors.base_url ? (
+                      <FormHelperText error id="helper-tex-channel-base_url-label">
+                        {errors.base_url}
+                      </FormHelperText>
+                    ) : (
+                      <FormHelperText
+                        id="helper-tex-channel-base_url-label"> {customizeT(inputPrompt.base_url)} </FormHelperText>
+                    )}
+                  </FormControl>
+                )}
+
+                {inputPrompt.other && (
+                  <FormControl fullWidth error={Boolean(touched.other && errors.other)}
+                               sx={{ ...theme.typography.otherInput }}>
+                    <InputLabel htmlFor="channel-other-label">{customizeT(inputLabel.other)}</InputLabel>
+                    <OutlinedInput
+                      id="channel-other-label"
+                      label={customizeT(inputLabel.other)}
+                      type="text"
+                      value={values.other}
+                      name="other"
+                      disabled={hasTag}
+                      onBlur={handleBlur}
+                      onChange={handleChange}
+                      inputProps={{}}
+                      aria-describedby="helper-text-channel-other-label"
+                    />
+                    {touched.other && errors.other ? (
+                      <FormHelperText error id="helper-tex-channel-other-label">
+                        {errors.other}
+                      </FormHelperText>
+                    ) : (
+                      <FormHelperText
+                        id="helper-tex-channel-other-label"> {customizeT(inputPrompt.other)} </FormHelperText>
+                    )}
+                  </FormControl>
+                )}
+
+                <FormControl fullWidth error={Boolean(touched.remark && errors.remark)}
+                             sx={{ ...theme.typography.otherInput }}>
+                  <InputLabel htmlFor="channel-remark-label">{customizeT(inputLabel.remark)}</InputLabel>
+                  <OutlinedInput
+                    id="channel-remark-label"
+                    label={customizeT(inputLabel.remark)}
+                    type="text"
+                    value={values.remark}
+                    name="remark"
+                    onBlur={handleBlur}
+                    onChange={handleChange}
+                    multiline
+                    minRows={2}
+                    inputProps={{}}
+                    aria-describedby="helper-text-channel-remark-label"
+                  />
+                  {touched.remark && errors.remark ? (
+                    <FormHelperText error id="helper-tex-channel-remark-label">
+                      {errors.remark}
+                    </FormHelperText>
+                  ) : (
+                    <FormHelperText
+                      id="helper-tex-channel-remark-label"> {customizeT(inputPrompt.remark)} </FormHelperText>
+                  )}
+                </FormControl>
+
+                <FormControl fullWidth sx={{ ...theme.typography.otherInput }}>
+                  <Autocomplete
+                    multiple
+                    id="channel-groups-label"
+                    options={groupOptions}
+                    value={values.groups}
+                    disabled={hasTag}
+                    onChange={(e, value) => {
+                      const event = {
+                        target: {
+                          name: 'groups',
+                          value: value
+                        }
+                      }
+                      handleChange(event)
+                    }}
+                    onBlur={handleBlur}
+                    filterSelectedOptions
+                    renderInput={(params) => (
+                      <TextField {...params} name="groups" error={Boolean(errors.groups)}
+                                 label={customizeT(inputLabel.groups)}/>
+                    )}
+                    aria-describedby="helper-text-channel-groups-label"
+                  />
+                  {errors.groups ? (
+                    <FormHelperText error id="helper-tex-channel-groups-label">
+                      {errors.groups}
+                    </FormHelperText>
+                  ) : (
+                    <FormHelperText
+                      id="helper-tex-channel-groups-label"> {customizeT(inputPrompt.groups)} </FormHelperText>
+                  )}
+                </FormControl>
+
+                <FormControl fullWidth sx={{ ...theme.typography.otherInput }}>
+                  <Box sx={{ position: 'relative' }}>
+                    <Autocomplete
+                      multiple
+                      freeSolo
+                      disableCloseOnSelect
+                      id="channel-models-label"
+                      disabled={hasTag}
+                      options={modelOptions}
+                      value={values.models}
+                      inputValue={inputValue}
+                      onInputChange={(event, newInputValue) => {
+                        if (newInputValue.includes(',')) {
+                          const modelsList = newInputValue
+                            .split(',')
+                            .map((item) => ({
+                              id: item.trim(),
+                              group: t('channel_edit.customModelTip')
+                            }))
+                            .filter((item) => item.id)
+
+                          const updatedModels = [...new Set([...values.models, ...modelsList])]
+                          const event = {
+                            target: {
+                              name: 'models',
+                              value: updatedModels
                             }
                           }
                         }}

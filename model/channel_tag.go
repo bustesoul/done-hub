@@ -188,18 +188,25 @@ func UpdateChannelsTag(tag string, channel *Channel) error {
 		}
 	}
 
-	// 用 Select("*") + Omit 黑名单覆盖共享配置：
-	//  - Select("*") 强制写入零值（修复 only_chat=false / pre_cost=0 / other="" 等无法保存的问题）
-	//  - 黑名单排除逐行/运行时字段；新增 Channel 字段会自动纳入批量更新，避免漏字段
-	//  - priority/weight/cost_ratio 为逐行可调字段（成本倍率支持组内各渠道单独设置），不随分组统一编辑覆盖
-	//  - type 为渠道的根本属性，由创建时决定；分组编辑弹窗不显示类型字段，故统一编辑不得改写 type，
-	//    否则会把代表渠道的类型悄悄覆盖到全组（类型不一致的分组尤其危险），违反「所见即所得」
-	err = tx.Model(&Channel{}).Where("tag = ?", tag).
-		Select("*").
-		Omit("id", "key", "type", "status", "priority", "weight", "cost_ratio",
-			"used_quota", "balance", "balance_updated_time",
-			"response_time", "created_time", "test_time", "name", "deleted_at").
-		Updates(channel).Error
+	err = tx.Model(Channel{}).Where("tag = ?", tag).Updates(
+		Channel{
+			BaseURL:            channel.BaseURL,
+			Other:              channel.Other,
+			Remark:             channel.Remark,
+			Models:             channel.Models,
+			Group:              channel.Group,
+			Tag:                channel.Tag,
+			ModelMapping:       channel.ModelMapping,
+			ModelHeaders:       channel.ModelHeaders,
+			CustomParameter:    channel.CustomParameter,
+			Proxy:              channel.Proxy,
+			TestModel:          channel.TestModel,
+			OnlyChat:           channel.OnlyChat,
+			Plugin:             channel.Plugin,
+			PreCost:            channel.PreCost,
+			DisabledStream:     channel.DisabledStream,
+			CompatibleResponse: channel.CompatibleResponse,
+		}).Error
 
 	if err != nil {
 		tx.Rollback()
