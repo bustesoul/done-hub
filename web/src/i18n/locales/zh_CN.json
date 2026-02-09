@@ -39,7 +39,10 @@
   "theme": {
     "auto": "跟随系统",
     "light": "浅色模式",
-    "dark": "深色模式"
+    "dark": "深色模式",
+    "lightBlue": "浅蓝主题",
+    "lightGreen": "浅绿主题",
+    "lightRed": "浅红主题"
   },
   "task": "异步任务",
   "operation": "运营",
