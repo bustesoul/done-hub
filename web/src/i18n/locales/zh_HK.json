@@ -865,7 +865,10 @@
   "theme": {
     "auto": "跟隨系統",
     "light": "淺色模式",
-    "dark": "深色模式"
+    "dark": "深色模式",
+    "lightBlue": "淺藍主題",
+    "lightGreen": "淺綠主題",
+    "lightRed": "淺紅主題"
   },
   "setting_index": {
     "operationSettings": {

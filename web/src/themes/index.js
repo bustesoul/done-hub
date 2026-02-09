@@ -9,20 +9,20 @@ import themePalette from './palette';
 import themeTypography from './typography';
 import { varAlpha, createGradient } from './utils';
 
-// 创建自定义渐变背景色
-const customGradients = {
-  primary: createGradient(colors.primaryMain, colors.primaryDark),
-  secondary: createGradient(colors.secondaryMain, colors.secondaryDark)
-};
-
 /**
  * Represent theme style and structure as per Material-UI
  * @param {JsonObject} customization customization parameter object
  */
 
 export const theme = (customization) => {
-  const color = colors;
-  const options = customization.theme === 'light' ? GetLightOption() : GetDarkOption();
+  const baseColors = colors;
+  const { mode, colorOverrides } = getThemeVariant(customization.theme);
+  const color = { ...baseColors, ...colorOverrides };
+  const options = mode === 'light' ? GetLightOption(color) : GetDarkOption(color);
+  const customGradients = {
+    primary: createGradient(color.primaryMain, color.primaryDark),
+    secondary: createGradient(color.secondaryMain, color.secondaryDark)
+  };
   const themeOption = {
     colors: color,
     gradients: customGradients,
@@ -70,8 +70,7 @@ export const theme = (customization) => {
 
 export default theme;
 
-function GetDarkOption() {
-  const color = colors;
+function GetDarkOption(color) {
   return {
     mode: 'dark',
     heading: color.darkTextTitle,
@@ -94,8 +93,7 @@ function GetDarkOption() {
   };
 }
 
-function GetLightOption() {
-  const color = colors;
+function GetLightOption(color) {
   return {
     mode: 'light',
     heading: '#202939',
@@ -116,4 +114,53 @@ function GetLightOption() {
     headBackgroundColorHover: varAlpha('#F5F7FA', 0.12),
     tableBorderBottom: '#E9EDF5'
   };
+}
+
+function getThemeVariant(themeKey) {
+  switch (themeKey) {
+    case 'light-blue':
+      return {
+        mode: 'light',
+        colorOverrides: {
+          primaryLight: '#E9F2FF',
+          primaryMain: '#4B95F5',
+          primaryDark: '#2C6FD6',
+          primary200: '#9CC5FF',
+          primary800: '#1F56B8'
+        }
+      };
+    case 'light-green':
+      return {
+        mode: 'light',
+        colorOverrides: {
+          primaryLight: '#E9FBF3',
+          primaryMain: '#3BBF8B',
+          primaryDark: '#23996B',
+          primary200: '#93E0C2',
+          primary800: '#197453'
+        }
+      };
+    case 'light-red':
+      return {
+        mode: 'light',
+        colorOverrides: {
+          primaryLight: '#FFEDEF',
+          primaryMain: '#E36C6C',
+          primaryDark: '#C24C4C',
+          primary200: '#F3A6A6',
+          primary800: '#9F3737'
+        }
+      };
+    case 'dark':
+      return {
+        mode: 'dark',
+        colorOverrides: {}
+      };
+    case 'light':
+    default:
+      return {
+        mode: 'light',
+        colorOverrides: {}
+      };
+  }
 }

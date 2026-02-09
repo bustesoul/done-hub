@@ -860,6 +860,14 @@
     "testClick": "クリック速度テスト（チャットモデルのみサポート）"
   },
   "setting": "設定",
+  "theme": {
+    "auto": "システムに従う",
+    "light": "ライトモード",
+    "dark": "ダークモード",
+    "lightBlue": "ライトブルー",
+    "lightGreen": "ライトグリーン",
+    "lightRed": "ライトレッド"
+  },
   "setting_index": {
     "operationSettings": {
       "chatLinkSettings": {
