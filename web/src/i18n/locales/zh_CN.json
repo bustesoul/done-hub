@@ -40,14 +40,9 @@
     "auto": "跟随系统",
     "light": "浅色模式",
     "dark": "深色模式",
-    "color": "主题色",
-    "colors": {
-      "default": "默认",
-      "blue": "蓝色",
-      "cyan": "青色",
-      "purple": "紫色",
-      "red": "红色"
-    }
+    "lightBlue": "浅蓝主题",
+    "lightGreen": "浅绿主题",
+    "lightRed": "浅红主题"
   },
   "task": "异步任务",
   "operation": "运营",

@@ -8,7 +8,6 @@ import componentStyleOverrides from './compStyleOverride';
 import themePalette from './palette';
 import themeTypography from './typography';
 import { varAlpha, createGradient } from './utils';
-import { getPrimaryColors } from './presets';
 
 /**
  * Represent theme style and structure as per Material-UI
@@ -16,14 +15,14 @@ import { getPrimaryColors } from './presets';
  */
 
 export const theme = (customization) => {
-  // 用用户选择的主题色覆盖默认主色
-  const color = { ...colors, ...getPrimaryColors(customization.primaryColor) };
-  // 创建自定义渐变背景色
+  const baseColors = colors;
+  const { mode, colorOverrides } = getThemeVariant(customization.theme);
+  const color = { ...baseColors, ...colorOverrides };
+  const options = mode === 'light' ? GetLightOption(color) : GetDarkOption(color);
   const customGradients = {
     primary: createGradient(color.primaryMain, color.primaryDark),
     secondary: createGradient(color.secondaryMain, color.secondaryDark)
   };
-  const options = customization.theme === 'light' ? GetLightOption(color) : GetDarkOption(color);
   const themeOption = {
     colors: color,
     gradients: customGradients,
@@ -120,4 +119,53 @@ function GetLightOption(color) {
     tableRowHoverBackgroundColor: 'rgba(0, 0, 0, 0.04)',
     tableBorderBottom: color.grey300
   };
+}
+
+function getThemeVariant(themeKey) {
+  switch (themeKey) {
+    case 'light-blue':
+      return {
+        mode: 'light',
+        colorOverrides: {
+          primaryLight: '#E9F2FF',
+          primaryMain: '#4B95F5',
+          primaryDark: '#2C6FD6',
+          primary200: '#9CC5FF',
+          primary800: '#1F56B8'
+        }
+      };
+    case 'light-green':
+      return {
+        mode: 'light',
+        colorOverrides: {
+          primaryLight: '#E9FBF3',
+          primaryMain: '#3BBF8B',
+          primaryDark: '#23996B',
+          primary200: '#93E0C2',
+          primary800: '#197453'
+        }
+      };
+    case 'light-red':
+      return {
+        mode: 'light',
+        colorOverrides: {
+          primaryLight: '#FFEDEF',
+          primaryMain: '#E36C6C',
+          primaryDark: '#C24C4C',
+          primary200: '#F3A6A6',
+          primary800: '#9F3737'
+        }
+      };
+    case 'dark':
+      return {
+        mode: 'dark',
+        colorOverrides: {}
+      };
+    case 'light':
+    default:
+      return {
+        mode: 'light',
+        colorOverrides: {}
+      };
+  }
 }

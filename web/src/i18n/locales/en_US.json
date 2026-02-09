@@ -1062,14 +1062,9 @@
     "auto": "Follow System",
     "light": "Light Mode",
     "dark": "Dark Mode",
-    "color": "Theme Color",
-    "colors": {
-      "default": "Default",
-      "blue": "Blue",
-      "cyan": "Cyan",
-      "purple": "Purple",
-      "red": "Red"
-    }
+    "lightBlue": "Light Blue",
+    "lightGreen": "Light Green",
+    "lightRed": "Light Red"
   },
   "setting_index": {
     "operationSettings": {
