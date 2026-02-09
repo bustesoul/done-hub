@@ -915,7 +915,10 @@
   "theme": {
     "auto": "Follow System",
     "light": "Light Mode",
-    "dark": "Dark Mode"
+    "dark": "Dark Mode",
+    "lightBlue": "Light Blue",
+    "lightGreen": "Light Green",
+    "lightRed": "Light Red"
   },
   "setting_index": {
     "operationSettings": {

@@ -1,87 +1,58 @@
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch } from 'react-redux';
 import { SET_THEME } from 'store/actions';
 import { useTheme } from '@mui/material/styles';
-import { Avatar, Box, ButtonBase, Tooltip } from '@mui/material';
+import { Avatar, Box, ButtonBase, ListItemIcon, ListItemText, Menu, MenuItem, Tooltip } from '@mui/material';
 import { Icon } from '@iconify/react';
 import { useTranslation } from 'react-i18next';
+import { useMemo, useState } from 'react';
 
 export default function ThemeButton() {
   const dispatch = useDispatch();
   const { t } = useTranslation();
 
-  const defaultTheme = useSelector((state) => state.customization.theme);
-
   const theme = useTheme();
+  const [anchorEl, setAnchorEl] = useState(null);
 
-  // 获取当前主题模式：auto（跟随系统）、light、dark
-  const getThemeMode = () => {
-    const storedTheme = localStorage.getItem('theme');
-    if (!storedTheme) return 'auto';
-    return storedTheme;
+  const themeOptions = useMemo(
+    () => [
+      { key: 'auto', icon: 'solar:monitor-bold-duotone', label: t('theme.auto') },
+      { key: 'light', icon: 'solar:sun-2-bold-duotone', label: t('theme.light') },
+      { key: 'dark', icon: 'solar:moon-bold-duotone', label: t('theme.dark') },
+      { key: 'light-blue', icon: 'solar:palette-bold-duotone', label: t('theme.lightBlue') },
+      { key: 'light-green', icon: 'solar:palette-bold-duotone', label: t('theme.lightGreen') },
+      { key: 'light-red', icon: 'solar:palette-bold-duotone', label: t('theme.lightRed') }
+    ],
+    [t]
+  );
+
+  const getThemeMode = () => localStorage.getItem('theme') || 'auto';
+
+  const activeTheme = themeOptions.find((option) => option.key === getThemeMode());
+
+  const handleMenuOpen = (event) => {
+    setAnchorEl(event.currentTarget);
   };
 
-  // 获取显示的图标和提示文字
-  const getThemeDisplay = () => {
-    const mode = getThemeMode();
-    switch (mode) {
-      case 'auto':
-        return {
-          icon: 'solar:monitor-bold-duotone',
-          tooltip: t('theme.auto')
-        };
-      case 'light':
-        return {
-          icon: 'solar:sun-2-bold-duotone',
-          tooltip: t('theme.light')
-        };
-      case 'dark':
-        return {
-          icon: 'solar:moon-bold-duotone',
-          tooltip: t('theme.dark')
-        };
-      default:
-        return {
-          icon: 'solar:monitor-bold-duotone',
-          tooltip: t('theme.auto')
-        };
-    }
+  const handleMenuClose = () => {
+    setAnchorEl(null);
   };
 
-  const handleThemeChange = () => {
-    const currentMode = getThemeMode();
-    let nextMode;
-    let nextTheme;
-
-    // 循环切换：auto → light → dark → auto
-    switch (currentMode) {
-      case 'auto':
-        nextMode = 'light';
-        nextTheme = 'light';
-        localStorage.setItem('theme', 'light');
-        break;
-      case 'light':
-        nextMode = 'dark';
-        nextTheme = 'dark';
-        localStorage.setItem('theme', 'dark');
-        break;
-      case 'dark':
-        nextMode = 'auto';
-        // 跟随系统时，移除localStorage中的设置
-        localStorage.removeItem('theme');
-        // 检测当前系统主题
-        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        nextTheme = prefersDark ? 'dark' : 'light';
-        break;
-      default:
-        nextMode = 'light';
-        nextTheme = 'light';
-        localStorage.setItem('theme', 'light');
+  const handleThemeSelect = (nextMode) => {
+    if (nextMode === 'auto') {
+      localStorage.removeItem('theme');
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      dispatch({ type: SET_THEME, theme: prefersDark ? 'dark' : 'light' });
+      handleMenuClose();
+      return;
     }
 
-    dispatch({ type: SET_THEME, theme: nextTheme });
+    localStorage.setItem('theme', nextMode);
+    dispatch({ type: SET_THEME, theme: nextMode });
+    handleMenuClose();
   };
 
-  const { icon, tooltip } = getThemeDisplay();
+  const activeIcon = activeTheme?.icon || 'solar:monitor-bold-duotone';
+  const activeLabel = activeTheme?.label || t('theme.auto');
 
   return (
     <Box
@@ -93,7 +64,7 @@ export default function ThemeButton() {
         }
       }}
     >
-      <Tooltip title={tooltip} placement="bottom">
+      <Tooltip title={activeLabel} placement="bottom">
         <ButtonBase sx={{ borderRadius: '12px' }}>
           <Avatar
             variant="rounded"
@@ -112,13 +83,33 @@ export default function ThemeButton() {
                 borderRadius: '50%'
               }
             }}
-            onClick={handleThemeChange}
+            onClick={handleMenuOpen}
             color="inherit"
           >
-            <Icon icon={icon} width="1.5rem" />
+            <Icon icon={activeIcon} width="1.5rem" />
           </Avatar>
         </ButtonBase>
       </Tooltip>
+      <Menu
+        anchorEl={anchorEl}
+        open={Boolean(anchorEl)}
+        onClose={handleMenuClose}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+      >
+        {themeOptions.map((option) => (
+          <MenuItem
+            key={option.key}
+            selected={option.key === getThemeMode() || (!localStorage.getItem('theme') && option.key === 'auto')}
+            onClick={() => handleThemeSelect(option.key)}
+          >
+            <ListItemIcon>
+              <Icon icon={option.icon} width="1.25rem" />
+            </ListItemIcon>
+            <ListItemText>{option.label}</ListItemText>
+          </MenuItem>
+        ))}
+      </Menu>
     </Box>
   );
 }
