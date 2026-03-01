@@ -75,9 +75,9 @@ const getValidationSchema = (t) =>
     }),
     model_mapping: Yup.array(),
     model_headers: Yup.array(),
-    header_override: Yup.array(),
-    custom_parameter: Yup.string().nullable()
-  });
+    custom_parameter: Yup.string().nullable(),
+    need2response_models: Yup.string().nullable()
+  })
 
 const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, modelOptions, prices, tags }) => {
   const { t } = useTranslation();
@@ -996,6 +996,10 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
           }
         } else {
           data.custom_parameter = '';
+        }
+
+        if (data.need2response_models === null || data.need2response_models === undefined) {
+          data.need2response_models = ''
         }
 
         data.base_url = data.base_url ?? ''
@@ -1929,14 +1933,89 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
                           name: customizeT(inputLabel.model_mapping)
                         }}
                       />
-                      {touched.model_mapping && errors.model_mapping ? (
-                        <FormHelperText error id="helper-tex-channel-model_mapping-label">
-                          {errors.model_mapping}
-                        </FormHelperText>
-                      ) : (
-                        <FormHelperText id="helper-tex-channel-model_mapping-label">{customizeT(inputPrompt.model_mapping)}</FormHelperText>
-                      )}
-                    </FormControl>
+                    </Box>
+                    {touched.custom_parameter && errors.custom_parameter ? (
+                      <FormHelperText error id="helper-tex-channel-custom_parameter-label">
+                        {errors.custom_parameter}
+                      </FormHelperText>
+                    ) : (
+                      <FormHelperText id="helper-tex-channel-custom_parameter-label">
+                        {customizeT(inputPrompt.custom_parameter)}
+                      </FormHelperText>
+                    )}
+                  </FormControl>
+                )}
+                {inputPrompt.need2response_models && (
+                  <FormControl
+                    fullWidth
+                    error={Boolean(touched.need2response_models && errors.need2response_models)}
+                    sx={{ ...theme.typography.otherInput }}
+                  >
+                    <TextField
+                      multiline
+                      minRows={6}
+                      id="channel-need2response_models-label"
+                      name="need2response_models"
+                      label={customizeT(inputLabel.need2response_models)}
+                      value={values.need2response_models || ''}
+                      onBlur={handleBlur}
+                      onChange={handleChange}
+                      disabled={hasTag}
+                    />
+                    {touched.need2response_models && errors.need2response_models ? (
+                      <FormHelperText error id="helper-tex-channel-need2response_models-label">
+                        {errors.need2response_models}
+                      </FormHelperText>
+                    ) : (
+                      <FormHelperText id="helper-tex-channel-need2response_models-label">
+                        {customizeT(inputPrompt.need2response_models)}
+                      </FormHelperText>
+                    )}
+                  </FormControl>
+                )}
+                {inputPrompt.disabled_stream && (
+                  <FormControl
+                    fullWidth
+                    error={Boolean(touched.disabled_stream && errors.disabled_stream)}
+                    sx={{ ...theme.typography.otherInput }}
+                  >
+                    <ListInput
+                      listValue={values.disabled_stream}
+                      onChange={(newValue) => {
+                        setFieldValue('disabled_stream', newValue)
+                      }}
+                      disabled={hasTag}
+                      error={Boolean(touched.disabled_stream && errors.disabled_stream)}
+                      label={{
+                        name: customizeT(inputLabel.disabled_stream),
+                        itemName: customizeT(inputPrompt.disabled_stream)
+                      }}
+                    />
+                  </FormControl>
+                )}
+
+                <FormControl fullWidth error={Boolean(touched.proxy && errors.proxy)}
+                             sx={{ ...theme.typography.otherInput }}>
+                  <InputLabel htmlFor="channel-proxy-label">{customizeT(inputLabel.proxy)}</InputLabel>
+                  <OutlinedInput
+                    id="channel-proxy-label"
+                    label={customizeT(inputLabel.proxy)}
+                    disabled={hasTag}
+                    type="text"
+                    value={values.proxy}
+                    name="proxy"
+                    onBlur={handleBlur}
+                    onChange={handleChange}
+                    inputProps={{}}
+                    aria-describedby="helper-text-channel-proxy-label"
+                  />
+                  {touched.proxy && errors.proxy ? (
+                    <FormHelperText error id="helper-tex-channel-proxy-label">
+                      {errors.proxy}
+                    </FormHelperText>
+                  ) : (
+                    <FormHelperText
+                      id="helper-tex-channel-proxy-label"> {customizeT(inputPrompt.proxy)} </FormHelperText>
                   )}
 
                   <FormControl fullWidth error={Boolean(touched.proxy && errors.proxy)} sx={{ ...theme.typography.otherInput }}>
