@@ -10,6 +10,7 @@
   - [环境配置](#环境配置-1)
   - [编译流程](#编译流程-1)
   - [运行说明](#运行说明-1)
+- [Flutter 管理端对接](#flutter-管理端对接)
 
 ## 本地构建
 
@@ -112,3 +113,10 @@ build:
 ```
 
 然后进行 `docker compose build` 即可。
+
+
+## Flutter 管理端对接
+
+如果你计划将 Web 管理后台迁移到 Flutter 手机 App，请参考：
+
+- [Done Hub 管理端 Flutter 对接文档](./flutter-admin-api.md)
