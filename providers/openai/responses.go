@@ -92,16 +92,14 @@ func (h *OpenAIResponsesStreamHandler) HandlerResponsesStream(rawLine *[]byte, d
 		// 开始新的事件，保存事件类型
 		h.eventType = strings.TrimPrefix(rawStr, "event: ")
 		h.eventBuffer.Reset()
-		h.eventBuffer.WriteString(rawStr)
-		h.eventBuffer.WriteString("\n")
+		h.eventBuffer.WriteString(rawStr) // rawStr 已包含末尾 \n（NoTrim 模式），不额外添加
 		return
 	}
 
 	// 如果rawLine 前缀不为data:，则添加到缓冲区
 	if !strings.HasPrefix(rawStr, h.Prefix) {
 		if h.eventBuffer.Len() > 0 {
-			h.eventBuffer.WriteString(rawStr)
-			h.eventBuffer.WriteString("\n")
+			h.eventBuffer.WriteString(rawStr) // rawStr 已包含末尾 \n，不额外添加
 		} else {
 			// 没有事件类型的行，直接转发
 			dataChan <- rawStr
