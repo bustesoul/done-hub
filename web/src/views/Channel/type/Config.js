@@ -603,6 +603,21 @@ const typeConfig = {
       other: '格式：us-central1|your-project-id'
     },
     modelGroup: 'VertexAI Express'
+  },
+  62: {
+    input: {
+      models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'o4-mini', 'o3', 'o3-mini', 'claude-sonnet-4', 'claude-3.5-sonnet', 'gemini-2.5-pro'],
+      test_model: 'gpt-4o-mini'
+    },
+    inputLabel: {
+      other: ''
+    },
+    prompt: {
+      key: '请输入 GitHub Personal Access Token，或点击下方"OAuth 授权"按钮通过 GitHub Device Flow 自动获取',
+      other: '',
+      base_url: ''
+    },
+    modelGroup: 'OpenAI'
   }
 }
 

@@ -123,6 +123,16 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
   const [codexAuthCode, setCodexAuthCode] = useState('')
   const [codexSubmitting, setCodexSubmitting] = useState(false)
 
+  // Copilot OAuth 相关状态
+  const [copilotOAuthVisible, setCopilotOAuthVisible] = useState(false)
+  const [copilotSessionId, setCopilotSessionId] = useState('')
+  const [copilotUserCode, setCopilotUserCode] = useState('')
+  const [copilotVerificationURI, setCopilotVerificationURI] = useState('')
+  const [copilotPolling, setCopilotPolling] = useState(false)
+  const [copilotSubmitting, setCopilotSubmitting] = useState(false)
+  const copilotPollingRef = useRef(null)
+  const copilotSetFieldValueRef = useRef(null)
+
   // 清理 OAuth 相关资源
   const cleanupOAuth = () => {
     if (pollingIntervalRef.current) {
@@ -136,6 +146,18 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
     setOauthLoading(false)
     setOauthState(null)
     oauthHandledRef.current = false
+    // Copilot OAuth 清理
+    if (copilotPollingRef.current) {
+      clearInterval(copilotPollingRef.current)
+      copilotPollingRef.current = null
+    }
+    setCopilotOAuthVisible(false)
+    setCopilotPolling(false)
+    setCopilotSubmitting(false)
+    setCopilotSessionId('')
+    setCopilotUserCode('')
+    setCopilotVerificationURI('')
+    copilotSetFieldValueRef.current = null
   }
 
   // 包装 onCancel，添加清理逻辑
@@ -675,6 +697,108 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
     setCodexSessionId('')
     setCodexAuthCode('')
     setCodexSubmitting(false)
+  }
+
+  // Copilot OAuth - 步骤1: 发起 Device Flow
+  const handleCopilotOAuth = async(setFieldValue) => {
+    try {
+      setCopilotSubmitting(true)
+      copilotSetFieldValueRef.current = setFieldValue
+
+      const res = await API.post('/api/copilot/oauth/device-code', {})
+
+      if (!res.data.success) {
+        showError(res.data.message || '获取设备码失败')
+        setCopilotSubmitting(false)
+        return
+      }
+
+      const { session_id, user_code, verification_uri, interval } = res.data.data
+
+      setCopilotSessionId(session_id)
+      setCopilotUserCode(user_code)
+      setCopilotVerificationURI(verification_uri)
+      setCopilotOAuthVisible(true)
+      setCopilotSubmitting(false)
+      setCopilotPolling(true)
+
+      // 自动打开 GitHub 验证页面
+      window.open(verification_uri, '_blank')
+
+      // 开始自动轮询
+      const pollInterval = (interval || 5) * 1000
+      const pollingTimer = setInterval(async() => {
+        try {
+          const pollRes = await API.post('/api/copilot/oauth/poll', { session_id })
+
+          if (!pollRes.data.success) {
+            // 错误 → 停止轮询
+            clearInterval(pollingTimer)
+            copilotPollingRef.current = null
+            setCopilotPolling(false)
+            showError(pollRes.data.message || '轮询失败')
+            return
+          }
+
+          const pollData = pollRes.data.data
+          if (pollData.status === 'success') {
+            clearInterval(pollingTimer)
+            copilotPollingRef.current = null
+            setCopilotPolling(false)
+
+            // 填充 key
+            if (copilotSetFieldValueRef.current) {
+              copilotSetFieldValueRef.current('key', pollData.github_token)
+            }
+
+            const loginInfo = pollData.github_login ? ` (${pollData.github_login})` : ''
+            showSuccess(`GitHub Copilot 授权成功${loginInfo}！Token 已自动填充`)
+
+            // 关闭对话框
+            setCopilotOAuthVisible(false)
+            setCopilotSessionId('')
+            setCopilotUserCode('')
+            setCopilotVerificationURI('')
+            copilotSetFieldValueRef.current = null
+          }
+          // status === 'pending' → 继续轮询
+        } catch (pollErr) {
+          // 网络错误不停止轮询，只记录
+          console.warn('Copilot poll error:', pollErr)
+        }
+      }, pollInterval)
+
+      copilotPollingRef.current = pollingTimer
+
+      // 15 分钟超时
+      setTimeout(() => {
+        if (copilotPollingRef.current) {
+          clearInterval(copilotPollingRef.current)
+          copilotPollingRef.current = null
+          setCopilotPolling(false)
+          showError('GitHub 授权超时，请重试')
+        }
+      }, 15 * 60 * 1000)
+
+    } catch (error) {
+      showError('获取设备码失败: ' + (error.message || error))
+      setCopilotSubmitting(false)
+    }
+  }
+
+  // 取消 Copilot OAuth
+  const handleCopilotCancelOAuth = () => {
+    if (copilotPollingRef.current) {
+      clearInterval(copilotPollingRef.current)
+      copilotPollingRef.current = null
+    }
+    setCopilotOAuthVisible(false)
+    setCopilotPolling(false)
+    setCopilotSubmitting(false)
+    setCopilotSessionId('')
+    setCopilotUserCode('')
+    setCopilotVerificationURI('')
+    copilotSetFieldValueRef.current = null
   }
 
   const handleTypeChange = (setFieldValue, typeValue, values) => {
@@ -1721,6 +1845,112 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
                           disabled={codexSubmitting || !codexAuthCode}
                         >
                           {codexSubmitting ? '提交中...' : '提交授权码'}
+                        </Button>
+                      </DialogActions>
+                    </Dialog>
+                  </Box>
+                )}
+
+                {/* Copilot OAuth 授权按钮 */}
+                {values.type === 62 && !batchAdd && (
+                  <Box sx={{ mt: 2, mb: 2 }}>
+                    <Button
+                      variant="outlined"
+                      color="primary"
+                      fullWidth
+                      disabled={copilotSubmitting || copilotPolling}
+                      onClick={() => handleCopilotOAuth(setFieldValue)}
+                      startIcon={copilotSubmitting ? null : <Icon icon="simple-icons:github"/>}
+                    >
+                      {copilotSubmitting ? '获取设备码中...' : copilotPolling ? '等待授权中...' : 'GitHub OAuth 授权'}
+                    </Button>
+                    <Alert severity="info" sx={{ mt: 1 }}>
+                      点击按钮后，将打开 GitHub 设备授权页面。请在页面中输入设备码完成授权，授权完成后 Token 将自动填充。
+                    </Alert>
+
+                    {/* Copilot Device Flow 对话框 */}
+                    <Dialog
+                      open={copilotOAuthVisible}
+                      onClose={handleCopilotCancelOAuth}
+                      maxWidth="sm"
+                      fullWidth
+                    >
+                      <DialogTitle>GitHub Copilot 设备授权</DialogTitle>
+                      <DialogContent>
+                        <Box sx={{ mb: 2 }}>
+                          <Alert severity="info" sx={{ mb: 2 }}>
+                            <Typography variant="body2" component="div">
+                              <strong>授权步骤：</strong>
+                              <ol style={{ margin: '8px 0', paddingLeft: '20px' }}>
+                                <li>复制下方的设备码</li>
+                                <li>在 GitHub 页面中粘贴设备码并确认授权</li>
+                                <li>授权完成后，本页面将自动检测并填充 Token</li>
+                              </ol>
+                            </Typography>
+                          </Alert>
+
+                          {/* 设备码显示 */}
+                          <Box sx={{
+                            textAlign: 'center',
+                            my: 3,
+                            p: 3,
+                            border: '2px dashed',
+                            borderColor: 'primary.main',
+                            borderRadius: 2,
+                            backgroundColor: 'action.hover'
+                          }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                              请在 GitHub 页面中输入以下设备码：
+                            </Typography>
+                            <Typography variant="h3" sx={{
+                              fontFamily: 'monospace',
+                              fontWeight: 700,
+                              letterSpacing: '0.15em',
+                              color: 'primary.main',
+                              userSelect: 'all'
+                            }}>
+                              {copilotUserCode}
+                            </Typography>
+                            <Button
+                              size="small"
+                              sx={{ mt: 1 }}
+                              onClick={() => {
+                                copy(copilotUserCode).then(() => {
+                                  showSuccess('设备码已复制')
+                                }).catch(() => {
+                                  showError('复制失败')
+                                })
+                              }}
+                              startIcon={<Icon icon="mdi:content-copy"/>}
+                            >
+                              复制设备码
+                            </Button>
+                          </Box>
+
+                          {/* 打开验证页面 */}
+                          <Box sx={{ display: 'flex', gap: 1 }}>
+                            <Button
+                              variant="contained"
+                              color="primary"
+                              fullWidth
+                              onClick={() => window.open(copilotVerificationURI, '_blank')}
+                              startIcon={<Icon icon="mdi:open-in-new"/>}
+                            >
+                              打开 GitHub 验证页面
+                            </Button>
+                          </Box>
+
+                          {/* 轮询状态提示 */}
+                          {copilotPolling && (
+                            <Alert severity="warning" sx={{ mt: 2 }}>
+                              正在等待您完成 GitHub 授权...授权完成后将自动检测
+                            </Alert>
+                          )}
+                        </Box>
+                      </DialogContent>
+                      <DialogActions>
+                        <Button onClick={handleCopilotCancelOAuth}>
+                          取消
                         </Button>
                       </DialogActions>
                     </Dialog>

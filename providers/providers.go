@@ -18,6 +18,7 @@ import (
 	"done-hub/providers/cloudflareAI"
 	"done-hub/providers/codex"
 	"done-hub/providers/cohere"
+	"done-hub/providers/copilot"
 	"done-hub/providers/coze"
 	"done-hub/providers/deepseek"
 	"done-hub/providers/gemini"
@@ -103,6 +104,7 @@ func init() {
 		config.ChannelTypeCodex:           codex.CodexProviderFactory{},
 		config.ChannelTypeAntigravity:     antigravity.AntigravityProviderFactory{},
 		config.ChannelTypeVertexAIExpress: vertexai_express.VertexAIExpressProviderFactory{},
+		config.ChannelTypeCopilot:         copilot.CopilotProviderFactory{},
 	}
 }
 
