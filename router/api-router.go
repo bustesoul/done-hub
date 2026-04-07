@@ -221,6 +221,14 @@ func SetApiRouter(router *gin.Engine) {
 			codexRoute.POST("/oauth/exchange-code", controller.CodexOAuthCallback)
 		}
 
+		// Copilot OAuth routes
+		copilotRoute := apiRouter.Group("/copilot")
+		copilotRoute.Use(middleware.AdminAuth())
+		{
+			copilotRoute.POST("/oauth/device-code", controller.StartCopilotOAuth)
+			copilotRoute.POST("/oauth/poll", controller.PollCopilotOAuth)
+		}
+
 		// Antigravity OAuth routes
 		antigravityRoute := apiRouter.Group("/antigravity")
 		{
