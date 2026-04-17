@@ -449,6 +449,9 @@ type ResponsesTools struct {
 	Description string `json:"description,omitempty"`
 	Parameters  any    `json:"parameters,omitempty"`
 	Strict      *bool  `json:"strict,omitempty"`
+	// Namespace
+	// Codex 最新版会把 MCP 工具注册为 namespace tool，内部 tools 数组必须完整透传。
+	Tools []ResponsesTools `json:"tools,omitempty"`
 
 	//MCP
 	ServerLabel     string `json:"server_label,omitempty"`
@@ -469,6 +472,102 @@ type ResponsesTools struct {
 	PartialImages     any    `json:"partial_images,omitempty"`
 	Quality           string `json:"quality,omitempty"`
 	Size              string `json:"size,omitempty"`
+
+	ExtraFields  map[string]json.RawMessage `json:"-"`
+	toolsDefined bool                       `json:"-"`
+}
+
+var responsesToolKnownKeys = map[string]struct{}{
+	"type":                {},
+	"user_location":       {},
+	"search_context_size": {},
+	"vector_store_ids":    {},
+	"max_num_results":     {},
+	"filters":             {},
+	"ranking_options":     {},
+	"display_width":       {},
+	"display_height":      {},
+	"environment":         {},
+	"name":                {},
+	"description":         {},
+	"parameters":          {},
+	"strict":              {},
+	"tools":               {},
+	"server_label":        {},
+	"server_url":          {},
+	"allowed_tools":       {},
+	"headers":             {},
+	"require_approval":    {},
+	"container":           {},
+	"background":          {},
+	"input_image_mask":    {},
+	"model":               {},
+	"moderation":          {},
+	"output_compression":  {},
+	"output_format":       {},
+	"partial_images":      {},
+	"quality":             {},
+	"size":                {},
+}
+
+func (t *ResponsesTools) UnmarshalJSON(data []byte) error {
+	type alias ResponsesTools
+
+	var decoded alias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	_, toolsDefined := raw["tools"]
+	for key := range responsesToolKnownKeys {
+		delete(raw, key)
+	}
+
+	*t = ResponsesTools(decoded)
+	t.toolsDefined = toolsDefined
+	if len(raw) > 0 {
+		t.ExtraFields = raw
+	} else {
+		t.ExtraFields = nil
+	}
+
+	return nil
+}
+
+func (t ResponsesTools) MarshalJSON() ([]byte, error) {
+	type alias ResponsesTools
+
+	baseBytes, err := json.Marshal(alias(t))
+	if err != nil {
+		return nil, err
+	}
+
+	if len(t.ExtraFields) == 0 && !(t.toolsDefined && len(t.Tools) == 0) {
+		return baseBytes, nil
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(baseBytes, &raw); err != nil {
+		return nil, err
+	}
+
+	if t.toolsDefined && len(t.Tools) == 0 {
+		raw["tools"] = json.RawMessage("[]")
+	}
+
+	for key, value := range t.ExtraFields {
+		if _, exists := raw[key]; exists {
+			continue
+		}
+		raw[key] = value
+	}
+
+	return json.Marshal(raw)
 }
 
 type ReasoningEffort struct {
