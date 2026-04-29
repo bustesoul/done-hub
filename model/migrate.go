@@ -487,6 +487,250 @@ func migrateTokenLimitsStructure() *gormigrate.Migration {
 		},
 	}
 }
+
+const fixModelQuotaByPriceProcedureSQL = `
+CREATE PROCEDURE fix_model_quota_by_price(
+  IN p_model VARCHAR(100),
+  IN p_start_ts BIGINT,
+  IN p_end_ts BIGINT,
+  IN p_apply TINYINT
+)
+BEGIN
+  DECLARE v_input DECIMAL(20,8);
+  DECLARE v_output DECIMAL(20,8);
+  DECLARE v_price_type VARCHAR(32);
+  DECLARE v_price_count INT DEFAULT 0;
+  DECLARE v_table_exists INT DEFAULT 0;
+  DECLARE v_backup_table VARCHAR(64);
+  DECLARE v_msg VARCHAR(255);
+
+  DECLARE EXIT HANDLER FOR SQLEXCEPTION
+  BEGIN
+    ROLLBACK;
+    RESIGNAL;
+  END;
+
+  IF p_model IS NULL OR TRIM(p_model) = '' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'model is required';
+  END IF;
+
+  IF p_start_ts IS NULL OR p_end_ts IS NULL OR p_start_ts <= 0 OR p_start_ts >= p_end_ts THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'invalid time range';
+  END IF;
+
+  IF COALESCE(p_apply, -1) NOT IN (0, 1) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'p_apply must be 0 or 1';
+  END IF;
+
+  SELECT COUNT(*) INTO v_price_count
+  FROM prices
+  WHERE model = p_model;
+
+  IF v_price_count = 0 THEN
+    SET v_msg = CONCAT('price not found for model: ', p_model);
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = v_msg;
+  END IF;
+
+  SELECT ` + "`type`" + `, ` + "`input`" + `, ` + "`output`" + `
+  INTO v_price_type, v_input, v_output
+  FROM prices
+  WHERE model = p_model
+  LIMIT 1;
+
+  IF COALESCE(v_price_type, '') <> 'tokens' THEN
+    SET v_msg = CONCAT('only tokens price type is supported, got: ', COALESCE(v_price_type, ''));
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = v_msg;
+  END IF;
+
+  SET v_backup_table = CONCAT(
+    'logs_fix_quota_',
+    LEFT(MD5(p_model), 8),
+    '_',
+    p_start_ts,
+    '_',
+    p_end_ts
+  );
+
+  IF p_apply = 0 THEN
+    SELECT
+      p_model AS model,
+      FROM_UNIXTIME(p_start_ts) AS start_time,
+      FROM_UNIXTIME(p_end_ts) AS end_time_exclusive,
+      v_input AS input_ratio,
+      v_output AS output_ratio,
+      COUNT(*) AS rows_to_fix,
+      COALESCE(SUM(quota), 0) AS old_quota,
+      COALESCE(SUM(new_quota), 0) AS new_quota,
+      COALESCE(SUM(quota - new_quota), 0) AS reduced_quota
+    FROM (
+      SELECT
+        quota,
+        CEIL(
+          (prompt_tokens * v_input + completion_tokens * v_output)
+          * COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.group_ratio')) AS DECIMAL(20,8)), 1)
+        ) AS new_quota
+      FROM logs
+      WHERE type = 2
+        AND model_name = p_model
+        AND created_at >= p_start_ts
+        AND created_at < p_end_ts
+    ) x;
+  ELSE
+    SELECT COUNT(*) INTO v_table_exists
+    FROM information_schema.tables
+    WHERE table_schema = DATABASE()
+      AND table_name = v_backup_table;
+
+    IF v_table_exists > 0 THEN
+      SET v_msg = CONCAT('backup table already exists: ', v_backup_table);
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = v_msg;
+    END IF;
+
+    SET @fix_input = v_input;
+    SET @fix_output = v_output;
+    SET @fix_model = p_model;
+    SET @fix_start = p_start_ts;
+    SET @fix_end = p_end_ts;
+
+    SET @sql = CONCAT(
+      'CREATE TABLE ', v_backup_table, ' AS ',
+      'SELECT ',
+      'id, user_id, username, token_name, model_name, created_at, ',
+      'prompt_tokens, completion_tokens, ',
+      'quota AS old_quota, ',
+      'CEIL((prompt_tokens * ? + completion_tokens * ?) * ',
+      'COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(metadata, ''$.group_ratio'')) AS DECIMAL(20,8)), 1)) AS new_quota, ',
+      'COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(metadata, ''$.group_ratio'')) AS DECIMAL(20,8)), 1) AS group_ratio, ',
+      'NOW() AS backup_created_at ',
+      'FROM logs ',
+      'WHERE type = 2 ',
+      'AND model_name = ? ',
+      'AND created_at >= ? ',
+      'AND created_at < ?'
+    );
+
+    PREPARE stmt FROM @sql;
+    EXECUTE stmt USING @fix_input, @fix_output, @fix_model, @fix_start, @fix_end;
+    DEALLOCATE PREPARE stmt;
+
+    SET @sql = CONCAT('ALTER TABLE ', v_backup_table, ' ADD PRIMARY KEY (id)');
+    PREPARE stmt FROM @sql;
+    EXECUTE stmt;
+    DEALLOCATE PREPARE stmt;
+
+    START TRANSACTION;
+
+    SET @sql = CONCAT(
+      'UPDATE logs l ',
+      'JOIN ', v_backup_table, ' b ON b.id = l.id ',
+      'SET l.quota = b.new_quota'
+    );
+
+    PREPARE stmt FROM @sql;
+    EXECUTE stmt;
+    DEALLOCATE PREPARE stmt;
+
+    COMMIT;
+
+    SET @sql = CONCAT(
+      'SELECT ',
+      QUOTE(v_backup_table),
+      ' AS backup_table, ',
+      'COUNT(*) AS rows_fixed, ',
+      'COALESCE(SUM(new_quota), 0) AS fixed_quota, ',
+      'COALESCE(SUM(old_quota), 0) AS old_quota, ',
+      'COALESCE(SUM(old_quota - new_quota), 0) AS reduced_quota ',
+      'FROM ', v_backup_table
+    );
+
+    PREPARE stmt FROM @sql;
+    EXECUTE stmt;
+    DEALLOCATE PREPARE stmt;
+  END IF;
+END
+`
+
+const fixModelQuotaByPriceDayProcedureSQL = `
+CREATE PROCEDURE fix_model_quota_by_price_day(
+  IN p_model VARCHAR(100),
+  IN p_start_day VARCHAR(16),
+  IN p_end_day VARCHAR(16),
+  IN p_apply TINYINT
+)
+BEGIN
+  DECLARE v_start_dt DATETIME;
+  DECLARE v_end_dt DATETIME;
+  DECLARE v_start_ts BIGINT;
+  DECLARE v_end_ts BIGINT;
+
+  SET v_start_dt = COALESCE(
+    STR_TO_DATE(p_start_day, '%Y.%m.%d'),
+    STR_TO_DATE(p_start_day, '%Y-%m-%d')
+  );
+  SET v_end_dt = COALESCE(
+    STR_TO_DATE(p_end_day, '%Y.%m.%d'),
+    STR_TO_DATE(p_end_day, '%Y-%m-%d')
+  );
+
+  IF v_start_dt IS NULL OR v_end_dt IS NULL OR v_start_dt >= v_end_dt THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'invalid date range, expected format: 2026.04.01';
+  END IF;
+
+  SET v_start_ts = TIMESTAMPDIFF(SECOND, '1970-01-01 00:00:00', v_start_dt) - 28800;
+  SET v_end_ts = TIMESTAMPDIFF(SECOND, '1970-01-01 00:00:00', v_end_dt) - 28800;
+
+  CALL fix_model_quota_by_price(p_model, v_start_ts, v_end_ts, p_apply);
+END
+`
+
+func installQuotaFixProcedures() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "202604290001",
+		Migrate: func(tx *gorm.DB) error {
+			if tx.Dialector.Name() != "mysql" {
+				return nil
+			}
+
+			// CREATE PROCEDURE is not supported via MySQL's prepared statement
+			// protocol (Error 1295). Even with gorm's PrepareStmt:false session
+			// option, statements may still be prepared. Use the underlying
+			// *sql.DB.Exec directly to force the text protocol.
+			sqlDB, err := tx.DB()
+			if err != nil {
+				return err
+			}
+			statements := []string{
+				"DROP PROCEDURE IF EXISTS fix_model_quota_by_price",
+				fixModelQuotaByPriceProcedureSQL,
+				"DROP PROCEDURE IF EXISTS fix_model_quota_by_price_day",
+				fixModelQuotaByPriceDayProcedureSQL,
+			}
+			for _, statement := range statements {
+				if _, err := sqlDB.Exec(statement); err != nil {
+					logger.SysLog("安装模型历史计费修复存储过程失败: " + err.Error())
+					return err
+				}
+			}
+			return nil
+		},
+		Rollback: func(tx *gorm.DB) error {
+			if tx.Dialector.Name() != "mysql" {
+				return nil
+			}
+			sqlDB, err := tx.DB()
+			if err != nil {
+				return err
+			}
+			if _, err := sqlDB.Exec("DROP PROCEDURE IF EXISTS fix_model_quota_by_price_day"); err != nil {
+				return err
+			}
+			_, err = sqlDB.Exec("DROP PROCEDURE IF EXISTS fix_model_quota_by_price")
+			return err
+		},
+	}
+}
+
 func migrationAfter(db *gorm.DB) error {
 	// 从库不执行
 	if !config.IsMasterNode {
@@ -500,7 +744,7 @@ func migrationAfter(db *gorm.DB) error {
 		addOldTokenMaxId(),
 		addExtraRatios(),
 		migrateTokenLimitsStructure(),
-		addCachedWrite1hRatio(),
+		installQuotaFixProcedures(),
 	})
 	return m.Migrate()
 }
