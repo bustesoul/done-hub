@@ -1,8 +1,10 @@
 package openai
 
 import (
+	"context"
 	"done-hub/common"
 	"done-hub/common/config"
+	"done-hub/common/logger"
 	"done-hub/common/requester"
 	"done-hub/model"
 	"done-hub/types"
@@ -369,11 +371,18 @@ func (p *OpenAIProvider) GetRequestTextBody(relayMode int, ModelName string, req
 	if err != nil {
 		return nil, common.ErrorWrapper(err, "custom_parameter_error", http.StatusInternalServerError)
 	}
-
-	// 检查是否需要合并额外字段（来自渠道配置的额外参数或用户请求中的extra_body）
-	needMerge := customParams != nil || p.Channel.AllowExtraBody
-
-	if needMerge {
+	debugResponsesTools := relayMode == config.RelayModeResponses && types.ShouldDebugResponsesTools()
+	debugCtx := context.Background()
+	if p.Context != nil && p.Context.Request != nil {
+		debugCtx = p.Context.Request.Context()
+	}
+	if debugResponsesTools {
+		if responsesRequest, ok := request.(*types.OpenAIResponsesRequest); ok && types.HasNamespaceToolsWithoutNested(responsesRequest.Tools) {
+			logger.LogError(debugCtx, "responses outbound request already missing namespace.tools before provider forwarding")
+		}
+	}
+	// 如果有额外参数，将其添加到请求体中
+	if customParams != nil {
 		// 将请求体转换为map，以便添加额外参数
 		var requestMap map[string]interface{}
 		requestBytes, err := json.Marshal(request)
@@ -385,6 +394,9 @@ func (p *OpenAIProvider) GetRequestTextBody(relayMode int, ModelName string, req
 		if err != nil {
 			return nil, common.ErrorWrapper(err, "unmarshal_request_failed", http.StatusInternalServerError)
 		}
+		if debugResponsesTools {
+			logger.LogDebug(debugCtx, "responses outbound pre-merge "+types.SummarizeResponsesRequestToolsJSON(requestBytes))
+		}
 
 		// 如果允许额外字段透传，从原始请求中获取额外字段
 		if p.Channel.AllowExtraBody {
@@ -392,8 +404,9 @@ func (p *OpenAIProvider) GetRequestTextBody(relayMode int, ModelName string, req
 		}
 
 		// 处理自定义额外参数
-		if customParams != nil {
-			requestMap = p.mergeCustomParams(requestMap, customParams)
+		requestMap = p.mergeCustomParams(requestMap, customParams)
+		if debugResponsesTools {
+			logger.LogDebug(debugCtx, "responses outbound post-merge "+types.SummarizeResponsesRequestToolsAny(requestMap))
 		}
 
 		// 使用修改后的请求体创建请求
@@ -406,6 +419,9 @@ func (p *OpenAIProvider) GetRequestTextBody(relayMode int, ModelName string, req
 	}
 
 	// 如果没有额外参数，使用原始请求体创建请求
+	if debugResponsesTools {
+		logger.LogDebug(debugCtx, "responses outbound "+types.SummarizeResponsesRequestToolsAny(request))
+	}
 	req, err := p.Requester.NewRequest(http.MethodPost, fullRequestURL, p.Requester.WithBody(request), p.Requester.WithHeader(headers))
 	if err != nil {
 		return nil, common.ErrorWrapper(err, "new_request_failed", http.StatusInternalServerError)

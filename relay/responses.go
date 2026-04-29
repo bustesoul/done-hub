@@ -2,6 +2,7 @@ package relay
 
 import (
 	"done-hub/common"
+	"done-hub/common/logger"
 	"done-hub/common/requester"
 	providersBase "done-hub/providers/base"
 	"done-hub/relay/relay_util"
@@ -36,8 +37,23 @@ func NewRelayResponsesCompact(c *gin.Context) *relayResponses {
 }
 
 func (r *relayResponses) setRequest() error {
+	rawHasNamespace := false
+	if types.ShouldDebugResponsesTools() {
+		if rawBody, err := common.ReadBodyRaw(r.c); err == nil {
+			rawHasNamespace = types.HasNamespaceToolsInRequestJSON(rawBody)
+			logger.LogDebug(r.c.Request.Context(), "responses inbound raw "+types.SummarizeResponsesRequestToolsJSON(rawBody))
+		}
+	}
+
 	if err := common.UnmarshalBodyReusable(r.c, &r.responsesRequest); err != nil {
 		return err
+	}
+
+	if types.ShouldDebugResponsesTools() {
+		logger.LogDebug(r.c.Request.Context(), "responses inbound parsed "+types.SummarizeResponsesTools(r.responsesRequest.Tools))
+		if rawHasNamespace && len(r.responsesRequest.Tools) > 0 && types.HasNamespaceToolsWithoutNested(r.responsesRequest.Tools) {
+			logger.LogError(r.c.Request.Context(), "responses inbound parse dropped namespace.tools")
+		}
 	}
 
 	r.setOriginalModel(r.responsesRequest.Model)

@@ -448,11 +448,11 @@ type ResponsesTools struct {
 	// Function / Namespace shared
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
-	// Function / client-executed tool_search
-	Parameters   any    `json:"parameters,omitempty"`
-	Strict       *bool  `json:"strict,omitempty"`
-	DeferLoading *bool  `json:"defer_loading,omitempty"`
-	Execution    string `json:"execution,omitempty"` // tool_search: "client" or empty(server)
+	Parameters  any    `json:"parameters,omitempty"`
+	Strict      *bool  `json:"strict,omitempty"`
+	// Namespace
+	// Codex 最新版会把 MCP 工具注册为 namespace tool，内部 tools 数组必须完整透传。
+	Tools []ResponsesTools `json:"tools,omitempty"`
 
 	// MCP
 	ServerLabel       string `json:"server_label,omitempty"`
@@ -461,9 +461,6 @@ type ResponsesTools struct {
 	AllowedTools      any    `json:"allowed_tools,omitempty"`
 	Headers           any    `json:"headers,omitempty"`
 	RequireApproval   any    `json:"require_approval,omitempty"`
-
-	// Namespace / MCP nested tools
-	Tools []ResponsesTools `json:"tools,omitempty"`
 
 	// Code interpreter
 	Container any `json:"container,omitempty"`
@@ -477,31 +474,117 @@ type ResponsesTools struct {
 	PartialImages     any    `json:"partial_images,omitempty"`
 	Quality           string `json:"quality,omitempty"`
 	Size              string `json:"size,omitempty"`
+
+	ExtraFields  map[string]json.RawMessage `json:"-"`
+	toolsDefined bool                       `json:"-"`
 }
 
-// MarshalJSON strips the description field from server-executed tools.
-// Per OpenAI API spec, description is accepted by:
-//   - "function" and "namespace" types (always)
-//   - "tool_search" type ONLY when execution="client"
+var responsesToolKnownKeys = map[string]struct{}{
+	"type":                {},
+	"user_location":       {},
+	"search_context_size": {},
+	"vector_store_ids":    {},
+	"max_num_results":     {},
+	"filters":             {},
+	"ranking_options":     {},
+	"display_width":       {},
+	"display_height":      {},
+	"environment":         {},
+	"name":                {},
+	"description":         {},
+	"parameters":          {},
+	"strict":              {},
+	"tools":               {},
+	"server_label":        {},
+	"server_url":          {},
+	"allowed_tools":       {},
+	"headers":             {},
+	"require_approval":    {},
+	"container":           {},
+	"background":          {},
+	"input_image_mask":    {},
+	"model":               {},
+	"moderation":          {},
+	"output_compression":  {},
+	"output_format":       {},
+	"partial_images":      {},
+	"quality":             {},
+	"size":                {},
+}
+
+func (t *ResponsesTools) UnmarshalJSON(data []byte) error {
+	type alias ResponsesTools
+
+	var decoded alias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	_, toolsDefined := raw["tools"]
+	for key := range responsesToolKnownKeys {
+		delete(raw, key)
+	}
+
+	*t = ResponsesTools(decoded)
+	t.toolsDefined = toolsDefined
+	if len(raw) > 0 {
+		t.ExtraFields = raw
+	} else {
+		t.ExtraFields = nil
+	}
+
+	return nil
+}
+
+// MarshalJSON serializes ResponsesTools while:
+//   - Preserving an explicitly empty `tools: []` for namespace tools when toolsDefined
+//     was set during unmarshal. (local: preserve namespace tools in responses api)
+//   - Re-emitting any unknown fields captured in ExtraFields without overwriting known keys.
 //
-// Server-executed tools (web_search, file_search, hosted tool_search, etc.)
-// do not accept description and upstream APIs will reject it.
+// NOTE: We deliberately do NOT strip name/description/parameters/strict for non-function
+// tools. Upstream v1.20.45 (34ccfcc) added such a strip claiming server-executed tools
+// (web_search, file_search, tool_search, ...) reject those fields, but that is wrong:
+//   - tool_search is CLIENT-executed and the OpenAI Responses API REQUIRES name,
+//     description, parameters, and strict on it; stripping any of them yields
+//     "Invalid Value: 'tools.tool_search.<field>'. Client-executed tool_search requires <field>."
+//   - Genuinely server-executed tools never have these fields set by our converters
+//     (see types/chat.go which only fills them when Type == "function"), so omitempty
+//     keeps the payload clean without an explicit strip.
+// Pass-through is the correct behavior; let the caller decide what to send.
 func (t ResponsesTools) MarshalJSON() ([]byte, error) {
-	type Alias ResponsesTools
-	a := (Alias)(t)
+	type alias ResponsesTools
 
-	acceptsDesc := false
-	switch t.Type {
-	case "function", "namespace":
-		acceptsDesc = true
-	case "tool_search":
-		acceptsDesc = t.Execution == "client"
+	baseBytes, err := json.Marshal(alias(t))
+	if err != nil {
+		return nil, err
 	}
 
-	if !acceptsDesc {
-		a.Description = ""
+	if len(t.ExtraFields) == 0 && !(t.toolsDefined && len(t.Tools) == 0) {
+		return baseBytes, nil
 	}
-	return json.Marshal(a)
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(baseBytes, &raw); err != nil {
+		return nil, err
+	}
+
+	if t.toolsDefined && len(t.Tools) == 0 {
+		raw["tools"] = json.RawMessage("[]")
+	}
+
+	for key, value := range t.ExtraFields {
+		if _, exists := raw[key]; exists {
+			continue
+		}
+		raw[key] = value
+	}
+
+	return json.Marshal(raw)
 }
 
 type ReasoningEffort struct {
