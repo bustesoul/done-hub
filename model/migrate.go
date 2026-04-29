@@ -502,6 +502,10 @@ BEGIN
   DECLARE v_price_count INT DEFAULT 0;
   DECLARE v_table_exists INT DEFAULT 0;
   DECLARE v_backup_table VARCHAR(64);
+  DECLARE v_stats_start_date DATE;
+  DECLARE v_stats_end_date DATE;
+  DECLARE v_stats_start_ts BIGINT;
+  DECLARE v_stats_end_ts BIGINT;
   DECLARE v_msg VARCHAR(255);
 
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
@@ -550,6 +554,10 @@ BEGIN
     '_',
     p_end_ts
   );
+  SET v_stats_start_date = DATE(FROM_UNIXTIME(p_start_ts));
+  SET v_stats_end_date = DATE_ADD(DATE(FROM_UNIXTIME(p_end_ts - 1)), INTERVAL 1 DAY);
+  SET v_stats_start_ts = UNIX_TIMESTAMP(v_stats_start_date);
+  SET v_stats_end_ts = UNIX_TIMESTAMP(v_stats_end_date);
 
   IF p_apply = 0 THEN
     SELECT
@@ -630,12 +638,55 @@ BEGIN
     EXECUTE stmt;
     DEALLOCATE PREPARE stmt;
 
+    DELETE FROM statistics
+    WHERE model_name = p_model
+      AND date >= v_stats_start_date
+      AND date < v_stats_end_date;
+
+    INSERT INTO statistics (
+      date,
+      user_id,
+      channel_id,
+      model_name,
+      request_count,
+      quota,
+      prompt_tokens,
+      completion_tokens,
+      request_time
+    )
+    SELECT
+      DATE(FROM_UNIXTIME(created_at)) AS date,
+      user_id,
+      channel_id,
+      model_name,
+      COUNT(1) AS request_count,
+      SUM(quota) AS quota,
+      SUM(prompt_tokens) AS prompt_tokens,
+      SUM(completion_tokens) AS completion_tokens,
+      SUM(request_time) AS request_time
+    FROM logs
+    WHERE type = 2
+      AND model_name = p_model
+      AND created_at >= v_stats_start_ts
+      AND created_at < v_stats_end_ts
+    GROUP BY DATE(FROM_UNIXTIME(created_at)), channel_id, user_id, model_name
+    ON DUPLICATE KEY UPDATE
+      request_count = VALUES(request_count),
+      quota = VALUES(quota),
+      prompt_tokens = VALUES(prompt_tokens),
+      completion_tokens = VALUES(completion_tokens),
+      request_time = VALUES(request_time);
+
     COMMIT;
 
     SET @sql = CONCAT(
       'SELECT ',
       QUOTE(v_backup_table),
       ' AS backup_table, ',
+      QUOTE(v_stats_start_date),
+      ' AS statistics_start_date, ',
+      QUOTE(v_stats_end_date),
+      ' AS statistics_end_date_exclusive, ',
       'COUNT(*) AS rows_fixed, ',
       'COALESCE(SUM(new_quota), 0) AS fixed_quota, ',
       'COALESCE(SUM(old_quota), 0) AS old_quota, ',
@@ -684,9 +735,9 @@ BEGIN
 END
 `
 
-func installQuotaFixProcedures() *gormigrate.Migration {
+func installQuotaFixProcedures(id string) *gormigrate.Migration {
 	return &gormigrate.Migration{
-		ID: "202604290001",
+		ID: id,
 		Migrate: func(tx *gorm.DB) error {
 			if tx.Dialector.Name() != "mysql" {
 				return nil
@@ -744,7 +795,8 @@ func migrationAfter(db *gorm.DB) error {
 		addOldTokenMaxId(),
 		addExtraRatios(),
 		migrateTokenLimitsStructure(),
-		installQuotaFixProcedures(),
+		installQuotaFixProcedures("202604290001"),
+		installQuotaFixProcedures("202604290002"),
 	})
 	return m.Migrate()
 }
