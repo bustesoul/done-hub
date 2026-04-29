@@ -1,10 +1,12 @@
 package codex
 
 import (
+	"crypto/sha256"
 	"done-hub/common"
 	"done-hub/common/requester"
 	"done-hub/providers/base"
 	"done-hub/types"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -127,8 +129,19 @@ func (p *CodexProvider) prepareCodexRequest(request *types.OpenAIResponsesReques
 	storeFalse := false
 	request.Store = &storeFalse
 
-	// 剥离 ChatGPT internal Codex 端点不接受的字段，补齐默认 instructions。
+	// 3. 处理 temperature 和 top_p 冲突
+	// 当两者都存在时，优先保留 temperature，删除 top_p
+	// 这是因为某些 API 不允许同时设置这两个参数
+	if request.Temperature != nil && request.TopP != nil {
+		request.TopP = nil
+	}
+
+	// 4. 适配 Codex CLI 格式
 	p.adaptCodexCLI(request)
+
+	// 5. 保留/补齐稳定缓存路由信号，再清理 Codex internal API 不支持的字段。
+	request.PromptCacheKey = p.resolvePromptCacheKey(request)
+	p.stripUnsupportedCodexFields(request)
 }
 
 // adaptCodexCLI 对 Codex OAuth 端点做请求规整：
@@ -143,6 +156,189 @@ func (p *CodexProvider) adaptCodexCLI(request *types.OpenAIResponsesRequest) {
 	if strings.TrimSpace(request.Instructions) == "" {
 		request.Instructions = CodexCLIInstructions
 	}
+}
+
+func (p *CodexProvider) resolvePromptCacheKey(request *types.OpenAIResponsesRequest) string {
+	if request == nil {
+		return ""
+	}
+	if key := strings.TrimSpace(request.PromptCacheKey); key != "" {
+		return key
+	}
+	for _, name := range []string{"session_id", "x-session-id", "conversation_id"} {
+		if key := strings.TrimSpace(p.getClientHeader(name)); key != "" {
+			return key
+		}
+	}
+	if key := strings.TrimSpace(request.User); key != "" {
+		return key
+	}
+	return deriveCodexPromptCacheKey(request)
+}
+
+func (p *CodexProvider) getClientHeader(name string) string {
+	if p == nil || p.Context == nil || p.Context.Request == nil {
+		return ""
+	}
+	return p.Context.Request.Header.Get(name)
+}
+
+func deriveCodexPromptCacheKey(request *types.OpenAIResponsesRequest) string {
+	if request == nil {
+		return ""
+	}
+
+	parts := []string{"model=" + strings.TrimSpace(request.Model)}
+	hasCacheSeed := false
+
+	if request.Instructions != "" {
+		parts = append(parts, "instructions="+request.Instructions)
+		hasCacheSeed = true
+	}
+	if request.Reasoning != nil && request.Reasoning.Effort != nil {
+		parts = append(parts, "reasoning_effort="+strings.TrimSpace(*request.Reasoning.Effort))
+	}
+	if request.ToolChoice != nil {
+		parts = append(parts, "tool_choice="+stableJSONPrefix(request.ToolChoice))
+	}
+	if len(request.Tools) > 0 {
+		parts = append(parts, "tools="+stableJSONPrefix(request.Tools))
+		hasCacheSeed = true
+	}
+	if request.Text != nil && request.Text.Format != nil && request.Text.Format.Schema != nil {
+		parts = append(parts, "text_schema="+stableJSONPrefix(request.Text.Format.Schema))
+		hasCacheSeed = true
+	}
+	if request.Prompt != nil {
+		parts = append(parts, "prompt="+stableJSONPrefix(request.Prompt))
+		hasCacheSeed = true
+	}
+	if inputSeed := inputCacheSeed(request.Input); inputSeed != "" {
+		parts = append(parts, "input="+inputSeed)
+		hasCacheSeed = true
+	}
+	if !hasCacheSeed {
+		return ""
+	}
+
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\n")))
+	return "donehub_" + hex.EncodeToString(sum[:16])
+}
+
+func stableJSONPrefix(v any) string {
+	if v == nil {
+		return ""
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
+	text := string(raw)
+	if len(text) > 8192 {
+		text = text[:8192]
+	}
+	return text
+}
+
+func inputCacheSeed(input any) string {
+	if input == nil {
+		return ""
+	}
+	if text, ok := input.(string); ok {
+		return trimCacheSeed(text)
+	}
+
+	var parts []string
+	firstUserCaptured := false
+	if items, ok := input.([]types.InputResponses); ok {
+		for _, item := range items {
+			appendTypedInputSeed(&parts, item, &firstUserCaptured)
+		}
+		if len(parts) > 0 {
+			return trimCacheSeed(strings.Join(parts, "|"))
+		}
+		if len(items) > 0 {
+			return stableJSONPrefix(items[0])
+		}
+		return ""
+	}
+	if rawItems, ok := input.([]any); ok {
+		for _, item := range rawItems {
+			appendRawInputSeed(&parts, item, &firstUserCaptured)
+		}
+		if len(parts) > 0 {
+			return trimCacheSeed(strings.Join(parts, "|"))
+		}
+		if len(rawItems) > 0 {
+			return stableJSONPrefix(rawItems[0])
+		}
+		return ""
+	}
+	return stableJSONPrefix(input)
+}
+
+func appendTypedInputSeed(parts *[]string, item types.InputResponses, firstUserCaptured *bool) {
+	role := strings.TrimSpace(item.Role)
+	switch role {
+	case "system", "developer":
+		*parts = append(*parts, role+"="+stableJSONPrefix(item.Content))
+	case "user":
+		if !*firstUserCaptured {
+			*parts = append(*parts, "first_user="+stableJSONPrefix(item.Content))
+			*firstUserCaptured = true
+		}
+	}
+}
+
+func appendRawInputSeed(parts *[]string, item any, firstUserCaptured *bool) {
+	raw, ok := item.(map[string]any)
+	if !ok {
+		if !*firstUserCaptured {
+			*parts = append(*parts, "first_user="+stableJSONPrefix(item))
+			*firstUserCaptured = true
+		}
+		return
+	}
+
+	role, _ := raw["role"].(string)
+	role = strings.TrimSpace(role)
+	switch role {
+	case "system", "developer":
+		*parts = append(*parts, role+"="+stableJSONPrefix(raw["content"]))
+	case "user":
+		if !*firstUserCaptured {
+			*parts = append(*parts, "first_user="+stableJSONPrefix(raw["content"]))
+			*firstUserCaptured = true
+		}
+	}
+
+	itemType, _ := raw["type"].(string)
+	if !*firstUserCaptured && itemType == types.ContentTypeInputText {
+		if text, _ := raw["text"].(string); text != "" {
+			*parts = append(*parts, "first_user="+trimCacheSeed(text))
+			*firstUserCaptured = true
+		}
+	}
+}
+
+func trimCacheSeed(text string) string {
+	text = strings.TrimSpace(text)
+	if len(text) > 8192 {
+		return text[:8192]
+	}
+	return text
+}
+
+func (p *CodexProvider) stripUnsupportedCodexFields(request *types.OpenAIResponsesRequest) {
+	request.Background = nil
+	request.Conversation = nil
+	request.Metadata = nil
+	request.Prompt = nil
+	request.PreviousResponseID = ""
+	request.PromptCacheRetention = ""
+	request.SafetyIdentifier = ""
+	request.ServiceTier = ""
+	request.User = ""
 }
 
 // collectResponsesStreamResponse 收集流式响应并转换为非流式格式
@@ -177,7 +373,9 @@ func (p *CodexProvider) collectResponsesStreamResponse(stream requester.StreamRe
 			// 提取完整响应（终止事件：completed/done/incomplete/failed）
 			if base.IsResponsesTerminalEvent(streamResp.Type) && streamResp.Response != nil {
 				response = streamResp.Response
-				base.ExtractResponsesStreamUsage(&streamResp, p.Usage)
+				if response.Usage != nil {
+					*p.Usage = *response.Usage.ToOpenAIUsage()
+				}
 			}
 
 		case err, ok := <-errChan:
@@ -234,6 +432,7 @@ func (p *CodexProvider) getResponsesRequest(request *types.OpenAIResponsesReques
 
 	// 应用 Codex 默认请求头（在透传的请求头基础上补充）
 	p.applyDefaultHeaders(headers)
+	p.applyPromptCacheHeaders(headers, request.PromptCacheKey)
 
 	if request.Stream {
 		headers["Accept"] = "text/event-stream"
@@ -248,6 +447,28 @@ func (p *CodexProvider) getResponsesRequest(request *types.OpenAIResponsesReques
 	}
 
 	return req, nil
+}
+
+func (p *CodexProvider) applyPromptCacheHeaders(headers map[string]string, promptCacheKey string) {
+	key := strings.TrimSpace(promptCacheKey)
+	if key == "" {
+		return
+	}
+	if headerValue(headers, "session_id") == "" {
+		headers["session_id"] = key
+	}
+	if headerValue(headers, "conversation_id") == "" {
+		headers["conversation_id"] = key
+	}
+}
+
+func headerValue(headers map[string]string, name string) string {
+	for key, value := range headers {
+		if strings.EqualFold(key, name) {
+			return value
+		}
+	}
+	return ""
 }
 
 // HandlerResponsesStream 处理 Responses 流式响应（完全透传）
@@ -301,10 +522,10 @@ func (h *CodexResponsesStreamHandler) HandlerResponsesStream(rawLine *[]byte, da
 	// 解析 JSON 以提取 usage 信息（但不修改响应）
 	var responsesEvent types.OpenAIResponsesStreamResponses
 	if err := json.Unmarshal([]byte(dataLine), &responsesEvent); err == nil {
-		// 累积输出文本：终止事件未带 usage 时，relay 层据此估算 completion，避免计费归零。
-		if responsesEvent.Type == "response.output_text.delta" {
-			if delta, ok := responsesEvent.Delta.(string); ok {
-				h.Usage.TextBuilder.WriteString(delta)
+		// 提取 usage 信息
+		if responsesEvent.Type == "response.completed" && responsesEvent.Response != nil {
+			if responsesEvent.Response.Usage != nil {
+				*h.Usage = *responsesEvent.Response.Usage.ToOpenAIUsage()
 			}
 		}
 		// 终止事件 usage 提取统一走 base helper（覆盖 completed/done/incomplete/failed）。

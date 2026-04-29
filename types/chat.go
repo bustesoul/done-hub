@@ -182,39 +182,44 @@ type FormatJsonSchema struct {
 }
 
 type ChatCompletionRequest struct {
-	Model               string                        `json:"model" binding:"required"`
-	Messages            []ChatCompletionMessage       `json:"messages" binding:"required"`
-	System              any                           `json:"system,omitempty"`
-	MaxTokens           int                           `json:"max_tokens,omitempty"`
-	MaxCompletionTokens int                           `json:"max_completion_tokens,omitempty"`
-	Temperature         *float64                      `json:"temperature,omitempty"`
-	TopP                *float64                      `json:"top_p,omitempty"`
-	TopK                *float64                      `json:"top_k,omitempty"`
-	N                   *int                          `json:"n,omitempty"`
-	Stream              bool                          `json:"stream"`
-	StreamOptions       *StreamOptions                `json:"stream_options,omitempty"`
-	Stop                any                           `json:"stop,omitempty"`
-	PresencePenalty     *float64                      `json:"presence_penalty,omitempty"`
-	ResponseFormat      *ChatCompletionResponseFormat `json:"response_format,omitempty"`
-	Seed                *int                          `json:"seed,omitempty"`
-	FrequencyPenalty    *float64                      `json:"frequency_penalty,omitempty"`
-	LogitBias           any                           `json:"logit_bias,omitempty"`
-	LogProbs            *bool                         `json:"logprobs,omitempty"`
-	TopLogProbs         int                           `json:"top_logprobs,omitempty"`
-	User                string                        `json:"user,omitempty"`
-	Functions           []*ChatCompletionFunction     `json:"functions,omitempty"`
-	FunctionCall        any                           `json:"function_call,omitempty"`
-	Tools               []*ChatCompletionTool         `json:"tools,omitempty"`
-	ToolChoice          any                           `json:"tool_choice,omitempty"`
-	ParallelToolCalls   bool                          `json:"parallel_tool_calls,omitempty"`
-	Modalities          []string                      `json:"modalities,omitempty"`
-	Audio               *ChatAudio                    `json:"audio,omitempty"`
-	ReasoningEffort     *string                       `json:"reasoning_effort,omitempty"`
-	Prediction          any                           `json:"prediction,omitempty"`
-	WebSearchOptions    *WebSearchOptions             `json:"web_search_options,omitempty"`
-	Verbosity           string                        `json:"verbosity,omitempty"`    // 用于控制输出的详细程度
-	Store               *bool                         `json:"store,omitempty"`        // ChatGPT 是否存储对话（Codex 要求设置为 false）
-	Instructions        *string                       `json:"instructions,omitempty"` // Codex CLI 系统提示词
+	Model                string                        `json:"model" binding:"required"`
+	Messages             []ChatCompletionMessage       `json:"messages" binding:"required"`
+	System               any                           `json:"system,omitempty"`
+	MaxTokens            int                           `json:"max_tokens,omitempty"`
+	MaxCompletionTokens  int                           `json:"max_completion_tokens,omitempty"`
+	Temperature          *float64                      `json:"temperature,omitempty"`
+	TopP                 *float64                      `json:"top_p,omitempty"`
+	TopK                 *float64                      `json:"top_k,omitempty"`
+	N                    *int                          `json:"n,omitempty"`
+	Stream               bool                          `json:"stream"`
+	StreamOptions        *StreamOptions                `json:"stream_options,omitempty"`
+	Stop                 any                           `json:"stop,omitempty"`
+	PresencePenalty      *float64                      `json:"presence_penalty,omitempty"`
+	ResponseFormat       *ChatCompletionResponseFormat `json:"response_format,omitempty"`
+	Seed                 *int                          `json:"seed,omitempty"`
+	FrequencyPenalty     *float64                      `json:"frequency_penalty,omitempty"`
+	LogitBias            any                           `json:"logit_bias,omitempty"`
+	LogProbs             *bool                         `json:"logprobs,omitempty"`
+	TopLogProbs          int                           `json:"top_logprobs,omitempty"`
+	User                 string                        `json:"user,omitempty"`
+	Functions            []*ChatCompletionFunction     `json:"functions,omitempty"`
+	FunctionCall         any                           `json:"function_call,omitempty"`
+	Tools                []*ChatCompletionTool         `json:"tools,omitempty"`
+	ToolChoice           any                           `json:"tool_choice,omitempty"`
+	ParallelToolCalls    bool                          `json:"parallel_tool_calls,omitempty"`
+	Modalities           []string                      `json:"modalities,omitempty"`
+	Metadata             map[string]any                `json:"metadata,omitempty"`
+	Audio                *ChatAudio                    `json:"audio,omitempty"`
+	PromptCacheKey       string                        `json:"prompt_cache_key,omitempty"`
+	PromptCacheRetention string                        `json:"prompt_cache_retention,omitempty"`
+	SafetyIdentifier     string                        `json:"safety_identifier,omitempty"`
+	ServiceTier          string                        `json:"service_tier,omitempty"`
+	ReasoningEffort      *string                       `json:"reasoning_effort,omitempty"`
+	Prediction           any                           `json:"prediction,omitempty"`
+	WebSearchOptions     *WebSearchOptions             `json:"web_search_options,omitempty"`
+	Verbosity            string                        `json:"verbosity,omitempty"`    // 用于控制输出的详细程度
+	Store                *bool                         `json:"store,omitempty"`        // ChatGPT 是否存储对话（Codex 要求设置为 false）
+	Instructions         *string                       `json:"instructions,omitempty"` // Codex CLI 系统提示词
 
 	Reasoning *ChatReasoning `json:"reasoning,omitempty"`
 
@@ -504,13 +509,24 @@ type MultimediaData struct {
 func (c *ChatCompletionRequest) ToResponsesRequest() *OpenAIResponsesRequest {
 
 	res := &OpenAIResponsesRequest{
-		Model:             c.Model,
-		MaxOutputTokens:   c.MaxTokens,
-		ParallelToolCalls: c.ParallelToolCalls,
-		Stream:            c.Stream,
-		Temperature:       c.Temperature,
-		ToolChoice:        c.ToolChoice,
-		TopP:              c.TopP,
+		Model:                c.Model,
+		MaxOutputTokens:      c.MaxTokens,
+		Metadata:             c.Metadata,
+		ParallelToolCalls:    c.ParallelToolCalls,
+		PromptCacheKey:       c.PromptCacheKey,
+		PromptCacheRetention: c.PromptCacheRetention,
+		SafetyIdentifier:     c.SafetyIdentifier,
+		ServiceTier:          c.ServiceTier,
+		Store:                c.Store,
+		Stream:               c.Stream,
+		Temperature:          c.Temperature,
+		ToolChoice:           c.ToolChoice,
+		TopP:                 c.TopP,
+		User:                 c.User,
+	}
+
+	if c.Instructions != nil {
+		res.Instructions = *c.Instructions
 	}
 
 	if c.ResponseFormat != nil {

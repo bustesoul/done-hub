@@ -34,13 +34,6 @@ func (u *Usage) GetExtraTokens() map[string]int {
 		u.ExtraTokens = make(map[string]int)
 	}
 
-	// 组装，已有的数据
-
-	// 缓存数据
-	if u.PromptTokensDetails.CachedTokens > 0 && u.ExtraTokens[config.UsageExtraCache] == 0 {
-		u.ExtraTokens[config.UsageExtraCache] = u.PromptTokensDetails.CachedTokens
-	}
-
 	// Anthropic-style top-level cache fields (from OpenAI-compatible gateways
 	// proxying Anthropic models). Only used as fallback when the standard
 	// prompt_tokens_details fields are not already populated.
@@ -50,8 +43,15 @@ func (u *Usage) GetExtraTokens() map[string]int {
 	if u.CacheCreationInputTokens > 0 && u.PromptTokensDetails.CachedWriteTokens == 0 {
 		u.PromptTokensDetails.CachedWriteTokens = u.CacheCreationInputTokens
 	}
-	if u.CacheReadInputTokens > 0 && u.PromptTokensDetails.CachedReadTokens == 0 {
+	if u.CacheReadInputTokens > 0 && u.PromptTokensDetails.CachedReadTokens == 0 && u.PromptTokensDetails.CachedTokens == 0 {
 		u.PromptTokensDetails.CachedReadTokens = u.CacheReadInputTokens
+	}
+
+	// OpenAI standard cached_tokens. The default price ratio for this key is
+	// the cached-read ratio. If a provider already mapped the same value to
+	// cached_read_tokens, keep only the explicit cached_read_tokens bucket.
+	if u.PromptTokensDetails.CachedTokens > 0 && u.PromptTokensDetails.CachedReadTokens == 0 && u.ExtraTokens[config.UsageExtraCache] == 0 {
+		u.ExtraTokens[config.UsageExtraCache] = u.PromptTokensDetails.CachedTokens
 	}
 
 	// 输入音频

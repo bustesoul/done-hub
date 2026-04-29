@@ -57,24 +57,33 @@ const (
 )
 
 type OpenAIResponsesRequest struct {
-	Input              any              `json:"input,omitempty"`
-	Model              string           `json:"model" binding:"required"`
-	Include            any              `json:"include,omitempty"`
-	Instructions       string           `json:"instructions,omitempty"`
-	MaxOutputTokens    int              `json:"max_output_tokens,omitempty"`
-	MaxToolCalls       *int             `json:"max_tool_calls,omitempty"`
-	ParallelToolCalls  bool             `json:"parallel_tool_calls,omitempty"`
-	PreviousResponseID string           `json:"previous_response_id,omitempty"`
-	Reasoning          *ReasoningEffort `json:"reasoning,omitempty"`
-	Store              *bool            `json:"store,omitempty"` // 是否存储响应结果
-	Stream             bool             `json:"stream,omitempty"`
-	Temperature        *float64         `json:"temperature,omitempty"`
-	Text               *ResponsesText   `json:"text,omitempty"`
-	ToolChoice         any              `json:"tool_choice,omitempty"`
-	Tools              []ResponsesTools `json:"tools,omitempty"`
-	TopLogProbs        any              `json:"top_logprobs,omitempty"` // The number of top log probabilities to return for each token in the response.
-	TopP               *float64         `json:"top_p,omitempty"`
-	Truncation         string           `json:"truncation,omitempty"`
+	Input                any              `json:"input,omitempty"`
+	Model                string           `json:"model" binding:"required"`
+	Background           *bool            `json:"background,omitempty"`
+	Conversation         any              `json:"conversation,omitempty"`
+	Include              any              `json:"include,omitempty"`
+	Instructions         string           `json:"instructions,omitempty"`
+	MaxOutputTokens      int              `json:"max_output_tokens,omitempty"`
+	MaxToolCalls         *int             `json:"max_tool_calls,omitempty"`
+	Metadata             map[string]any   `json:"metadata,omitempty"`
+	ParallelToolCalls    bool             `json:"parallel_tool_calls,omitempty"`
+	PreviousResponseID   string           `json:"previous_response_id,omitempty"`
+	Prompt               any              `json:"prompt,omitempty"`
+	PromptCacheKey       string           `json:"prompt_cache_key,omitempty"`
+	PromptCacheRetention string           `json:"prompt_cache_retention,omitempty"`
+	Reasoning            *ReasoningEffort `json:"reasoning,omitempty"`
+	SafetyIdentifier     string           `json:"safety_identifier,omitempty"`
+	ServiceTier          string           `json:"service_tier,omitempty"`
+	Store                *bool            `json:"store,omitempty"` // 是否存储响应结果
+	Stream               bool             `json:"stream,omitempty"`
+	Temperature          *float64         `json:"temperature,omitempty"`
+	Text                 *ResponsesText   `json:"text,omitempty"`
+	ToolChoice           any              `json:"tool_choice,omitempty"`
+	Tools                []ResponsesTools `json:"tools,omitempty"`
+	TopLogProbs          any              `json:"top_logprobs,omitempty"` // The number of top log probabilities to return for each token in the response.
+	TopP                 *float64         `json:"top_p,omitempty"`
+	Truncation           string           `json:"truncation,omitempty"`
+	User                 string           `json:"user,omitempty"`
 
 	ConvertChat bool `json:"-"`
 }
@@ -95,14 +104,25 @@ type ResponsesTextFormat struct {
 func (r *OpenAIResponsesRequest) ToChatCompletionRequest() (*ChatCompletionRequest, error) {
 
 	chat := &ChatCompletionRequest{
-		Model:             r.Model,
-		MaxTokens:         r.MaxOutputTokens,
-		ParallelToolCalls: r.ParallelToolCalls,
-		Stream:            r.Stream,
-		Temperature:       r.Temperature,
+		Model:                r.Model,
+		MaxTokens:            r.MaxOutputTokens,
+		Metadata:             r.Metadata,
+		ParallelToolCalls:    r.ParallelToolCalls,
+		PromptCacheKey:       r.PromptCacheKey,
+		PromptCacheRetention: r.PromptCacheRetention,
+		SafetyIdentifier:     r.SafetyIdentifier,
+		ServiceTier:          r.ServiceTier,
+		Store:                r.Store,
+		Stream:               r.Stream,
+		Temperature:          r.Temperature,
 		// ResponseFormat:    r.Text,
 		ToolChoice: r.ToolChoice,
 		TopP:       r.TopP,
+		User:       r.User,
+	}
+
+	if r.Instructions != "" {
+		chat.Instructions = &r.Instructions
 	}
 
 	if r.Text != nil && r.Text.Format != nil {

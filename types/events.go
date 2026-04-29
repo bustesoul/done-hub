@@ -83,7 +83,6 @@ func (u *UsageEvent) GetExtraTokens() map[string]int {
 		u.ExtraTokens = make(map[string]int)
 	}
 
-	// 组装，已有的数据
 	if u.InputTokenDetails.CachedTokens > 0 && u.ExtraTokens[config.UsageExtraCache] == 0 {
 		u.ExtraTokens[config.UsageExtraCache] = u.InputTokenDetails.CachedTokens
 	}

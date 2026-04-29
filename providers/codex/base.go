@@ -219,6 +219,7 @@ func (p *CodexProvider) filterAndPassthroughClientHeaders(headers map[string]str
 		"openai-beta",
 		"session_id",
 		"x-session-id", // 额外支持 x-session-id
+		"conversation_id",
 	}
 
 	// 透传白名单中的请求头

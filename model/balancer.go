@@ -1,6 +1,7 @@
 package model
 
 import (
+	"bytes"
 	"done-hub/common/config"
 	"done-hub/common/logger"
 	"done-hub/common/redis"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 // 错误消息常量
@@ -363,16 +365,140 @@ func generateSessionHashForChannel(channel *Channel, ginContext interface{}) str
 		return session.GenerateGeminiCliSessionHashFromParts(userAgent, ip, apiKeyPrefix)
 
 	case config.ChannelTypeCodex:
-		// Codex: 基于请求头中的 session_id
-		sessionID := c.GetHeader("session_id")
-		if sessionID == "" {
-			sessionID = c.GetHeader("x-session-id")
-		}
+		// Codex: 优先使用显式会话/缓存信号；缺失时用稳定前缀派生，避免多渠道漂移破坏缓存命中。
+		sessionID := extractCodexSessionSeed(c)
 		return session.GenerateCodexSessionHashFromSessionID(sessionID)
 
 	default:
 		return ""
 	}
+}
+
+func extractCodexSessionSeed(c interface {
+	Get(key string) (value interface{}, exists bool)
+	GetHeader(key string) string
+}) string {
+	for _, header := range []string{"session_id", "x-session-id", "conversation_id"} {
+		if value := strings.TrimSpace(c.GetHeader(header)); value != "" {
+			return value
+		}
+	}
+
+	rawBody, exists := c.Get(config.GinRequestBodyKey)
+	if !exists {
+		return ""
+	}
+	bodyBytes, ok := rawBody.([]byte)
+	if !ok || len(bodyBytes) == 0 {
+		return ""
+	}
+
+	for _, path := range []string{"prompt_cache_key", "user"} {
+		if value := strings.TrimSpace(gjson.GetBytes(bodyBytes, path).String()); value != "" {
+			return value
+		}
+	}
+
+	return deriveCodexContentSessionSeed(bodyBytes)
+}
+
+func deriveCodexContentSessionSeed(body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	if model := strings.TrimSpace(gjson.GetBytes(body, "model").String()); model != "" {
+		b.WriteString("model=")
+		b.WriteString(model)
+	}
+	appendCodexSeedJSON(&b, "tools", gjson.GetBytes(body, "tools"))
+	appendCodexSeedJSON(&b, "functions", gjson.GetBytes(body, "functions"))
+	if instructions := strings.TrimSpace(gjson.GetBytes(body, "instructions").String()); instructions != "" {
+		b.WriteString("|instructions=")
+		b.WriteString(trimCodexSessionSeed(instructions))
+	}
+
+	firstUserCaptured := false
+	if messages := gjson.GetBytes(body, "messages"); messages.Exists() && messages.IsArray() {
+		messages.ForEach(func(_, msg gjson.Result) bool {
+			appendCodexMessageSeed(&b, msg, &firstUserCaptured)
+			return true
+		})
+	} else if input := gjson.GetBytes(body, "input"); input.Exists() {
+		switch {
+		case input.Type == gjson.String:
+			b.WriteString("|input=")
+			b.WriteString(trimCodexSessionSeed(input.String()))
+		case input.IsArray():
+			input.ForEach(func(_, item gjson.Result) bool {
+				appendCodexMessageSeed(&b, item, &firstUserCaptured)
+				if !firstUserCaptured && item.Get("type").String() == "input_text" {
+					if text := strings.TrimSpace(item.Get("text").String()); text != "" {
+						b.WriteString("|first_user=")
+						b.WriteString(trimCodexSessionSeed(text))
+						firstUserCaptured = true
+					}
+				}
+				return true
+			})
+		}
+	}
+
+	if b.Len() == 0 {
+		return ""
+	}
+	return "donehub_cs_" + b.String()
+}
+
+func appendCodexMessageSeed(b *strings.Builder, msg gjson.Result, firstUserCaptured *bool) {
+	role := strings.TrimSpace(msg.Get("role").String())
+	switch role {
+	case "system", "developer":
+		b.WriteString("|")
+		b.WriteString(role)
+		b.WriteString("=")
+		b.WriteString(codexSeedJSON(msg.Get("content")))
+	case "user":
+		if !*firstUserCaptured {
+			b.WriteString("|first_user=")
+			b.WriteString(codexSeedJSON(msg.Get("content")))
+			*firstUserCaptured = true
+		}
+	}
+}
+
+func appendCodexSeedJSON(b *strings.Builder, label string, value gjson.Result) {
+	if !value.Exists() || value.Raw == "" || value.Raw == "[]" || value.Raw == "{}" {
+		return
+	}
+	b.WriteString("|")
+	b.WriteString(label)
+	b.WriteString("=")
+	b.WriteString(codexSeedJSON(value))
+}
+
+func codexSeedJSON(value gjson.Result) string {
+	if !value.Exists() {
+		return ""
+	}
+	if value.Type == gjson.String {
+		return trimCodexSessionSeed(value.String())
+	}
+	raw := value.Raw
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, []byte(raw)); err == nil {
+		raw = buf.String()
+	}
+	return trimCodexSessionSeed(raw)
+}
+
+func trimCodexSessionSeed(text string) string {
+	text = strings.TrimSpace(text)
+	if len(text) > 8192 {
+		return text[:8192]
+	}
+	return text
 }
 
 // getChannelTypeName 获取渠道类型名称（用于日志）

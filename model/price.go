@@ -44,10 +44,9 @@ func GetExtraPriceIsPrompt(key string) bool {
 }
 
 var defaultExtraPrice = map[string]float64{
-	config.UsageExtraCache:            1,
-	config.UsageExtraCachedWrite:      1.25,
-	config.UsageExtraCachedWrite1h:    2,
-	config.UsageExtraCachedRead:       0.1,
+	config.UsageExtraCache:            DefaultCachedReadRatio,
+	config.UsageExtraCachedWrite:      DefaultCachedWriteRatio,
+	config.UsageExtraCachedRead:       DefaultCachedReadRatio,
 	config.UsageExtraInputAudio:       1,
 	config.UsageExtraOutputAudio:      1,
 	config.UsageExtraReasoning:        1,

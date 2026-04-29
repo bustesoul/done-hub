@@ -1,6 +1,7 @@
 package types
 
 import (
+	"done-hub/common/config"
 	"encoding/json"
 	"testing"
 )
@@ -128,6 +129,174 @@ func TestToOpenAIUsage(t *testing.T) {
 	}
 	if usage.PromptTokensDetails.TextTokens != 80 {
 		t.Errorf("TextTokens 应为 80，实际为 %d", usage.PromptTokensDetails.TextTokens)
+	}
+}
+
+func TestResponsesRequest_PromptCacheFieldsRoundTrip(t *testing.T) {
+	body := []byte(`{
+		"model":"gpt-5.5",
+		"prompt_cache_key":"session-a",
+		"prompt_cache_retention":"24h",
+		"safety_identifier":"user-hash",
+		"service_tier":"auto",
+		"user":"legacy-user",
+		"metadata":{"trace":"abc"},
+		"input":"hello"
+	}`)
+
+	var request OpenAIResponsesRequest
+	if err := json.Unmarshal(body, &request); err != nil {
+		t.Fatalf("反序列化失败: %v", err)
+	}
+	if request.PromptCacheKey != "session-a" {
+		t.Fatalf("PromptCacheKey 丢失: %q", request.PromptCacheKey)
+	}
+	if request.PromptCacheRetention != "24h" {
+		t.Fatalf("PromptCacheRetention 丢失: %q", request.PromptCacheRetention)
+	}
+	if request.SafetyIdentifier != "user-hash" {
+		t.Fatalf("SafetyIdentifier 丢失: %q", request.SafetyIdentifier)
+	}
+	if request.ServiceTier != "auto" {
+		t.Fatalf("ServiceTier 丢失: %q", request.ServiceTier)
+	}
+	if request.User != "legacy-user" {
+		t.Fatalf("User 丢失: %q", request.User)
+	}
+	if request.Metadata["trace"] != "abc" {
+		t.Fatalf("Metadata 丢失: %#v", request.Metadata)
+	}
+
+	encoded, err := json.Marshal(&request)
+	if err != nil {
+		t.Fatalf("序列化失败: %v", err)
+	}
+	var output map[string]any
+	if err := json.Unmarshal(encoded, &output); err != nil {
+		t.Fatalf("输出反序列化失败: %v", err)
+	}
+	for _, key := range []string{"prompt_cache_key", "prompt_cache_retention", "safety_identifier", "service_tier", "user", "metadata"} {
+		if _, ok := output[key]; !ok {
+			t.Fatalf("输出缺少字段 %s: %s", key, string(encoded))
+		}
+	}
+}
+
+func TestChatCompletionToResponsesRequest_PreservesCacheFields(t *testing.T) {
+	instructions := "stable instructions"
+	store := false
+	chat := &ChatCompletionRequest{
+		Model:                "gpt-5.5",
+		Messages:             []ChatCompletionMessage{{Role: ChatMessageRoleUser, Content: "hello"}},
+		Instructions:         &instructions,
+		Metadata:             map[string]any{"trace": "abc"},
+		PromptCacheKey:       "cache-key",
+		PromptCacheRetention: "24h",
+		SafetyIdentifier:     "safe-user",
+		ServiceTier:          "priority",
+		Store:                &store,
+		User:                 "legacy-user",
+	}
+
+	responses := chat.ToResponsesRequest()
+	if responses.Instructions != instructions {
+		t.Fatalf("Instructions 未保留: %q", responses.Instructions)
+	}
+	if responses.PromptCacheKey != "cache-key" {
+		t.Fatalf("PromptCacheKey 未保留: %q", responses.PromptCacheKey)
+	}
+	if responses.PromptCacheRetention != "24h" {
+		t.Fatalf("PromptCacheRetention 未保留: %q", responses.PromptCacheRetention)
+	}
+	if responses.SafetyIdentifier != "safe-user" {
+		t.Fatalf("SafetyIdentifier 未保留: %q", responses.SafetyIdentifier)
+	}
+	if responses.ServiceTier != "priority" {
+		t.Fatalf("ServiceTier 未保留: %q", responses.ServiceTier)
+	}
+	if responses.Store == nil || *responses.Store {
+		t.Fatalf("Store 未保留: %#v", responses.Store)
+	}
+	if responses.User != "legacy-user" {
+		t.Fatalf("User 未保留: %q", responses.User)
+	}
+	if responses.Metadata["trace"] != "abc" {
+		t.Fatalf("Metadata 未保留: %#v", responses.Metadata)
+	}
+}
+
+func TestResponsesToChatCompletionRequest_PreservesCacheFields(t *testing.T) {
+	store := false
+	request := &OpenAIResponsesRequest{
+		Model:                "gpt-5.5",
+		Input:                "hello",
+		Instructions:         "stable instructions",
+		Metadata:             map[string]any{"trace": "abc"},
+		PromptCacheKey:       "cache-key",
+		PromptCacheRetention: "24h",
+		SafetyIdentifier:     "safe-user",
+		ServiceTier:          "priority",
+		Store:                &store,
+		User:                 "legacy-user",
+	}
+
+	chat, err := request.ToChatCompletionRequest()
+	if err != nil {
+		t.Fatalf("转换失败: %v", err)
+	}
+	if chat.Instructions == nil || *chat.Instructions != "stable instructions" {
+		t.Fatalf("Instructions 未保留: %#v", chat.Instructions)
+	}
+	if chat.PromptCacheKey != "cache-key" {
+		t.Fatalf("PromptCacheKey 未保留: %q", chat.PromptCacheKey)
+	}
+	if chat.PromptCacheRetention != "24h" {
+		t.Fatalf("PromptCacheRetention 未保留: %q", chat.PromptCacheRetention)
+	}
+	if chat.SafetyIdentifier != "safe-user" {
+		t.Fatalf("SafetyIdentifier 未保留: %q", chat.SafetyIdentifier)
+	}
+	if chat.ServiceTier != "priority" {
+		t.Fatalf("ServiceTier 未保留: %q", chat.ServiceTier)
+	}
+	if chat.Store == nil || *chat.Store {
+		t.Fatalf("Store 未保留: %#v", chat.Store)
+	}
+	if chat.User != "legacy-user" {
+		t.Fatalf("User 未保留: %q", chat.User)
+	}
+	if chat.Metadata["trace"] != "abc" {
+		t.Fatalf("Metadata 未保留: %#v", chat.Metadata)
+	}
+}
+
+func TestUsageGetExtraTokens_PreservesOpenAICachedTokens(t *testing.T) {
+	usage := &Usage{
+		PromptTokensDetails: PromptTokensDetails{
+			CachedTokens: 123,
+		},
+	}
+
+	extra := usage.GetExtraTokens()
+	if extra[config.UsageExtraCache] != 123 {
+		t.Fatalf("cached_tokens 应保留为标准 OpenAI 字段，实际 extra=%#v", extra)
+	}
+}
+
+func TestUsageGetExtraTokens_DoesNotDoubleCountCachedTokens(t *testing.T) {
+	usage := &Usage{
+		PromptTokensDetails: PromptTokensDetails{
+			CachedTokens: 123,
+		},
+		CacheReadInputTokens: 123,
+	}
+
+	extra := usage.GetExtraTokens()
+	if extra[config.UsageExtraCache] != 123 {
+		t.Fatalf("cached_tokens 应保留为标准 OpenAI 字段，实际 extra=%#v", extra)
+	}
+	if extra[config.UsageExtraCachedRead] != 0 {
+		t.Fatalf("cache_read_input_tokens 不应与 cached_tokens 重复计费，实际 extra=%#v", extra)
 	}
 }
 

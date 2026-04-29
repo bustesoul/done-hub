@@ -168,9 +168,11 @@ func (h *CodexStreamHandler) HandlerStream(rawLine *[]byte, dataChan chan string
 		return
 	}
 
-	// 处理终止事件（completed/done/incomplete/failed，包含 usage 信息）
-	if base.IsResponsesTerminalEvent(responsesStream.Type) {
-		base.ExtractResponsesStreamUsage(&responsesStream, h.Usage)
+	// 处理 response.completed 事件（包含 usage 信息）
+	if responsesStream.Type == "response.completed" && responsesStream.Response != nil {
+		if responsesStream.Response.Usage != nil {
+			*h.Usage = *responsesStream.Response.Usage.ToOpenAIUsage()
+		}
 		return
 	}
 
@@ -279,11 +281,11 @@ buildResponse:
 				FinishReason: finishReason,
 			},
 		},
-		Usage: &types.Usage{
-			PromptTokens:     p.Usage.PromptTokens,
-			CompletionTokens: p.Usage.CompletionTokens,
-			TotalTokens:      p.Usage.TotalTokens,
-		},
+		Usage: &types.Usage{},
+	}
+
+	if p.Usage != nil {
+		*response.Usage = *p.Usage
 	}
 
 	return response, nil
