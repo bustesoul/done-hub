@@ -1,11 +1,12 @@
 package types
 
 import (
-	"bytes"
+	"done-hub/common/config"
 	"done-hub/common/utils"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 const (
@@ -141,20 +142,41 @@ func (r *OpenAIResponsesRequest) ToChatCompletionRequest() (*ChatCompletionReque
 	}
 
 	if len(r.Tools) > 0 {
+		isMimoModel := config.IsBuiltinNeed2ResponseModel(r.Model)
+		var seenToolNames map[string]struct{}
+		if isMimoModel {
+			seenToolNames = make(map[string]struct{})
+		}
 		chatTools := make([]*ChatCompletionTool, 0)
 		for _, tool := range r.Tools {
-			if tool.Type != "function" {
-				continue
+			mappedTools := make([]*ChatCompletionTool, 0)
+			if isMimoModel {
+				mappedTools = responsesToolToChatTools(tool)
+			} else if tool.Type == "function" {
+				mappedTools = []*ChatCompletionTool{
+					{
+						Type: tool.Type,
+						Function: ChatCompletionFunction{
+							Name:        tool.Name,
+							Description: tool.Description,
+							Parameters:  tool.Parameters,
+							Strict:      tool.Strict,
+						},
+					},
+				}
 			}
-			chatTools = append(chatTools, &ChatCompletionTool{
-				Type: tool.Type,
-				Function: ChatCompletionFunction{
-					Name:        tool.Name,
-					Description: tool.Description,
-					Parameters:  tool.Parameters,
-					Strict:      tool.Strict,
-				},
-			})
+			for _, chatTool := range mappedTools {
+				if chatTool.Function.Name == "" {
+					continue
+				}
+				if isMimoModel {
+					if _, ok := seenToolNames[chatTool.Function.Name]; ok {
+						continue
+					}
+					seenToolNames[chatTool.Function.Name] = struct{}{}
+				}
+				chatTools = append(chatTools, chatTool)
+			}
 
 		}
 
@@ -187,6 +209,83 @@ func (r *OpenAIResponsesRequest) ToChatCompletionRequest() (*ChatCompletionReque
 	return chat, nil
 }
 
+func responsesToolToChatTools(tool ResponsesTools) []*ChatCompletionTool {
+	switch tool.Type {
+	case "function":
+		return []*ChatCompletionTool{
+			{
+				Type: "function",
+				Function: ChatCompletionFunction{
+					Name:        tool.Name,
+					Description: tool.Description,
+					Parameters:  tool.Parameters,
+					Strict:      tool.Strict,
+				},
+			},
+		}
+	case "namespace":
+		tools := make([]*ChatCompletionTool, 0)
+		for _, nestedTool := range tool.Tools {
+			tools = append(tools, responsesToolToChatTools(nestedTool)...)
+		}
+		return tools
+	case "local_shell":
+		return []*ChatCompletionTool{{
+			Type: "function",
+			Function: ChatCompletionFunction{
+				Name:        "shell",
+				Description: "Execute a shell command on the local machine. Returns stdout, stderr and exit code.",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"command": map[string]any{
+							"type":        "array",
+							"items":       map[string]any{"type": "string"},
+							"description": "Argv array. The first element is the program; remaining elements are arguments.",
+						},
+						"workdir": map[string]any{
+							"type":        "string",
+							"description": "Working directory to run the command in.",
+						},
+						"timeout_ms": map[string]any{
+							"type":        "number",
+							"description": "Timeout in milliseconds.",
+						},
+					},
+					"required": []string{"command"},
+				},
+			},
+		}}
+	case "tool_search":
+		return []*ChatCompletionTool{{
+			Type: "function",
+			Function: ChatCompletionFunction{
+				Name:        "tool_search",
+				Description: tool.Description,
+				Parameters:  tool.Parameters,
+			},
+		}}
+	case "custom":
+		if tool.Name == "" {
+			return nil
+		}
+		return []*ChatCompletionTool{{
+			Type: "function",
+			Function: ChatCompletionFunction{
+				Name:        tool.Name,
+				Description: tool.Description,
+				Parameters: map[string]any{
+					"type":                 "object",
+					"properties":           map[string]any{},
+					"additionalProperties": true,
+				},
+			},
+		}}
+	default:
+		return nil
+	}
+}
+
 func (r *OpenAIResponsesRequest) ParseInput() ([]InputResponses, error) {
 	inputs := make([]InputResponses, 0)
 	if input, ok := r.Input.(string); ok {
@@ -211,8 +310,249 @@ func (r *OpenAIResponsesRequest) ParseInput() ([]InputResponses, error) {
 	return inputs, nil
 }
 
+func sanitizeFunctionCallArguments(arguments string) string {
+	if arguments == "" || !json.Valid([]byte(arguments)) {
+		return "{}"
+	}
+	return arguments
+}
+
+func responsesToolOutputToString(output any) string {
+	if output == nil {
+		return ""
+	}
+	if outputString, ok := output.(string); ok {
+		return outputString
+	}
+
+	contentBytes, err := json.Marshal(output)
+	if err != nil {
+		return fmt.Sprint(output)
+	}
+
+	var contents []ContentResponses
+	if err := json.Unmarshal(contentBytes, &contents); err == nil {
+		contentString := ""
+		droppedImages := 0
+		for _, content := range contents {
+			switch content.Type {
+			case ContentTypeInputText, ContentTypeOutputText:
+				contentString += content.Text
+			case ContentTypeInputImage:
+				droppedImages++
+			}
+		}
+		if droppedImages > 0 {
+			contentString += fmt.Sprintf("[omitted %d image attachment(s) from tool output]", droppedImages)
+		}
+		return contentString
+	}
+
+	return string(contentBytes)
+}
+
+const mimoMixedModeReasoningPlaceholder = "(this turn ran without thinking mode)"
+
+func mimoModelSupportsImages(model string) bool {
+	modelName := strings.ToLower(strings.TrimSpace(model))
+	return modelName == "mimo-v2.5" || strings.Contains(modelName, "omni")
+}
+
+func appendMimoTextPart(parts []ChatMessagePart, text string) []ChatMessagePart {
+	if text == "" {
+		return parts
+	}
+	return append(parts, ChatMessagePart{
+		Type: "text",
+		Text: text,
+	})
+}
+
+func collapseMimoMessageContent(parts []ChatMessagePart) any {
+	if len(parts) == 0 {
+		return " "
+	}
+
+	textOnly := true
+	var builder strings.Builder
+	for _, part := range parts {
+		if part.Type != "text" {
+			textOnly = false
+			break
+		}
+		builder.WriteString(part.Text)
+	}
+	if textOnly {
+		content := builder.String()
+		if content == "" {
+			return " "
+		}
+		return content
+	}
+	return parts
+}
+
+func (r *OpenAIResponsesRequest) contentResponsesToChatMessageParts(contents []ContentResponses) ([]ChatMessagePart, error) {
+	isMimoModel := config.IsBuiltinNeed2ResponseModel(r.Model)
+	supportsImages := !isMimoModel || mimoModelSupportsImages(r.Model)
+	msgContents := make([]ChatMessagePart, 0)
+	hasImage := false
+	hasText := false
+	droppedImages := 0
+	droppedFiles := 0
+
+	for _, contentItem := range contents {
+		if isMimoModel {
+			switch contentItem.Type {
+			case ContentTypeInputText, ContentTypeOutputText:
+				if contentItem.Text == "" {
+					continue
+				}
+				hasText = true
+				msgContents = appendMimoTextPart(msgContents, contentItem.Text)
+				continue
+			case ContentTypeInputImage:
+				if !supportsImages {
+					droppedImages++
+					continue
+				}
+				if contentItem.FileId == "" && contentItem.ImageUrl == "" {
+					return nil, errors.New("input_image must have either file_id or image_url")
+				}
+				hasImage = true
+			case ContentTypeInputFile:
+				droppedFiles++
+				continue
+			}
+		}
+
+		msgContent, err := contentItem.ToChatContent()
+		if err != nil {
+			return nil, err
+		}
+
+		if msgContent != nil {
+			if msgContent.Type == "text" && msgContent.Text != "" {
+				hasText = true
+			}
+			if msgContent.Type == "image_url" {
+				hasImage = true
+			}
+			msgContents = append(msgContents, *msgContent)
+		}
+	}
+
+	if isMimoModel {
+		if droppedImages > 0 {
+			msgContents = appendMimoTextPart(msgContents, fmt.Sprintf("[omitted %d image attachment(s) because %s does not support image input]", droppedImages, r.Model))
+			hasText = true
+		}
+		if droppedFiles > 0 {
+			msgContents = appendMimoTextPart(msgContents, fmt.Sprintf("[omitted %d file attachment(s) because MiMo chat compatibility does not support file input]", droppedFiles))
+			hasText = true
+		}
+		if hasImage && !hasText {
+			msgContents = appendMimoTextPart(msgContents, " ")
+		}
+		if len(msgContents) == 0 {
+			msgContents = appendMimoTextPart(msgContents, " ")
+		}
+	}
+
+	return msgContents, nil
+}
+
+func removeOrphanToolMessages(messages []ChatCompletionMessage) []ChatCompletionMessage {
+	out := make([]ChatCompletionMessage, 0, len(messages))
+	var validToolCallIDs map[string]struct{}
+
+	for _, message := range messages {
+		switch message.Role {
+		case ChatMessageRoleAssistant:
+			if len(message.ToolCalls) > 0 {
+				validToolCallIDs = make(map[string]struct{}, len(message.ToolCalls))
+				for _, toolCall := range message.ToolCalls {
+					if toolCall.Id != "" {
+						validToolCallIDs[toolCall.Id] = struct{}{}
+					}
+				}
+			} else {
+				validToolCallIDs = nil
+			}
+			out = append(out, message)
+		case "tool":
+			if validToolCallIDs == nil || message.ToolCallID == "" {
+				continue
+			}
+			if _, ok := validToolCallIDs[message.ToolCallID]; !ok {
+				continue
+			}
+			out = append(out, message)
+		default:
+			validToolCallIDs = nil
+			out = append(out, message)
+		}
+	}
+
+	return out
+}
+
+func ensureToolCallsHaveOutputs(messages []ChatCompletionMessage) []ChatCompletionMessage {
+	for i := 0; i < len(messages); i++ {
+		message := messages[i]
+		if message.Role != ChatMessageRoleAssistant || len(message.ToolCalls) == 0 {
+			continue
+		}
+
+		seen := make(map[string]struct{})
+		j := i + 1
+		for j < len(messages) && messages[j].Role == "tool" {
+			if messages[j].ToolCallID != "" {
+				seen[messages[j].ToolCallID] = struct{}{}
+			}
+			j++
+		}
+
+		placeholders := make([]ChatCompletionMessage, 0)
+		for _, toolCall := range message.ToolCalls {
+			if toolCall.Id == "" {
+				continue
+			}
+			if _, ok := seen[toolCall.Id]; ok {
+				continue
+			}
+			placeholders = append(placeholders, ChatCompletionMessage{
+				Role:       "tool",
+				ToolCallID: toolCall.Id,
+				Content:    "[tool output missing - no function_call_output was provided for this call_id]",
+			})
+		}
+		if len(placeholders) == 0 {
+			continue
+		}
+
+		next := append([]ChatCompletionMessage{}, messages[:j]...)
+		next = append(next, placeholders...)
+		next = append(next, messages[j:]...)
+		messages = next
+		i = j + len(placeholders) - 1
+	}
+
+	return messages
+}
+
+func backfillMimoReasoningContent(messages []ChatCompletionMessage) {
+	for i := range messages {
+		if messages[i].Role == ChatMessageRoleAssistant && messages[i].ReasoningContent == "" {
+			messages[i].ReasoningContent = mimoMixedModeReasoningPlaceholder
+		}
+	}
+}
+
 func (r *OpenAIResponsesRequest) InputToMessages() ([]ChatCompletionMessage, error) {
 	messages := make([]ChatCompletionMessage, 0)
+	pendingReasoning := ""
+	isMimoModel := config.IsBuiltinNeed2ResponseModel(r.Model)
 
 	if r.Instructions != "" {
 		messages = append(messages, ChatCompletionMessage{
@@ -241,50 +581,91 @@ func (r *OpenAIResponsesRequest) InputToMessages() ([]ChatCompletionMessage, err
 			msg := ChatCompletionMessage{
 				Role: item.Role,
 			}
-			msgContents := make([]ChatMessagePart, 0)
-			for _, contentItem := range contents {
-				msgContent, err := contentItem.ToChatContent()
-				if err != nil {
-					return nil, err
-				}
-
-				if msgContent != nil {
-					msgContents = append(msgContents, *msgContent)
-				}
+			if msg.Role == ChatMessageRoleAssistant && pendingReasoning != "" {
+				msg.ReasoningContent = pendingReasoning
+				pendingReasoning = ""
+			}
+			msgContents, err := r.contentResponsesToChatMessageParts(contents)
+			if err != nil {
+				return nil, err
 			}
 
 			if len(msgContents) == 0 {
 				return nil, errors.New("message contents cannot be empty")
 			}
 
-			msg.Content = msgContents
+			if isMimoModel {
+				msg.Content = collapseMimoMessageContent(msgContents)
+			} else {
+				msg.Content = msgContents
+			}
 			messages = append(messages, msg)
 
 		case InputTypeFunctionCall:
-			messages = append(messages, ChatCompletionMessage{
-				Role: "assistant",
-				ToolCalls: []*ChatCompletionToolCalls{
-					{
-						Id:   item.CallID,
-						Type: "function",
-						Function: &ChatCompletionToolCallsFunction{
-							Name:      item.Name,
-							Arguments: item.ArgumentsString(),
-						},
-					},
+			toolCall := &ChatCompletionToolCalls{
+				Id:   item.CallID,
+				Type: "function",
+				Function: &ChatCompletionToolCallsFunction{
+					Name:      item.Name,
+					Arguments: sanitizeFunctionCallArguments(item.Arguments),
 				},
-			})
+			}
+			if len(messages) > 0 {
+				lastMsg := &messages[len(messages)-1]
+				if lastMsg.Role == ChatMessageRoleAssistant {
+					lastMsg.ToolCalls = append(lastMsg.ToolCalls, toolCall)
+					if lastMsg.Content == nil {
+						lastMsg.Content = ""
+					}
+					if pendingReasoning != "" {
+						lastMsg.ReasoningContent += pendingReasoning
+						pendingReasoning = ""
+					}
+					continue
+				}
+			}
+
+			msg := ChatCompletionMessage{
+				Content:   "",
+				Role:      ChatMessageRoleAssistant,
+				ToolCalls: []*ChatCompletionToolCalls{toolCall},
+			}
+			if pendingReasoning != "" {
+				msg.ReasoningContent = pendingReasoning
+				pendingReasoning = ""
+			}
+			messages = append(messages, msg)
 
 		case InputTypeFunctionCallOutput:
 			messages = append(messages, ChatCompletionMessage{
 				Role:       "tool",
 				ToolCallID: item.CallID,
-				Content:    item.Output,
+				Content:    responsesToolOutputToString(item.Output),
 			})
+
+		case InputTypeReasoning:
+			reasoning := item.GetReasoningString()
+			if reasoning == "" {
+				continue
+			}
+			if len(messages) > 0 {
+				lastMsg := &messages[len(messages)-1]
+				if lastMsg.Role == ChatMessageRoleAssistant {
+					lastMsg.ReasoningContent += reasoning
+					continue
+				}
+			}
+			pendingReasoning += reasoning
 
 		default:
 			continue
 		}
+	}
+
+	if isMimoModel {
+		messages = removeOrphanToolMessages(messages)
+		messages = ensureToolCallsHaveOutputs(messages)
+		backfillMimoReasoningContent(messages)
 	}
 
 	return messages, nil
@@ -315,8 +696,8 @@ type InputResponses struct {
 	Arguments json.RawMessage `json:"arguments,omitempty"`
 
 	// reasoning
-	Summary          *SummaryResponses `json:"summary,omitempty"`
-	EncryptedContent *string           `json:"encrypted_content,omitempty"`
+	Summary          []SummaryResponses `json:"summary,omitempty"`
+	EncryptedContent *string            `json:"encrypted_content,omitempty"`
 
 	// image_generation_call
 	Result any `json:"result,omitempty"`
@@ -364,6 +745,22 @@ func (i *InputResponses) ParseContent() ([]ContentResponses, error) {
 	}
 
 	return contents, nil
+}
+
+func (i InputResponses) GetReasoningString() string {
+	if i.Type != InputTypeReasoning {
+		return ""
+	}
+	if i.EncryptedContent != nil && *i.EncryptedContent != "" {
+		return *i.EncryptedContent
+	}
+	summary := ""
+	for _, item := range i.Summary {
+		if item.Type == ContentTypeSummaryText {
+			summary += item.Text
+		}
+	}
+	return summary
 }
 
 type ContentResponses struct {
@@ -575,6 +972,7 @@ func (t *ResponsesTools) UnmarshalJSON(data []byte) error {
 //   - Genuinely server-executed tools never have these fields set by our converters
 //     (see types/chat.go which only fills them when Type == "function"), so omitempty
 //     keeps the payload clean without an explicit strip.
+//
 // Pass-through is the correct behavior; let the caller decide what to send.
 func (t ResponsesTools) MarshalJSON() ([]byte, error) {
 	type alias ResponsesTools
@@ -683,6 +1081,9 @@ func (m ResponsesOutput) StringContent() string {
 func (m ResponsesOutput) GetSummaryString() string {
 	if m.Type != InputTypeReasoning {
 		return ""
+	}
+	if m.EncryptedContent != nil && *m.EncryptedContent != "" {
+		return *m.EncryptedContent
 	}
 
 	summary := ""
@@ -931,6 +1332,22 @@ func (cc *ChatCompletionResponse) ToResponses(request *OpenAIResponsesRequest) *
 	for _, choice := range cc.Choices {
 		status = ConvertChatStatusToResponses(choice.FinishReason)
 
+		if choice.Message.ReasoningContent != "" {
+			reasoningContent := choice.Message.ReasoningContent
+			outputs = append(outputs, ResponsesOutput{
+				Type:             InputTypeReasoning,
+				ID:               fmt.Sprintf("msg_%s", utils.GetRandomString(48)),
+				Status:           ResponseStatusCompleted,
+				EncryptedContent: &reasoningContent,
+				Summary: []SummaryResponses{
+					{
+						Type: "summary_text",
+						Text: reasoningContent,
+					},
+				},
+			})
+		}
+
 		// 函数调用
 		if choice.FinishReason == FinishReasonToolCalls {
 			for _, tool := range choice.Message.ToolCalls {
@@ -960,20 +1377,6 @@ func (cc *ChatCompletionResponse) ToResponses(request *OpenAIResponsesRequest) *
 					Refusal: &RefusalResponses{
 						Type:    "refusal",
 						Refusal: choice.Message.Refusal,
-					},
-				})
-			}
-
-			if choice.Message.ReasoningContent != "" {
-				outputs = append(outputs, ResponsesOutput{
-					Type:   InputTypeReasoning,
-					ID:     fmt.Sprintf("msg_%s", utils.GetRandomString(48)),
-					Status: ResponseStatusCompleted,
-					Summary: []SummaryResponses{
-						{
-							Type: "summary_text",
-							Text: choice.Message.ReasoningContent,
-						},
 					},
 				})
 			}

@@ -2,6 +2,7 @@ package relay
 
 import (
 	"done-hub/common"
+	"done-hub/common/config"
 	"done-hub/common/logger"
 	"done-hub/common/requester"
 	providersBase "done-hub/providers/base"
@@ -87,7 +88,7 @@ func (r *relayResponses) send() (err *types.OpenAIErrorWithStatusCode, done bool
 
 	channel := r.provider.GetChannel()
 	responsesProvider, ok := r.provider.(providersBase.ResponsesInterface)
-	if !ok || channel.CompatibleResponse || !r.provider.GetSupportedResponse() {
+	if !ok || channel.CompatibleResponse || !r.provider.GetSupportedResponse() || config.IsBuiltinNeed2ResponseModel(r.modelName) {
 		// 做一层Chat的兼容
 		chatProvider, ok := r.provider.(providersBase.ChatInterface)
 		if !ok {

@@ -132,7 +132,7 @@ func testChannel(channel *model.Channel, testModel string) (openaiErr *types.Ope
 
 		response, openAIErrorWithStatusCode = createResponsesForTest(responseProvider, newModelName, false)
 	case "chat":
-		if channel.ShouldUseResponsesForModel(newModelName) {
+		if channel.ShouldUseResponsesForModel(newModelName) && config.ShouldSendChatAsResponses(channel.CompatibleResponse, provider.GetSupportedResponse(), newModelName) {
 			responseProvider, ok := provider.(providers_base.ResponsesInterface)
 			if ok {
 				response, openAIErrorWithStatusCode = createResponsesForTest(responseProvider, newModelName, true)

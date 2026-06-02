@@ -3,6 +3,7 @@ package types
 import (
 	"done-hub/common/config"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -403,5 +404,499 @@ func TestZeroReasoningTokens(t *testing.T) {
 	// 当 ReasoningTokens 为 0 时，OutputTokensDetails 应为 nil
 	if responsesUsage.OutputTokensDetails != nil {
 		t.Error("当 ReasoningTokens 为 0 时，OutputTokensDetails 应为 nil")
+	}
+}
+
+func TestBuiltinNeed2ResponseModels_IncludesMimoModels(t *testing.T) {
+	modelSet := config.BuildNeed2ResponseModelSet(nil)
+	for _, model := range []string{
+		"mimo-v2.5-pro",
+		"mimo-v2-pro",
+		"mimo-v2.5",
+		"mimo-v2-omni",
+		"mimo-v2-flash",
+	} {
+		if _, ok := modelSet[model]; !ok {
+			t.Fatalf("内置 Chat 转 Responses 模型缺少 %s", model)
+		}
+	}
+
+	if config.IsBuiltinNeed2ResponseModel("gpt-5.5") {
+		t.Fatal("gpt-5.5 不应进入 MiMo 专用内置 Chat 转 Responses 模型集合")
+	}
+}
+
+func TestChatCompletionToResponses_PreservesReasoningEncryptedContent(t *testing.T) {
+	reasoning := "full mimo reasoning trace"
+	response := &ChatCompletionResponse{
+		ID:      "chatcmpl-test",
+		Model:   "mimo-v2.5-pro",
+		Created: 123,
+		Usage: &Usage{
+			PromptTokens:     10,
+			CompletionTokens: 5,
+			TotalTokens:      15,
+		},
+		Choices: []ChatCompletionChoice{
+			{
+				FinishReason: FinishReasonToolCalls,
+				Message: ChatCompletionMessage{
+					Role:             ChatMessageRoleAssistant,
+					ReasoningContent: reasoning,
+					ToolCalls: []*ChatCompletionToolCalls{
+						{
+							Id:   "call_1",
+							Type: "function",
+							Function: &ChatCompletionToolCallsFunction{
+								Name:      "read_file",
+								Arguments: `{"path":"README.md"}`,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	responses := response.ToResponses(&OpenAIResponsesRequest{Model: "mimo-v2.5-pro"})
+	if len(responses.Output) != 2 {
+		t.Fatalf("应输出 reasoning 和 function_call 两项，实际 %#v", responses.Output)
+	}
+	reasoningOutput := responses.Output[0]
+	if reasoningOutput.Type != InputTypeReasoning {
+		t.Fatalf("第一项应为 reasoning，实际 %s", reasoningOutput.Type)
+	}
+	if reasoningOutput.EncryptedContent == nil || *reasoningOutput.EncryptedContent != reasoning {
+		t.Fatalf("reasoning encrypted_content 未保留: %#v", reasoningOutput.EncryptedContent)
+	}
+	if reasoningOutput.GetSummaryString() != reasoning {
+		t.Fatalf("reasoning 摘要读取应优先返回完整 encrypted_content")
+	}
+	if responses.Output[1].Type != InputTypeFunctionCall {
+		t.Fatalf("第二项应为 function_call，实际 %s", responses.Output[1].Type)
+	}
+}
+
+func TestResponsesToChatCompletionRequest_RestoresReasoningContentForToolCall(t *testing.T) {
+	reasoning := "full mimo reasoning trace"
+	request := &OpenAIResponsesRequest{
+		Model: "mimo-v2.5-pro",
+		Input: []InputResponses{
+			{
+				Type:             InputTypeReasoning,
+				EncryptedContent: &reasoning,
+				Summary: []SummaryResponses{
+					{
+						Type: ContentTypeSummaryText,
+						Text: "visible summary",
+					},
+				},
+			},
+			{
+				Type:      InputTypeFunctionCall,
+				CallID:    "call_1",
+				Name:      "read_file",
+				Arguments: `{"path":"README.md"}`,
+			},
+			{
+				Type:   InputTypeFunctionCallOutput,
+				CallID: "call_1",
+				Output: "ok",
+			},
+		},
+	}
+
+	chat, err := request.ToChatCompletionRequest()
+	if err != nil {
+		t.Fatalf("转换失败: %v", err)
+	}
+	if len(chat.Messages) != 2 {
+		t.Fatalf("应转换出 assistant tool call 和 tool output 两条消息，实际 %#v", chat.Messages)
+	}
+	assistant := chat.Messages[0]
+	if assistant.Role != ChatMessageRoleAssistant {
+		t.Fatalf("第一条应为 assistant，实际 %s", assistant.Role)
+	}
+	if assistant.ReasoningContent != reasoning {
+		t.Fatalf("未恢复完整 reasoning_content: %q", assistant.ReasoningContent)
+	}
+	if len(assistant.ToolCalls) != 1 || assistant.ToolCalls[0].Function.Name != "read_file" {
+		t.Fatalf("tool_calls 未保留: %#v", assistant.ToolCalls)
+	}
+}
+
+func TestResponsesToChatCompletionRequest_MergesAssistantMessageReasoningAndToolCall(t *testing.T) {
+	reasoning := "reasoning belongs to the tool-call assistant message"
+	request := &OpenAIResponsesRequest{
+		Model: "gpt-5.5",
+		Input: []InputResponses{
+			{
+				Type: InputTypeMessage,
+				Role: ChatMessageRoleAssistant,
+				Content: []ContentResponses{
+					{
+						Type: ContentTypeOutputText,
+						Text: "I will inspect the file.",
+					},
+				},
+			},
+			{
+				Type:             InputTypeReasoning,
+				EncryptedContent: &reasoning,
+			},
+			{
+				Type:      InputTypeFunctionCall,
+				CallID:    "call_1",
+				Name:      "read_file",
+				Arguments: `{"path":"README.md"}`,
+			},
+			{
+				Type:   InputTypeFunctionCallOutput,
+				CallID: "call_1",
+				Output: "ok",
+			},
+		},
+	}
+
+	chat, err := request.ToChatCompletionRequest()
+	if err != nil {
+		t.Fatalf("转换失败: %v", err)
+	}
+	if len(chat.Messages) != 2 {
+		t.Fatalf("assistant message、tool call 和 tool output 不应被拆错，实际 %#v", chat.Messages)
+	}
+
+	assistant := chat.Messages[0]
+	if assistant.Role != ChatMessageRoleAssistant {
+		t.Fatalf("第一条应为 assistant，实际 %s", assistant.Role)
+	}
+	if assistant.ReasoningContent != reasoning {
+		t.Fatalf("reasoning_content 未合并到 tool-call assistant: %q", assistant.ReasoningContent)
+	}
+	if len(assistant.ToolCalls) != 1 || assistant.ToolCalls[0].Id != "call_1" {
+		t.Fatalf("tool_calls 未合并到 assistant: %#v", assistant.ToolCalls)
+	}
+	parts, ok := assistant.Content.([]ChatMessagePart)
+	if !ok || len(parts) != 1 || parts[0].Text != "I will inspect the file." {
+		t.Fatalf("assistant 正文未保留: %#v", assistant.Content)
+	}
+}
+
+func TestResponsesToChatCompletionRequest_SanitizesHistoricalToolCallArguments(t *testing.T) {
+	request := &OpenAIResponsesRequest{
+		Model: "gpt-5.5",
+		Input: []InputResponses{
+			{
+				Type:      InputTypeFunctionCall,
+				CallID:    "call_broken",
+				Name:      "shell",
+				Arguments: `{"command":["bash","-lc","echo a"],"workdir":`,
+			},
+			{
+				Type:   InputTypeFunctionCallOutput,
+				CallID: "call_broken",
+				Output: []ContentResponses{
+					{
+						Type: ContentTypeOutputText,
+						Text: "done",
+					},
+					{
+						Type:     ContentTypeInputImage,
+						ImageUrl: "data:image/png;base64,aaa",
+					},
+				},
+			},
+		},
+	}
+
+	chat, err := request.ToChatCompletionRequest()
+	if err != nil {
+		t.Fatalf("转换失败: %v", err)
+	}
+	if len(chat.Messages) != 2 {
+		t.Fatalf("应转换出 assistant tool call 和 tool output 两条消息，实际 %#v", chat.Messages)
+	}
+
+	assistant := chat.Messages[0]
+	if len(assistant.ToolCalls) != 1 {
+		t.Fatalf("tool_calls 未保留: %#v", assistant.ToolCalls)
+	}
+	if assistant.ToolCalls[0].Function.Arguments != "{}" {
+		t.Fatalf("非 JSON arguments 应被修复为空对象，实际 %q", assistant.ToolCalls[0].Function.Arguments)
+	}
+	if assistant.Content != "" {
+		t.Fatalf("tool-call assistant 不应发送 content:null，实际 %#v", assistant.Content)
+	}
+
+	toolOutput, ok := chat.Messages[1].Content.(string)
+	if !ok {
+		t.Fatalf("tool output 应文本化为 string，实际 %#v", chat.Messages[1].Content)
+	}
+	if toolOutput != "done[omitted 1 image attachment(s) from tool output]" {
+		t.Fatalf("tool output 文本化结果不符合预期: %q", toolOutput)
+	}
+}
+
+func TestResponsesToChatCompletionRequest_MimoDropsOrphanToolOutputs(t *testing.T) {
+	request := &OpenAIResponsesRequest{
+		Model: "mimo-v2.5-pro",
+		Input: []InputResponses{
+			{
+				Type:   InputTypeFunctionCallOutput,
+				CallID: "call_orphan",
+				Output: "orphan output",
+			},
+			{
+				Type:      InputTypeFunctionCall,
+				CallID:    "call_valid",
+				Name:      "shell",
+				Arguments: `{"command":["pwd"]}`,
+			},
+			{
+				Type:   InputTypeFunctionCallOutput,
+				CallID: "call_valid",
+				Output: "ok",
+			},
+		},
+	}
+
+	chat, err := request.ToChatCompletionRequest()
+	if err != nil {
+		t.Fatalf("转换失败: %v", err)
+	}
+	if len(chat.Messages) != 2 {
+		t.Fatalf("应只保留有效 tool output，实际 %#v", chat.Messages)
+	}
+	if chat.Messages[0].Role != ChatMessageRoleAssistant || len(chat.Messages[0].ToolCalls) != 1 {
+		t.Fatalf("第一条应为 assistant tool call，实际 %#v", chat.Messages[0])
+	}
+	if chat.Messages[1].Role != "tool" || chat.Messages[1].ToolCallID != "call_valid" {
+		t.Fatalf("第二条应为有效 tool output，实际 %#v", chat.Messages[1])
+	}
+}
+
+func TestResponsesToChatCompletionRequest_MimoSynthesizesMissingToolOutputs(t *testing.T) {
+	request := &OpenAIResponsesRequest{
+		Model: "mimo-v2.5-pro",
+		Input: []InputResponses{
+			{
+				Type:      InputTypeFunctionCall,
+				CallID:    "call_missing",
+				Name:      "shell",
+				Arguments: `{"command":["pwd"]}`,
+			},
+			{
+				Type: InputTypeMessage,
+				Role: "user",
+				Content: []ContentResponses{
+					{
+						Type: ContentTypeInputText,
+						Text: "continue",
+					},
+				},
+			},
+		},
+	}
+
+	chat, err := request.ToChatCompletionRequest()
+	if err != nil {
+		t.Fatalf("转换失败: %v", err)
+	}
+	if len(chat.Messages) != 3 {
+		t.Fatalf("应补齐缺失 tool output，实际 %#v", chat.Messages)
+	}
+	if chat.Messages[1].Role != "tool" || chat.Messages[1].ToolCallID != "call_missing" {
+		t.Fatalf("缺失 tool output 未补齐: %#v", chat.Messages[1])
+	}
+	if chat.Messages[2].Role != "user" {
+		t.Fatalf("用户消息顺序被破坏: %#v", chat.Messages[2])
+	}
+}
+
+func TestResponsesToChatCompletionRequest_MimoBackfillsReasoningOnlyForMimo(t *testing.T) {
+	makeRequest := func(model string) *OpenAIResponsesRequest {
+		return &OpenAIResponsesRequest{
+			Model: model,
+			Input: []InputResponses{
+				{
+					Type: InputTypeMessage,
+					Role: ChatMessageRoleAssistant,
+					Content: []ContentResponses{
+						{
+							Type: ContentTypeOutputText,
+							Text: "done",
+						},
+					},
+				},
+			},
+		}
+	}
+
+	mimoChat, err := makeRequest("mimo-v2.5-pro").ToChatCompletionRequest()
+	if err != nil {
+		t.Fatalf("MiMo 转换失败: %v", err)
+	}
+	if mimoChat.Messages[0].ReasoningContent == "" {
+		t.Fatalf("MiMo 历史 assistant 应补 reasoning_content: %#v", mimoChat.Messages[0])
+	}
+	if mimoChat.Messages[0].Content != "done" {
+		t.Fatalf("MiMo 纯文本 assistant 应折叠为 string，实际 %#v", mimoChat.Messages[0].Content)
+	}
+
+	gptChat, err := makeRequest("gpt-5.5").ToChatCompletionRequest()
+	if err != nil {
+		t.Fatalf("GPT 转换失败: %v", err)
+	}
+	if gptChat.Messages[0].ReasoningContent != "" {
+		t.Fatalf("普通 GPT 5.5 不应补 MiMo reasoning 占位: %#v", gptChat.Messages[0])
+	}
+	if _, ok := gptChat.Messages[0].Content.([]ChatMessagePart); !ok {
+		t.Fatalf("普通 GPT 5.5 应保持原有 content parts 形态，实际 %#v", gptChat.Messages[0].Content)
+	}
+}
+
+func TestResponsesToChatCompletionRequest_MimoNonVisionDropsImages(t *testing.T) {
+	request := &OpenAIResponsesRequest{
+		Model: "mimo-v2.5-pro",
+		Input: []InputResponses{
+			{
+				Type: InputTypeMessage,
+				Role: "user",
+				Content: []ContentResponses{
+					{
+						Type:     ContentTypeInputImage,
+						ImageUrl: "data:image/png;base64,aaa",
+					},
+				},
+			},
+		},
+	}
+
+	chat, err := request.ToChatCompletionRequest()
+	if err != nil {
+		t.Fatalf("转换失败: %v", err)
+	}
+	content, ok := chat.Messages[0].Content.(string)
+	if !ok {
+		t.Fatalf("MiMo 非视觉模型图片应改写为文本占位，实际 %#v", chat.Messages[0].Content)
+	}
+	if !strings.Contains(content, "omitted 1 image attachment") {
+		t.Fatalf("图片占位不符合预期: %q", content)
+	}
+}
+
+func TestResponsesToChatCompletionRequest_MimoVisionAddsTextForImageOnly(t *testing.T) {
+	request := &OpenAIResponsesRequest{
+		Model: "mimo-v2.5",
+		Input: []InputResponses{
+			{
+				Type: InputTypeMessage,
+				Role: "user",
+				Content: []ContentResponses{
+					{
+						Type:     ContentTypeInputImage,
+						ImageUrl: "https://example.com/a.png",
+					},
+				},
+			},
+		},
+	}
+
+	chat, err := request.ToChatCompletionRequest()
+	if err != nil {
+		t.Fatalf("转换失败: %v", err)
+	}
+	parts, ok := chat.Messages[0].Content.([]ChatMessagePart)
+	if !ok {
+		t.Fatalf("MiMo 视觉模型应保留 image_url parts，实际 %#v", chat.Messages[0].Content)
+	}
+	if len(parts) != 2 || parts[0].Type != "image_url" || parts[1].Type != "text" {
+		t.Fatalf("image-only 消息应补 text part，实际 %#v", parts)
+	}
+}
+
+func TestResponsesToChatCompletionRequest_DedupesFlattenedTools(t *testing.T) {
+	request := &OpenAIResponsesRequest{
+		Model: "mimo-v2.5-pro",
+		Input: "hi",
+		Tools: []ResponsesTools{
+			{
+				Type:        "function",
+				Name:        "shell",
+				Description: "first",
+			},
+			{
+				Type: "namespace",
+				Tools: []ResponsesTools{
+					{
+						Type:        "function",
+						Name:        "shell",
+						Description: "duplicate",
+					},
+					{
+						Type:        "tool_search",
+						Description: "search tools",
+					},
+				},
+			},
+			{
+				Type: "local_shell",
+			},
+		},
+	}
+
+	chat, err := request.ToChatCompletionRequest()
+	if err != nil {
+		t.Fatalf("转换失败: %v", err)
+	}
+	if len(chat.Tools) != 2 {
+		t.Fatalf("应去重后保留 shell 和 tool_search 两个工具，实际 %#v", chat.Tools)
+	}
+	if chat.Tools[0].Function.Name != "shell" || chat.Tools[0].Function.Description != "first" {
+		t.Fatalf("应保留第一个 shell 定义，实际 %#v", chat.Tools[0])
+	}
+	if chat.Tools[1].Function.Name != "tool_search" {
+		t.Fatalf("应保留 tool_search，实际 %#v", chat.Tools[1])
+	}
+}
+
+func TestResponsesToChatCompletionRequest_Gpt55KeepsExistingToolMapping(t *testing.T) {
+	request := &OpenAIResponsesRequest{
+		Model: "gpt-5.5",
+		Input: "hi",
+		Tools: []ResponsesTools{
+			{
+				Type:        "function",
+				Name:        "shell",
+				Description: "first",
+			},
+			{
+				Type:        "function",
+				Name:        "shell",
+				Description: "duplicate kept for non-MiMo compatibility",
+			},
+			{
+				Type: "local_shell",
+			},
+			{
+				Type: "namespace",
+				Tools: []ResponsesTools{
+					{
+						Type: "tool_search",
+					},
+				},
+			},
+		},
+	}
+
+	chat, err := request.ToChatCompletionRequest()
+	if err != nil {
+		t.Fatalf("转换失败: %v", err)
+	}
+	if len(chat.Tools) != 2 {
+		t.Fatalf("普通 GPT 5.5 应保持原有仅透传 function 工具行为，实际 %#v", chat.Tools)
+	}
+	if chat.Tools[0].Function.Description != "first" || chat.Tools[1].Function.Description != "duplicate kept for non-MiMo compatibility" {
+		t.Fatalf("普通 GPT 5.5 function 工具顺序或内容被改变: %#v", chat.Tools)
 	}
 }

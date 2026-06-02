@@ -80,7 +80,7 @@ func (r *relayChat) getPromptTokens() (int, error) {
 
 func (r *relayChat) send() (err *types.OpenAIErrorWithStatusCode, done bool) {
 	channel := r.provider.GetChannel()
-	if channel != nil && channel.ShouldUseResponsesForModel(r.modelName) {
+	if channel != nil && channel.ShouldUseResponsesForModel(r.modelName) && config.ShouldSendChatAsResponses(channel.CompatibleResponse, r.provider.GetSupportedResponse(), r.modelName) {
 		if resProvider, ok := r.provider.(providersBase.ResponsesInterface); ok {
 			return r.compatibleSend(resProvider)
 		}
