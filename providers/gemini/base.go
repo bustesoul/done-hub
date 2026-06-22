@@ -449,10 +449,12 @@ func (p *GeminiProvider) GetRequestHeaders() (headers map[string]string) {
 			logger.SysError("[Gemini] failed to get service account token: " + err.Error())
 			return headers
 		}
+		p.ApplyCustomHeaders(headers)
 		headers["Authorization"] = "Bearer " + token
 		return headers
 	}
 
+	p.ApplyCustomHeaders(headers)
 	headers["x-goog-api-key"] = p.Channel.Key
 	return headers
 }

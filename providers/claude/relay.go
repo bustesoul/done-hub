@@ -172,13 +172,17 @@ func (p *ClaudeProvider) getClaudeNativeRequest(request *ClaudeRequest) (*http.R
 		headers["Accept"] = "text/event-stream"
 	}
 	// 仅在用户没自定义 anthropic-beta 时设默认值（与 getChatRequest 保持一致）
-	if !hasHeaderCI(headers, "anthropic-beta") {
+	if !p.HeaderExists(headers, "anthropic-beta") {
 		if model_utils.HasPrefixCaseInsensitive(request.Model, "claude-3-5-sonnet") {
 			headers["anthropic-beta"] = "max-tokens-3-5-sonnet-2024-07-15"
 		} else if model_utils.HasPrefixCaseInsensitive(request.Model, "claude-3-7-sonnet") {
 			headers["anthropic-beta"] = "output-128k-2025-02-19"
 		}
 	}
+
+	// 默认头都完成后再应用自定义模型请求头，确保 skip 只补缺失。
+	p.ApplyCustomHeaders(headers)
+	p.applyFixedHeaders(headers)
 
 	// 尝试基于原始字节透传。走 NewRequestWithCustomParamsBytes 而不是直接 NewRequest，
 	// 这样 Channel 的自定义参数（remove_params / 模型粒度覆盖 / overwrite 等）仍会通过

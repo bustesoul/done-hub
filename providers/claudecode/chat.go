@@ -104,6 +104,13 @@ func (p *ClaudeCodeProvider) getChatRequest(claudeRequest *claude.ClaudeRequest)
 	// 应用 ClaudeCode 默认请求头
 	p.applyDefaultHeaders(headers)
 
+	// 默认头完成后再应用自定义模型请求头，确保 skip 只补缺失。
+	authorization := headers["Authorization"]
+	p.ApplyCustomHeaders(headers)
+	if authorization != "" {
+		p.SetHeader(headers, "Authorization", authorization)
+	}
+
 	if claudeRequest.Stream {
 		headers["Accept"] = "text/event-stream"
 	}

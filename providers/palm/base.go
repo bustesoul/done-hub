@@ -63,6 +63,7 @@ func errorHandle(palmError *PaLMErrorResponse) *types.OpenAIError {
 func (p *PalmProvider) GetRequestHeaders() (headers map[string]string) {
 	headers = make(map[string]string)
 	p.CommonRequestHeaders(headers)
+	p.ApplyCustomHeaders(headers)
 	headers["x-goog-api-key"] = p.Channel.Key
 
 	return headers

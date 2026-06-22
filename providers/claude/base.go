@@ -68,41 +68,34 @@ func (p *ClaudeProvider) GetRequestHeaders() (headers map[string]string) {
 	headers = make(map[string]string)
 	p.CommonRequestHeaders(headers)
 
-	headers["x-api-key"] = p.Channel.Key
-	anthropicVersion := p.Context.Request.Header.Get("anthropic-version")
-	if anthropicVersion == "" {
-		anthropicVersion = "2023-06-01"
-	}
-	headers["anthropic-version"] = anthropicVersion
-
-	// 透传客户端的 anthropic-beta（仅在 ModelHeaders 未自定义时生效）
-	if _, exists := headers["anthropic-beta"]; !exists {
+	// 透传客户端的 anthropic-beta。ModelHeaders 会在调用方补齐默认头后应用。
+	if p.Context != nil {
 		if anthropicBeta := p.Context.Request.Header.Get("anthropic-beta"); anthropicBeta != "" {
 			headers["anthropic-beta"] = anthropicBeta
 		}
+
+		// 透传 Claude Code 客户端指纹头，避免上游把请求识别为非客户端。
+		// 透传规则：除了少数由本函数显式管理的头（host / x-api-key / anthropic-version /
+		// anthropic-beta），其它客户端头都透传。这样不需要为每一种新指纹头单独维护白名单：
+		//   - User-Agent：Claude Code CLI 携带 "claude-cli/x.x.x"，上游常用此识别客户端
+		//   - x-app：relay-code-github 等中转会校验非空
+		//   - x-stainless-*：Anthropic SDK 指纹头
+		//   - 任何未来新增的客户端识别头
+		for headerName, values := range p.Context.Request.Header {
+			if len(values) == 0 || values[0] == "" {
+				continue
+			}
+			if isProviderManagedHeader(headerName) {
+				continue
+			}
+			if p.HeaderExists(headers, headerName) {
+				continue
+			}
+			headers[strings.ToLower(headerName)] = values[0]
+		}
 	}
 
-	// 透传 Claude Code 客户端指纹头，避免上游把请求识别为非客户端。
-	// 全部对 ModelHeaders 自定义的值让步（通过 hasHeaderCI 做大小写不敏感判断）。
-	//
-	// 透传规则：除了少数由本函数显式管理的头（host / x-api-key / anthropic-version /
-	// anthropic-beta），其它客户端头都透传。这样不需要为每一种新指纹头单独维护白名单：
-	//   - User-Agent：Claude Code CLI 携带 "claude-cli/x.x.x"，上游常用此识别客户端
-	//   - x-app：relay-code-github 等中转会校验非空
-	//   - x-stainless-*：Anthropic SDK 指纹头
-	//   - 任何未来新增的客户端识别头
-	for headerName, values := range p.Context.Request.Header {
-		if len(values) == 0 || values[0] == "" {
-			continue
-		}
-		if isProviderManagedHeader(headerName) {
-			continue
-		}
-		if hasHeaderCI(headers, headerName) {
-			continue
-		}
-		headers[strings.ToLower(headerName)] = values[0]
-	}
+	p.applyFixedHeaders(headers)
 
 	return headers
 }
@@ -138,20 +131,16 @@ func isProviderManagedHeader(name string) bool {
 	return false
 }
 
-// hasHeaderCI 对 headers map 做大小写不敏感的存在性检查。
-// headers 的 key 大小写有两类来源：
-//  1. 本文件自身的写入（如 "x-api-key" / "anthropic-version" / "anthropic-beta"），统一小写；
-//  2. CommonRequestHeaders 注入的 channel.ModelHeaders（用户自定义 JSON，可能写 "X-App" 也可能写 "x-app"）。
-//
-// 第 2 类的随意大小写就是这里需要兜底的场景；若不兜底，"已被用户自定义"会被误判为未设，进而被透传覆盖。
-func hasHeaderCI(headers map[string]string, name string) bool {
-	lower := strings.ToLower(name)
-	for k := range headers {
-		if strings.ToLower(k) == lower {
-			return true
-		}
+func (p *ClaudeProvider) applyFixedHeaders(headers map[string]string) {
+	p.SetHeader(headers, "x-api-key", p.Channel.Key)
+	anthropicVersion := ""
+	if p.Context != nil {
+		anthropicVersion = p.Context.Request.Header.Get("anthropic-version")
 	}
-	return false
+	if anthropicVersion == "" {
+		anthropicVersion = "2023-06-01"
+	}
+	p.SetHeader(headers, "anthropic-version", anthropicVersion)
 }
 
 func (p *ClaudeProvider) GetFullRequestURL(requestURL string) string {

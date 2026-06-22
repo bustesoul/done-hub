@@ -144,6 +144,15 @@ func (p *ClaudeCodeProvider) GetRequestHeaders() map[string]string {
 	headers := make(map[string]string)
 	p.CommonRequestHeaders(headers)
 
+	// 固定默认头 + 客户端透传头（在应用 ModelHeaders 之前写入，以便 skip 语义正确判定）
+	// 客户端传了 anthropic-version 就透传，否则用默认值
+	headers["anthropic-version"] = "2023-06-01"
+	if p.Context != nil {
+		if anthropicVersion := p.Context.Request.Header.Get("anthropic-version"); anthropicVersion != "" {
+			headers["anthropic-version"] = anthropicVersion
+		}
+	}
+
 	token, err := p.GetToken()
 	if err != nil {
 		if p.Context != nil {
@@ -155,14 +164,6 @@ func (p *ClaudeCodeProvider) GetRequestHeaders() map[string]string {
 	}
 
 	headers["Authorization"] = "Bearer " + token
-	headers["anthropic-version"] = "2023-06-01"
-
-	if p.Context != nil {
-		anthropicVersion := p.Context.Request.Header.Get("anthropic-version")
-		if anthropicVersion != "" {
-			headers["anthropic-version"] = anthropicVersion
-		}
-	}
 
 	return headers
 }

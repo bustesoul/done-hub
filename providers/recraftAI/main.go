@@ -72,6 +72,7 @@ func errorHandle(recraftError *RecraftError) *types.OpenAIError {
 func (p *RecraftProvider) GetRequestHeaders() (headers map[string]string) {
 	headers = make(map[string]string)
 	p.CommonRequestHeaders(headers)
+	p.ApplyCustomHeaders(headers)
 	headers["Authorization"] = fmt.Sprintf("Bearer %s", p.Channel.Key)
 
 	return headers

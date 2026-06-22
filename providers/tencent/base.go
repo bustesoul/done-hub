@@ -68,6 +68,8 @@ func errorHandle(tencentError *TencentResponseError) *types.OpenAIError {
 func (p *TencentProvider) GetRequestHeaders() (headers map[string]string) {
 	headers = make(map[string]string)
 	p.CommonRequestHeaders(headers)
+	// 认证通过签名注入，此处仅应用自定义模型请求头（含 skip 语义）
+	p.ApplyCustomHeaders(headers)
 
 	return headers
 }

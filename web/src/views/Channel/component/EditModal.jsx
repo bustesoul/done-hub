@@ -800,9 +800,10 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
 
     if (values.model_headers) {
       try {
+        // skip=true 编码为 {"value":v,"skip":true}，否则保留为字符串 v
         const modelHeader = values.model_headers.reduce((acc, item) => {
           if (item.key && item.value) {
-            acc[item.key] = item.value;
+            acc[item.key] = item.skip ? { value: item.value, skip: true } : item.value;
           }
           return acc;
         }, {});
@@ -970,11 +971,15 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
         // if (data.model_headers) {
         data.model_headers =
           data.model_headers !== ''
-            ? Object.entries(JSON.parse(data.model_headers)).map(([key, value], index) => ({
-                index,
-                key,
-                value
-              }))
+            ? Object.entries(JSON.parse(data.model_headers)).map(([key, raw], index) => {
+                const isObj = raw !== null && typeof raw === 'object';
+                return {
+                  index,
+                  key,
+                  value: isObj ? raw.value : raw,
+                  skip: isObj ? raw.skip === true : false
+                };
+              })
             : [];
         // }
 
@@ -1854,6 +1859,7 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
                         onChange={(newValue) => {
                           setFieldValue('model_headers', newValue);
                         }}
+                        enableSkip
                         error={Boolean(touched.model_headers && errors.model_headers)}
                         label={{
                           keyName: customizeT(inputLabel.model_headers),

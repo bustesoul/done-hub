@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -102,7 +103,9 @@ func (p *BaseProvider) GetFullRequestURL(requestURL string, _ string) string {
 	return fmt.Sprintf("%s%s", baseURL, requestURL)
 }
 
-// 获取请求头
+// CommonRequestHeaders 仅设置 Content-Type / Accept 基础请求头
+// 自定义模型请求头（ModelHeaders）请在所有 provider 默认头、客户端透传头构造完成后、
+// 认证头写入前，调用 ApplyCustomHeaders 应用，以使 skip 语义生效。
 func (p *BaseProvider) CommonRequestHeaders(headers map[string]string) {
 	if p.Context != nil {
 		headers["Content-Type"] = p.Context.Request.Header.Get("Content-Type")
@@ -114,18 +117,107 @@ func (p *BaseProvider) CommonRequestHeaders(headers map[string]string) {
 	if headers["Content-Type"] == "" {
 		headers["Content-Type"] = "application/json"
 	}
-	// 自定义header
-	if p.Channel.ModelHeaders != nil {
-		var customHeaders map[string]string
-		err := json.Unmarshal([]byte(*p.Channel.ModelHeaders), &customHeaders)
-		if err == nil {
-			for key, value := range customHeaders {
-				headers[key] = value
-			}
-		}
-	}
 	// 请求头透传
 	p.applyHeaderOverride(headers)
+}
+
+// ApplyCustomHeaders 应用自定义模型请求头（ModelHeaders）
+//
+// 调用时机：在 provider 的默认头、客户端透传头都已写入 headers 之后、写入真正不可覆盖的
+// 认证头（Authorization / x-api-key 等）之前调用。
+//
+// 值支持两种形态：
+//  1. 字符串（旧格式/简单用法）：{"X-Hdr": "v"} -> 覆盖写入
+//  2. 对象：{"X-Hdr": {"value": "v", "skip": true}}
+//     - skip=true  时仅补充缺失（同名 key 已存在则跳过）
+//     - skip=false 时覆盖写入
+//
+// 查找使用 http.CanonicalHeaderKey 规范化，避免大小写不一致导致的误判
+// （例如已有 "Content-Type" 时配置 "content-type" 仍能命中）。
+func (p *BaseProvider) ApplyCustomHeaders(headers map[string]string) {
+	if p.Channel.ModelHeaders == nil {
+		return
+	}
+	var rawHeaders map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(*p.Channel.ModelHeaders), &rawHeaders); err != nil {
+		return
+	}
+	for key, raw := range rawHeaders {
+		trimmed := strings.TrimSpace(string(raw))
+		if len(trimmed) == 0 {
+			continue
+		}
+
+		var value string
+		var skip bool
+
+		// 字符串形态：直接覆盖
+		if trimmed[0] == '"' {
+			if err := json.Unmarshal(raw, &value); err != nil {
+				continue
+			}
+		} else {
+			// 对象形态：解析 value 与 skip
+			var hdr struct {
+				Value interface{} `json:"value"`
+				Skip  bool        `json:"skip"`
+			}
+			if err := json.Unmarshal(raw, &hdr); err != nil {
+				continue
+			}
+			// 强制将 value 转为字符串，避免 number/bool 等被静默丢弃
+			switch v := hdr.Value.(type) {
+			case string:
+				value = v
+			case float64:
+				value = fmt.Sprintf("%v", v)
+			case bool:
+				value = strconv.FormatBool(v)
+			case nil:
+				value = ""
+			default:
+				// 复杂类型不支持，跳过该条
+				continue
+			}
+			skip = hdr.Skip
+		}
+
+		existingKeys := matchingHeaderKeys(headers, key)
+		if skip && len(existingKeys) > 0 {
+			// 同名已存在 -> 跳过
+			continue
+		}
+		// 覆盖写入（保留用户配置的原始 key 形态）
+		setHeaderCanonical(headers, key, value)
+	}
+}
+
+func matchingHeaderKeys(headers map[string]string, key string) []string {
+	canonKey := http.CanonicalHeaderKey(key)
+	keys := make([]string, 0, 1)
+	for k := range headers {
+		if http.CanonicalHeaderKey(k) == canonKey {
+			keys = append(keys, k)
+		}
+	}
+	return keys
+}
+
+func setHeaderCanonical(headers map[string]string, key, value string) {
+	for _, existingKey := range matchingHeaderKeys(headers, key) {
+		if existingKey != key {
+			delete(headers, existingKey)
+		}
+	}
+	headers[key] = value
+}
+
+func (p *BaseProvider) SetHeader(headers map[string]string, key, value string) {
+	setHeaderCanonical(headers, key, value)
+}
+
+func (p *BaseProvider) HeaderExists(headers map[string]string, key string) bool {
+	return len(matchingHeaderKeys(headers, key)) > 0
 }
 
 // passthroughSkipHeaders 是通配(*)/正则透传时禁止转发的请求头：

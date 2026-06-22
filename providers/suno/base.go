@@ -52,6 +52,8 @@ type SunoProvider struct {
 func (p *SunoProvider) GetRequestHeaders() (headers map[string]string) {
 	headers = make(map[string]string)
 	p.CommonRequestHeaders(headers)
+	// 应用自定义模型请求头（含 skip 语义），在认证头之前
+	p.ApplyCustomHeaders(headers)
 	if p.Channel.Key != "" {
 		headers["Authorization"] = fmt.Sprintf("Bearer %s", p.Channel.Key)
 	}

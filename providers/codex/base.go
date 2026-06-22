@@ -182,7 +182,7 @@ func (p *CodexProvider) getRequestHeadersInternal() (map[string]string, error) {
 		p.filterAndPassthroughClientHeaders(headers)
 	}
 
-	// 第2层：应用渠道自定义请求头（ModelHeaders）- 会覆盖客户端请求头
+	// 第2层：基础请求头（Content-Type / Accept）
 	p.CommonRequestHeaders(headers)
 
 	// 第3层：获取 Token
@@ -235,8 +235,22 @@ func (p *CodexProvider) filterAndPassthroughClientHeaders(headers map[string]str
 func (p *CodexProvider) GetRequestHeaders() map[string]string {
 	headers, _ := p.getRequestHeadersInternal()
 	if headers == nil {
+		// token 获取失败的降级路径：仅基础头 + 自定义头
 		headers = make(map[string]string)
 		p.CommonRequestHeaders(headers)
+		p.ApplyCustomHeaders(headers)
+		return headers
+	}
+
+	authorization := headers["Authorization"]
+	accountID := headers["chatgpt-account-id"]
+	p.ApplyCustomHeaders(headers)
+	if authorization != "" {
+		p.SetHeader(headers, "Authorization", authorization)
+	}
+	p.SetHeader(headers, "Content-Type", "application/json")
+	if accountID != "" {
+		p.SetHeader(headers, "chatgpt-account-id", accountID)
 	}
 	return headers
 }

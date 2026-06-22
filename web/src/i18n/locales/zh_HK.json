@@ -155,6 +155,7 @@
     "copyModels": "複製模型",
     "mapAdd": "新增{{name}}",
     "mapAddByJson": "透過 JSON 添加{{name}}",
+    "mapSkip": "跳過同名（僅補充缺失）",
     "mapJsonInput": "JSON 輸入",
     "listJsonError": "JSON格式錯誤，請確保輸入的是陣列格式。",
     "listJsonHelperText": "請輸入JSON數組格式，例如：[\"項目1\", \"項目2\", \"項目3\"]",

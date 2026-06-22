@@ -62,6 +62,8 @@ func errorHandle(tunyuanError *HunyuanResponseError) *types.OpenAIError {
 func (p *HunyuanProvider) GetRequestHeaders() (headers map[string]string) {
 	headers = make(map[string]string)
 	p.CommonRequestHeaders(headers)
+	// 认证通过签名计算后注入，此处仅应用自定义模型请求头（含 skip 语义）
+	p.ApplyCustomHeaders(headers)
 
 	return headers
 }

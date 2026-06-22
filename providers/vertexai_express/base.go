@@ -93,7 +93,9 @@ func (p *VertexAIExpressProvider) GetFullRequestURL(requestURL string, modelName
 func (p *VertexAIExpressProvider) GetRequestHeaders() (headers map[string]string) {
 	headers = make(map[string]string)
 	p.CommonRequestHeaders(headers)
-	// API Key 通过 URL 参数传递，不需要在 header 中设置
+	// API Key 通过 URL 参数传递，不需要在 header 中设置认证头
+	// 应用自定义模型请求头（含 skip 语义）
+	p.ApplyCustomHeaders(headers)
 	return headers
 }
 

@@ -73,6 +73,7 @@ func errorHandle(zhipuError *ZhipuError) *types.OpenAIError {
 func (p *ZhipuProvider) GetRequestHeaders() (headers map[string]string) {
 	headers = make(map[string]string)
 	p.CommonRequestHeaders(headers)
+	p.ApplyCustomHeaders(headers)
 	headers["Authorization"] = p.getZhipuToken()
 	return headers
 }

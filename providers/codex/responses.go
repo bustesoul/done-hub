@@ -434,10 +434,22 @@ func (p *CodexProvider) getResponsesRequest(request *types.OpenAIResponsesReques
 	p.applyDefaultHeaders(headers)
 	p.applyPromptCacheHeaders(headers, request.PromptCacheKey)
 
+	// 默认头和 prompt cache 头完成后再应用自定义模型请求头，确保 skip 只补缺失。
+	authorization := headers["Authorization"]
+	accountID := headers["chatgpt-account-id"]
+	p.ApplyCustomHeaders(headers)
+	if authorization != "" {
+		p.SetHeader(headers, "Authorization", authorization)
+	}
+	p.SetHeader(headers, "Content-Type", "application/json")
+	if accountID != "" {
+		p.SetHeader(headers, "chatgpt-account-id", accountID)
+	}
+
 	if request.Stream {
-		headers["Accept"] = "text/event-stream"
+		p.SetHeader(headers, "Accept", "text/event-stream")
 	} else {
-		headers["Accept"] = "application/json"
+		p.SetHeader(headers, "Accept", "application/json")
 	}
 
 	// 使用 Requester 创建请求

@@ -320,6 +320,7 @@
     "copyModels": "复制模型",
     "mapAdd": "添加{{name}}",
     "mapAddByJson": "通过JSON添加{{name}}",
+    "mapSkip": "跳过同名（仅补充缺失）",
     "mapJsonInput": "JSON 输入",
     "listJsonError": "JSON格式错误，请确保输入的是数组格式",
     "listJsonHelperText": "请输入JSON数组格式，例如：[\"项目1\", \"项目2\", \"项目3\"]",

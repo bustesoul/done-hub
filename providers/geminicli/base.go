@@ -389,6 +389,9 @@ func (p *GeminiCliProvider) getRequestHeadersInternal() (headers map[string]stri
 		return nil, fmt.Errorf("failed to get token: %w", err)
 	}
 
+	// 应用自定义模型请求头（含 skip 语义），在认证头之前
+	p.ApplyCustomHeaders(headers)
+
 	headers["Authorization"] = fmt.Sprintf("Bearer %s", token)
 	headers["Content-Type"] = "application/json"
 

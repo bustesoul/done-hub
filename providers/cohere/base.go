@@ -63,6 +63,7 @@ func errorHandle(CohereError *CohereError) *types.OpenAIError {
 func (p *CohereProvider) GetRequestHeaders() (headers map[string]string) {
 	headers = make(map[string]string)
 	p.CommonRequestHeaders(headers)
+	p.ApplyCustomHeaders(headers)
 	headers["Authorization"] = fmt.Sprintf("Bearer %s", p.Channel.Key)
 
 	return headers

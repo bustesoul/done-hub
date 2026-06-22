@@ -62,6 +62,7 @@ func errorHandle(CozeError *CozeStatus) *types.OpenAIError {
 func (p *CozeProvider) GetRequestHeaders() (headers map[string]string) {
 	headers = make(map[string]string)
 	p.CommonRequestHeaders(headers)
+	p.ApplyCustomHeaders(headers)
 	headers["Authorization"] = fmt.Sprintf("Bearer %s", p.Channel.Key)
 
 	return headers

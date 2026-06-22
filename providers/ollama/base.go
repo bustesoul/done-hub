@@ -64,7 +64,6 @@ func errorHandle(OllamaError *OllamaError) *types.OpenAIError {
 func (p *OllamaProvider) GetRequestHeaders() (headers map[string]string) {
 	headers = make(map[string]string)
 	p.CommonRequestHeaders(headers)
-	headers["Authorization"] = fmt.Sprintf("Bearer %s", p.Channel.Key)
 
 	otherHeaders := p.Channel.Plugin.Data()["headers"]
 
@@ -76,6 +75,10 @@ func (p *OllamaProvider) GetRequestHeaders() (headers map[string]string) {
 
 		headers[key] = headerValue
 	}
+
+	// 应用自定义模型请求头（含 skip 语义），在认证头之前
+	p.ApplyCustomHeaders(headers)
+	headers["Authorization"] = fmt.Sprintf("Bearer %s", p.Channel.Key)
 
 	return headers
 }

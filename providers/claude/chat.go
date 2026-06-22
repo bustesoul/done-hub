@@ -104,13 +104,17 @@ func (p *ClaudeProvider) getChatRequest(claudeRequest *ClaudeRequest) (*http.Req
 	}
 
 	// 只在用户没有自定义 anthropic-beta 时才设置默认值
-	if _, exists := headers["anthropic-beta"]; !exists {
+	if !p.HeaderExists(headers, "anthropic-beta") {
 		if model_utils.HasPrefixCaseInsensitive(claudeRequest.Model, "claude-3-5-sonnet") {
 			headers["anthropic-beta"] = "max-tokens-3-5-sonnet-2024-07-15"
 		} else if model_utils.HasPrefixCaseInsensitive(claudeRequest.Model, "claude-3-7-sonnet") {
 			headers["anthropic-beta"] = "output-128k-2025-02-19"
 		}
 	}
+
+	// 默认头都完成后再应用自定义模型请求头，确保 skip 只补缺失。
+	p.ApplyCustomHeaders(headers)
+	p.applyFixedHeaders(headers)
 
 	// 使用BaseProvider的统一方法创建请求，支持额外参数处理
 	req, errWithCode := p.NewRequestWithCustomParams(http.MethodPost, fullRequestURL, claudeRequest, headers, claudeRequest.Model)

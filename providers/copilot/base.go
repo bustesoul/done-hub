@@ -197,6 +197,7 @@ func (p *CopilotProvider) GetRequestHeaders() map[string]string {
 	if headers == nil {
 		headers = make(map[string]string)
 		p.CommonRequestHeaders(headers)
+		p.ApplyCustomHeaders(headers)
 	}
 	return headers
 }
@@ -224,7 +225,6 @@ func (p *CopilotProvider) buildCopilotHeaders(initiator string) (map[string]stri
 	headers := make(map[string]string)
 	p.CommonRequestHeaders(headers)
 
-	headers["Authorization"] = "Bearer " + token
 	headers["Content-Type"] = "application/json"
 	headers["editor-version"] = DefaultEditorVersion
 	headers["editor-plugin-version"] = DefaultEditorPluginVersion
@@ -235,6 +235,11 @@ func (p *CopilotProvider) buildCopilotHeaders(initiator string) (map[string]stri
 	headers["x-vscode-user-agent-library-version"] = "electron-fetch"
 	headers["x-request-id"] = uuid.New().String()
 	headers["X-Initiator"] = initiator
+
+	// 应用自定义模型请求头（含 skip 语义），在认证头之前
+	p.ApplyCustomHeaders(headers)
+
+	headers["Authorization"] = "Bearer " + token
 
 	return headers, nil
 }

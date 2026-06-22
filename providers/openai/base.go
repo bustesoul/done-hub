@@ -195,12 +195,14 @@ func (p *OpenAIProvider) GetFullRequestURL(requestURL string, modelName string) 
 func (p *OpenAIProvider) GetRequestHeaders() (headers map[string]string) {
 	headers = make(map[string]string)
 	p.CommonRequestHeaders(headers)
+
+	// 应用自定义模型请求头（含 skip 语义），在认证头之前
+	p.ApplyCustomHeaders(headers)
+
 	if p.IsAzure {
 		headers["api-key"] = p.Channel.Key
-		headers["Authorization"] = fmt.Sprintf("Bearer %s", p.Channel.Key)
-	} else {
-		headers["Authorization"] = fmt.Sprintf("Bearer %s", p.Channel.Key)
 	}
+	headers["Authorization"] = fmt.Sprintf("Bearer %s", p.Channel.Key)
 
 	return headers
 }

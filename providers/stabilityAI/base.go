@@ -73,6 +73,7 @@ func (p *StabilityAIProvider) GetFullRequestURL(requestURL string, modelName str
 func (p *StabilityAIProvider) GetRequestHeaders() (headers map[string]string) {
 	headers = make(map[string]string)
 	p.CommonRequestHeaders(headers)
+	p.ApplyCustomHeaders(headers)
 	headers["Authorization"] = "Bearer " + p.Channel.Key
 
 	return headers

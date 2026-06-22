@@ -124,10 +124,12 @@ func (p *AliProvider) GetFullRequestURL(requestURL string, modelName string) str
 func (p *AliProvider) GetRequestHeaders() (headers map[string]string) {
 	headers = make(map[string]string)
 	p.CommonRequestHeaders(headers)
-	headers["Authorization"] = fmt.Sprintf("Bearer %s", p.Channel.Key)
 	if p.Channel.Other != "" {
 		headers["X-DashScope-Plugin"] = p.Channel.Other
 	}
+	// 应用自定义模型请求头（含 skip 语义），在认证头之前
+	p.ApplyCustomHeaders(headers)
+	headers["Authorization"] = fmt.Sprintf("Bearer %s", p.Channel.Key)
 
 	return headers
 }

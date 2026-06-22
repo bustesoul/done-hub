@@ -165,6 +165,7 @@
     "copyModels": "モデルをコピーします",
     "mapAdd": "{{name}}を追加",
     "mapAddByJson": "JSONを使用して{{name}}を追加します。",
+    "mapSkip": "同名スキップ（欠落のみ補完）",
     "mapJsonInput": "JSON 入力",
     "listJsonError": "JSON形式が間違っています。入力が配列形式であることを確認してください。",
     "listJsonHelperText": "JSON配列形式を入力してください。例：[\"プロジェクト1\", \"プロジェクト2\", \"プロジェクト3\"]",
