@@ -2,6 +2,7 @@ package codex
 
 import (
 	"done-hub/types"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -115,6 +116,73 @@ func TestPrepareCodexRequest_DerivesStablePromptCacheKeyFromInputPrefix(t *testi
 	}
 	if firstTurn.PromptCacheKey != secondTurn.PromptCacheKey {
 		t.Fatalf("相同稳定前缀应派生相同 PromptCacheKey: %q != %q", firstTurn.PromptCacheKey, secondTurn.PromptCacheKey)
+	}
+}
+
+func TestPrepareCodexRequest_PromotesSystemInputToInstructions(t *testing.T) {
+	raw := []byte(`{
+		"model": "gpt-5.5",
+		"input": [
+			{"type": "message", "role": "system", "content": [{"type": "input_text", "text": "system rules"}]},
+			{"type": "message", "role": "developer", "content": "developer rules"},
+			{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "hello"}]}
+		],
+		"instructions": "existing instructions"
+	}`)
+	request := &types.OpenAIResponsesRequest{}
+	if err := json.Unmarshal(raw, request); err != nil {
+		t.Fatalf("请求解析失败: %v", err)
+	}
+
+	provider := &CodexProvider{}
+	provider.prepareCodexRequest(request)
+
+	expectedInstructions := "existing instructions\n\nsystem rules\n\ndeveloper rules"
+	if request.Instructions != expectedInstructions {
+		t.Fatalf("instructions 未正确提升: %q", request.Instructions)
+	}
+	input, ok := request.Input.([]any)
+	if !ok {
+		t.Fatalf("input 类型应保持 JSON 解码后的 []any，实际: %T", request.Input)
+	}
+	if len(input) != 1 {
+		t.Fatalf("system/developer 消息应被移除，实际: %#v", input)
+	}
+	message, ok := input[0].(map[string]any)
+	if !ok || message["role"] != types.ChatMessageRoleUser {
+		t.Fatalf("剩余消息应是 user，实际: %#v", input[0])
+	}
+}
+
+func TestPrepareCodexRequest_UsesPromotedSystemInputInsteadOfDefaultInstructions(t *testing.T) {
+	request := &types.OpenAIResponsesRequest{
+		Model: "gpt-5.5",
+		Input: []types.InputResponses{
+			{
+				Type:    types.InputTypeMessage,
+				Role:    types.ChatMessageRoleSystem,
+				Content: "system rules",
+			},
+			{
+				Type:    types.InputTypeMessage,
+				Role:    types.ChatMessageRoleUser,
+				Content: "hello",
+			},
+		},
+	}
+
+	provider := &CodexProvider{}
+	provider.prepareCodexRequest(request)
+
+	if request.Instructions != "system rules" {
+		t.Fatalf("应使用提升后的 system 文本作为 instructions，实际: %q", request.Instructions)
+	}
+	input, ok := request.Input.([]types.InputResponses)
+	if !ok {
+		t.Fatalf("input 类型应保持 typed slice，实际: %T", request.Input)
+	}
+	if len(input) != 1 || input[0].Role != types.ChatMessageRoleUser {
+		t.Fatalf("system 消息应被移除，实际: %#v", input)
 	}
 }
 

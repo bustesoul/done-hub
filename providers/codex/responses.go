@@ -153,9 +153,95 @@ func (p *CodexProvider) adaptCodexCLI(request *types.OpenAIResponsesRequest) {
 	request.TopP = nil
 	request.MaxOutputTokens = 0
 
+	p.promoteInputInstructions(request)
+
 	if strings.TrimSpace(request.Instructions) == "" {
 		request.Instructions = CodexCLIInstructions
 	}
+}
+
+func (p *CodexProvider) promoteInputInstructions(request *types.OpenAIResponsesRequest) {
+	if request == nil || request.Input == nil {
+		return
+	}
+
+	var promoted []string
+	switch input := request.Input.(type) {
+	case []types.InputResponses:
+		filtered := make([]types.InputResponses, 0, len(input))
+		for _, item := range input {
+			if isCodexInstructionRole(item.Role) {
+				if text := codexInputInstructionText(item); text != "" {
+					promoted = append(promoted, text)
+				}
+				continue
+			}
+			filtered = append(filtered, item)
+		}
+		request.Input = filtered
+	case []any:
+		filtered := make([]any, 0, len(input))
+		for _, item := range input {
+			instruction, ok := parseCodexInstructionItem(item)
+			if !ok {
+				filtered = append(filtered, item)
+				continue
+			}
+			if text := codexInputInstructionText(instruction); text != "" {
+				promoted = append(promoted, text)
+			}
+		}
+		request.Input = filtered
+	}
+
+	if len(promoted) == 0 {
+		return
+	}
+	instructions := strings.TrimSpace(request.Instructions)
+	promotedText := strings.Join(promoted, "\n\n")
+	if instructions == "" {
+		request.Instructions = promotedText
+		return
+	}
+	request.Instructions = instructions + "\n\n" + promotedText
+}
+
+func isCodexInstructionRole(role string) bool {
+	switch strings.TrimSpace(role) {
+	case types.ChatMessageRoleSystem, types.ChatMessageRoleDeveloper:
+		return true
+	default:
+		return false
+	}
+}
+
+func parseCodexInstructionItem(item any) (types.InputResponses, bool) {
+	raw, err := json.Marshal(item)
+	if err != nil {
+		return types.InputResponses{}, false
+	}
+	var input types.InputResponses
+	if err := json.Unmarshal(raw, &input); err != nil {
+		return types.InputResponses{}, false
+	}
+	return input, isCodexInstructionRole(input.Role)
+}
+
+func codexInputInstructionText(input types.InputResponses) string {
+	contents, err := input.ParseContent()
+	if err != nil {
+		return ""
+	}
+	parts := make([]string, 0, len(contents))
+	for _, content := range contents {
+		if content.Type != "" && content.Type != types.ContentTypeInputText && content.Type != types.ContentTypeOutputText {
+			continue
+		}
+		if text := strings.TrimSpace(content.Text); text != "" {
+			parts = append(parts, text)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 func (p *CodexProvider) resolvePromptCacheKey(request *types.OpenAIResponsesRequest) string {
