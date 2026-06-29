@@ -496,7 +496,7 @@ func TestResponsesToChatCompletionRequest_RestoresReasoningContentForToolCall(t 
 				Type:      InputTypeFunctionCall,
 				CallID:    "call_1",
 				Name:      "read_file",
-				Arguments: `{"path":"README.md"}`,
+				Arguments: json.RawMessage(`{"path":"README.md"}`),
 			},
 			{
 				Type:   InputTypeFunctionCallOutput,
@@ -548,7 +548,7 @@ func TestResponsesToChatCompletionRequest_MergesAssistantMessageReasoningAndTool
 				Type:      InputTypeFunctionCall,
 				CallID:    "call_1",
 				Name:      "read_file",
-				Arguments: `{"path":"README.md"}`,
+				Arguments: json.RawMessage(`{"path":"README.md"}`),
 			},
 			{
 				Type:   InputTypeFunctionCallOutput,
@@ -590,7 +590,7 @@ func TestResponsesToChatCompletionRequest_SanitizesHistoricalToolCallArguments(t
 				Type:      InputTypeFunctionCall,
 				CallID:    "call_broken",
 				Name:      "shell",
-				Arguments: `{"command":["bash","-lc","echo a"],"workdir":`,
+				Arguments: json.RawMessage(`{"command":["bash","-lc","echo a"],"workdir":`),
 			},
 			{
 				Type:   InputTypeFunctionCallOutput,
@@ -650,7 +650,7 @@ func TestResponsesToChatCompletionRequest_MimoDropsOrphanToolOutputs(t *testing.
 				Type:      InputTypeFunctionCall,
 				CallID:    "call_valid",
 				Name:      "shell",
-				Arguments: `{"command":["pwd"]}`,
+				Arguments: json.RawMessage(`{"command":["pwd"]}`),
 			},
 			{
 				Type:   InputTypeFunctionCallOutput,
@@ -683,7 +683,7 @@ func TestResponsesToChatCompletionRequest_MimoSynthesizesMissingToolOutputs(t *t
 				Type:      InputTypeFunctionCall,
 				CallID:    "call_missing",
 				Name:      "shell",
-				Arguments: `{"command":["pwd"]}`,
+				Arguments: json.RawMessage(`{"command":["pwd"]}`),
 			},
 			{
 				Type: InputTypeMessage,

@@ -1,6 +1,7 @@
 package types
 
 import (
+	"bytes"
 	"done-hub/common/config"
 	"done-hub/common/utils"
 	"encoding/json"
@@ -288,6 +289,13 @@ func responsesToolToChatTools(tool ResponsesTools) []*ChatCompletionTool {
 
 func (r *OpenAIResponsesRequest) ParseInput() ([]InputResponses, error) {
 	inputs := make([]InputResponses, 0)
+	// Fast path: Input 已是 []InputResponses（内部构造/测试场景），直接返回，
+	// 跳过 marshal 往返——否则 Arguments 为 json.RawMessage 且内容非法时，
+	// json.Marshal 会先校验合法性而报错，绕过 sanitizeFunctionCallArguments 的容错。
+	if typed, ok := r.Input.([]InputResponses); ok {
+		inputs = append(inputs, typed...)
+		return inputs, nil
+	}
 	if input, ok := r.Input.(string); ok {
 		inputs = append(inputs, InputResponses{
 			Role:    "user",
@@ -607,7 +615,7 @@ func (r *OpenAIResponsesRequest) InputToMessages() ([]ChatCompletionMessage, err
 				Type: "function",
 				Function: &ChatCompletionToolCallsFunction{
 					Name:      item.Name,
-					Arguments: sanitizeFunctionCallArguments(item.Arguments),
+					Arguments: sanitizeFunctionCallArguments(jsonRawMessageToString(item.Arguments)),
 				},
 			}
 			if len(messages) > 0 {
@@ -867,6 +875,8 @@ type ResponsesTools struct {
 	Description string `json:"description,omitempty"`
 	Parameters  any    `json:"parameters,omitempty"`
 	Strict      *bool  `json:"strict,omitempty"`
+	// Function / client-executed tool_search
+	Execution string `json:"execution,omitempty"` // tool_search: "client" or empty(server)
 	// Namespace
 	// Codex 最新版会把 MCP 工具注册为 namespace tool，内部 tools 数组必须完整透传。
 	Tools []ResponsesTools `json:"tools,omitempty"`
