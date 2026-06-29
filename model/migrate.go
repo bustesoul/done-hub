@@ -795,6 +795,7 @@ func migrationAfter(db *gorm.DB) error {
 		addOldTokenMaxId(),
 		addExtraRatios(),
 		migrateTokenLimitsStructure(),
+		addCachedWrite1hRatio(),
 		installQuotaFixProcedures("202604290001"),
 		installQuotaFixProcedures("202604290002"),
 	})

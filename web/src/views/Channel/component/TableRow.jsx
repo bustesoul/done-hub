@@ -1101,68 +1101,78 @@ export default function ChannelTableRow({
                         alignItems: 'center'
                       }}
                     >
-                      {item.other}
-                    </Label>
-                  </Box>
-                </Grid>
-              )}
-              {item.remark && (
-                <Grid item xs={12}>
-                  <Box
-                    sx={{
-                      display: 'flex',
-                      flexWrap: 'wrap',
-                      gap: '10px',
-                      m: 1,
-                      px: 1,
-                      py: 0.5,
-                      bgcolor: 'background.neutral',
-                      borderRadius: 1,
-                      alignItems: 'center'
-                    }}
-                  >
-                    <Typography
-                      variant="body1"
-                      component="div"
+                      <Typography
+                        variant="body1"
+                        component="div"
+                        sx={{
+                          fontWeight: 600,
+                          color: 'text.secondary',
+                          display: 'flex',
+                          alignItems: 'center'
+                        }}
+                      >
+                        <Icon icon="mdi:cog-outline" sx={{ mr: 0.5 }} /> {t('channel_row.otherArg')}
+                      </Typography>
+                      <Label
+                        variant="soft"
+                        color="default"
+                        key={item.other}
+                        sx={{ fontSize: '0.75rem', cursor: 'pointer' }}
+                        onClick={() => {
+                          copy(item.other, t('channel_row.otherArg'));
+                        }}
+                      >
+                        {item.other}
+                      </Label>
+                    </Box>
+                  </Grid>
+                )}
+                {item.remark && (
+                  <Grid item xs={12}>
+                    <Box
                       sx={{
-                        fontWeight: 600,
-                        color: 'text.secondary',
                         display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: '10px',
+                        m: 1,
+                        px: 1,
+                        py: 0.5,
+                        bgcolor: 'background.neutral',
+                        borderRadius: 1,
                         alignItems: 'center'
                       }}
                     >
-                      <Icon icon="mdi:note-text-outline" sx={{ mr: 0.5 }}/> {t('channel_row.remark')}
-                    </Typography>
-                    <Typography variant="body2">{item.remark}</Typography>
-                  </Box>
-                </Grid>
-              )}
-              {item.tag && (
-                <Grid item xs={12}>
-                  <Box sx={{ m: 1, mt: 2 }}>
-                    <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
-                      <Stack direction="row" alignItems="center" spacing={1}>
-                        <Typography
-                          variant="subtitle1"
-                          fontWeight="bold"
-                          sx={{
-                            borderLeft: '3px solid',
-                            borderColor: 'primary.main',
-                            pl: 1.5,
-                            py: 0.5
-                          }}
-                        >
-                          {t('channel_row.tagChannelList')} ({totalTagChannels})
-                        </Typography>
-                        <Tooltip title={t('channel_row.refreshList')} placement="top">
-                          <IconButton
-                            size="small"
-                            color="primary"
-                            onClick={() => {
-                              setIsTagChannelsLoading(true)
-                              fetchTagChannels().finally(() => {
-                                setIsTagChannelsLoading(false)
-                              })
+                      <Typography
+                        variant="body1"
+                        component="div"
+                        sx={{
+                          fontWeight: 600,
+                          color: 'text.secondary',
+                          display: 'flex',
+                          alignItems: 'center'
+                        }}
+                      >
+                        <Icon icon="mdi:note-text-outline" sx={{ mr: 0.5 }} /> {t('channel_row.remark')}
+                      </Typography>
+                      <Typography variant="body2">{item.remark}</Typography>
+                    </Box>
+                  </Grid>
+                )}
+                {item.tag && (
+                  <Grid item xs={12}>
+                    {/* 面板已被 sticky 钉在视口内，子表格在此独立横向滚动；不再加横向 margin，
+                      让子表格右缘与面板右缘（即主表格「操作」列冻结右缘）对齐 */}
+                    <Box sx={{ mt: 2, mb: 1 }}>
+                      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
+                        <Stack direction="row" alignItems="center" spacing={1}>
+                          <Typography
+                            variant="subtitle1"
+                            fontWeight="bold"
+                            sx={{
+                              borderLeft: '3px solid',
+                              borderColor: 'primary.main',
+                              pl: 1.5,
+                              py: 0.5
                             }}
                           >
                             {t('channel_row.tagChannelList')} ({totalTagChannels})
@@ -1404,41 +1414,53 @@ export default function ChannelTableRow({
                                             </IconButton>
                                           </Tooltip>
 
-                                        <Tooltip title={t('common.edit')} placement="top">
-                                          <IconButton
-                                            size="small"
-                                            sx={{ p: 0.5, color: 'primary.main' }}
-                                            onClick={() => {
-                                              setCurrentTestingChannel(channel)
-                                              setEditedChannel({ name: channel.name, key: channel.key, remark: channel.remark || '' })
-                                              simpleChannelEdit.onTrue()
-                                            }}
-                                          >
-                                            <Icon icon="solar:pen-bold" width={18} height={18}/>
-                                          </IconButton>
-                                        </Tooltip>
-
-                                        <Tooltip title={t('channel_index.actions')} placement="top">
-                                          <IconButton
-                                            size="small"
-                                            sx={{ p: 0.5 }}
-                                            onClick={(event) => {
-                                              // 设置当前操作的渠道
-                                              setCurrentTestingChannel(channel)
-                                              // 打开更多操作菜单
-                                              popover.onOpen(event)
-                                            }}
-                                          >
-                                            <Icon icon="eva:more-vertical-fill" width={18} height={18}/>
-                                          </IconButton>
-                                        </Tooltip>
-                                      </Stack>
-                                    </TableCell>
-                                  </TableRow>
-                                ))}
-                              </TableBody>
-                            </Table>
-                          </PerfectScrollbar>
+                                          <Tooltip title={t('channel_index.actions')} placement="top">
+                                            <IconButton
+                                              size="small"
+                                              sx={{ p: 0.5 }}
+                                              onClick={(event) => {
+                                                // 设置当前操作的渠道
+                                                setCurrentTestingChannel(channel);
+                                                // 打开更多操作菜单
+                                                popover.onOpen(event);
+                                              }}
+                                            >
+                                              <Icon icon="eva:more-vertical-fill" width={18} height={18} />
+                                            </IconButton>
+                                          </Tooltip>
+                                        </Stack>
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </TableContainer>
+                          </Box>
+                          <Box sx={{ display: 'flex', justifyContent: 'flex-end', pt: 1 }}>
+                            <TablePagination
+                              component="div"
+                              count={totalTagChannels}
+                              page={tagPage}
+                              onPageChange={handleChangeTagPage}
+                              rowsPerPage={tagRowsPerPage}
+                              onRowsPerPageChange={handleChangeTagRowsPerPage}
+                              rowsPerPageOptions={PAGE_SIZE_OPTIONS}
+                              labelRowsPerPage={t('channel_row.rowsPerPage')}
+                              labelDisplayedRows={({ from, to, count }) => t('channel_row.paginationDisplayedRows', { from, to, count })}
+                              sx={{
+                                '.MuiTablePagination-toolbar': {
+                                  minHeight: '40px',
+                                  pl: 1
+                                },
+                                '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': {
+                                  fontSize: '0.75rem'
+                                },
+                                '.MuiTablePagination-select': {
+                                  padding: '0 8px'
+                                }
+                              }}
+                            />
+                          </Box>
                         </Box>
                       )}
                     </Box>
@@ -1672,118 +1694,26 @@ export default function ChannelTableRow({
         }
       />
 
-      {/* 添加子渠道的简化编辑对话框 */}
-      <Dialog open={simpleChannelEdit.value} onClose={simpleChannelEdit.onFalse} fullWidth maxWidth="md">
-        <DialogTitle>{t('common.edit')}</DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            margin="dense"
-            id="sub-channel-name"
-            label={t('channel_index.channelName')}
-            type="text"
-            fullWidth
-            variant="outlined"
-            value={editedChannel.name}
-            onChange={(e) => setEditedChannel({ ...editedChannel, name: e.target.value })}
-            sx={{ mb: 2, mt: 1 }}
-          />
-          <TextField
-            margin="dense"
-            id="sub-channel-key"
-            label={t('channel_row.key')}
-            type="text"
-            fullWidth
-            multiline
-            minRows={3}
-            variant="outlined"
-            value={editedChannel.key}
-            onChange={(e) => setEditedChannel({ ...editedChannel, key: e.target.value })}
-          />
-          <TextField
-            margin="dense"
-            id="sub-channel-remark"
-            label={t('channel_edit.remark')}
-            type="text"
-            fullWidth
-            multiline
-            minRows={2}
-            variant="outlined"
-            value={editedChannel.remark || ''}
-            onChange={(e) => setEditedChannel({ ...editedChannel, remark: e.target.value })}
-            sx={{ mt: 2 }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={simpleChannelEdit.onFalse}>{t('common.cancel')}</Button>
-          <Button
-            variant="contained"
-            color="primary"
-            onClick={() => {
-              if (!editedChannel?.name?.trim()) {
-                showError(t('channel_edit.requiredName'))
-                return
-              }
-              if (!editedChannel?.key?.trim()) {
-                showError(t('channel_row.keyRequired'))
-                return
-              }
-
-              // 确保这里使用currentTestingChannel的ID，因为这是子渠道
-              const channelId = currentTestingChannel.id
-
-              // 创建一个包含名称和密钥的对象来更新
-              const updateData = {
-                id: channelId,
-                name: editedChannel.name,
-                key: editedChannel.key,
-                remark: editedChannel.remark
-              }
-
-              // 使用PUT请求更新渠道
-              API.put('/api/channel/', updateData)
-                .then((res) => {
-                  if (res && res.data) {
-                    const { success, message } = res.data
-                    if (success) {
-                      showSuccess(t('channel_edit.editSuccess'))
-
-                      // 更新本地状态
-                      setTagChannels((prev) =>
-                        prev.map((c) =>
-                          c.id === channelId
-                            ? {
-                              ...c,
-                              name: editedChannel.name,
-                              key: editedChannel.key,
-                              remark: editedChannel.remark
-                            }
-                            : c
-                        )
-                      )
-
-                      onRefresh(false) // 刷新父组件数据
-                    } else {
-                      showError(message || t('channel_edit.editError'))
-                    }
-                  } else {
-                    showError(t('channel_edit.editError'))
-                  }
-                })
-                .catch((error) => {
-                  const errorMessage = error.response?.data?.message || error.message || '未知错误'
-                  showError(t('channel_edit.editError', { message: errorMessage }))
-                })
-                .finally(() => {
-                  simpleChannelEdit.onFalse()
-                  setCurrentTestingChannel(null)
-                })
-            }}
-          >
-            {t('common.submit')}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {/* 子渠道完整编辑：复用主 EditModal（isTag=false），可单独修改该标签成员的全部配置；
+          保存只作用于该渠道（/api/channel/），共享字段会在下次分组统一编辑时被覆盖（弹窗内有提示）。 */}
+      <EditeModal
+        open={subEdit.value}
+        onCancel={subEdit.onFalse}
+        onOk={(status) => {
+          subEdit.onFalse();
+          if (status === true) {
+            fetchTagChannels(); // 刷新子表格
+            onTagStatsRefresh?.(); // 刷新标签聚合（类型/分组/启用数等）
+            onRefresh(false); // 刷新父列表代表行
+          }
+        }}
+        channelId={subEditChannelId}
+        groupOptions={groupOptions}
+        isTag={false}
+        modelOptions={modelOptions}
+        prices={prices}
+        tags={tags}
+      />
     </>
   );
 }

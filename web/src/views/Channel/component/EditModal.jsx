@@ -63,7 +63,6 @@ const getValidationSchema = (t) =>
     type: Yup.number().required(t('channel_edit.requiredChannel')),
     key: Yup.string().when('is_edit', { is: false, then: Yup.string().required(t('channel_edit.requiredKey')) }),
     other: Yup.string(),
-    remark: Yup.string(),
     proxy: Yup.string(),
     test_model: Yup.string(),
     models: Yup.array().min(1, t('channel_edit.requiredModels')),
@@ -75,9 +74,11 @@ const getValidationSchema = (t) =>
     }),
     model_mapping: Yup.array(),
     model_headers: Yup.array(),
+    header_override: Yup.array(),
     custom_parameter: Yup.string().nullable(),
+    remark: Yup.string(),
     need2response_models: Yup.string().nullable()
-  })
+  });
 
 const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, modelOptions, prices, tags }) => {
   const { t } = useTranslation();
@@ -129,16 +130,6 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
   const [codexAuthCode, setCodexAuthCode] = useState('');
   const [codexSubmitting, setCodexSubmitting] = useState(false);
 
-  // Copilot OAuth 相关状态
-  const [copilotOAuthVisible, setCopilotOAuthVisible] = useState(false)
-  const [copilotSessionId, setCopilotSessionId] = useState('')
-  const [copilotUserCode, setCopilotUserCode] = useState('')
-  const [copilotVerificationURI, setCopilotVerificationURI] = useState('')
-  const [copilotPolling, setCopilotPolling] = useState(false)
-  const [copilotSubmitting, setCopilotSubmitting] = useState(false)
-  const copilotPollingRef = useRef(null)
-  const copilotSetFieldValueRef = useRef(null)
-
   // 清理 OAuth 相关资源
   const cleanupOAuth = () => {
     if (pollingIntervalRef.current) {
@@ -148,23 +139,11 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
     if (oauthWindow && !oauthWindow.closed) {
       oauthWindow.close();
     }
-    setOauthWindow(null)
-    setOauthLoading(false)
-    setOauthState(null)
-    oauthHandledRef.current = false
-    // Copilot OAuth 清理
-    if (copilotPollingRef.current) {
-      clearInterval(copilotPollingRef.current)
-      copilotPollingRef.current = null
-    }
-    setCopilotOAuthVisible(false)
-    setCopilotPolling(false)
-    setCopilotSubmitting(false)
-    setCopilotSessionId('')
-    setCopilotUserCode('')
-    setCopilotVerificationURI('')
-    copilotSetFieldValueRef.current = null
-  }
+    setOauthWindow(null);
+    setOauthLoading(false);
+    setOauthState(null);
+    oauthHandledRef.current = false;
+  };
 
   // 包装 onCancel，添加清理逻辑
   const handleCancel = () => {
@@ -701,108 +680,6 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
     setCodexSubmitting(false);
   };
 
-  // Copilot OAuth - 步骤1: 发起 Device Flow
-  const handleCopilotOAuth = async(setFieldValue) => {
-    try {
-      setCopilotSubmitting(true)
-      copilotSetFieldValueRef.current = setFieldValue
-
-      const res = await API.post('/api/copilot/oauth/device-code', {})
-
-      if (!res.data.success) {
-        showError(res.data.message || '获取设备码失败')
-        setCopilotSubmitting(false)
-        return
-      }
-
-      const { session_id, user_code, verification_uri, interval } = res.data.data
-
-      setCopilotSessionId(session_id)
-      setCopilotUserCode(user_code)
-      setCopilotVerificationURI(verification_uri)
-      setCopilotOAuthVisible(true)
-      setCopilotSubmitting(false)
-      setCopilotPolling(true)
-
-      // 自动打开 GitHub 验证页面
-      window.open(verification_uri, '_blank')
-
-      // 开始自动轮询
-      const pollInterval = (interval || 5) * 1000
-      const pollingTimer = setInterval(async() => {
-        try {
-          const pollRes = await API.post('/api/copilot/oauth/poll', { session_id })
-
-          if (!pollRes.data.success) {
-            // 错误 → 停止轮询
-            clearInterval(pollingTimer)
-            copilotPollingRef.current = null
-            setCopilotPolling(false)
-            showError(pollRes.data.message || '轮询失败')
-            return
-          }
-
-          const pollData = pollRes.data.data
-          if (pollData.status === 'success') {
-            clearInterval(pollingTimer)
-            copilotPollingRef.current = null
-            setCopilotPolling(false)
-
-            // 填充 key
-            if (copilotSetFieldValueRef.current) {
-              copilotSetFieldValueRef.current('key', pollData.github_token)
-            }
-
-            const loginInfo = pollData.github_login ? ` (${pollData.github_login})` : ''
-            showSuccess(`GitHub Copilot 授权成功${loginInfo}！Token 已自动填充`)
-
-            // 关闭对话框
-            setCopilotOAuthVisible(false)
-            setCopilotSessionId('')
-            setCopilotUserCode('')
-            setCopilotVerificationURI('')
-            copilotSetFieldValueRef.current = null
-          }
-          // status === 'pending' → 继续轮询
-        } catch (pollErr) {
-          // 网络错误不停止轮询，只记录
-          console.warn('Copilot poll error:', pollErr)
-        }
-      }, pollInterval)
-
-      copilotPollingRef.current = pollingTimer
-
-      // 15 分钟超时
-      setTimeout(() => {
-        if (copilotPollingRef.current) {
-          clearInterval(copilotPollingRef.current)
-          copilotPollingRef.current = null
-          setCopilotPolling(false)
-          showError('GitHub 授权超时，请重试')
-        }
-      }, 15 * 60 * 1000)
-
-    } catch (error) {
-      showError('获取设备码失败: ' + (error.message || error))
-      setCopilotSubmitting(false)
-    }
-  }
-
-  // 取消 Copilot OAuth
-  const handleCopilotCancelOAuth = () => {
-    if (copilotPollingRef.current) {
-      clearInterval(copilotPollingRef.current)
-      copilotPollingRef.current = null
-    }
-    setCopilotOAuthVisible(false)
-    setCopilotPolling(false)
-    setCopilotSubmitting(false)
-    setCopilotSessionId('')
-    setCopilotUserCode('')
-    setCopilotVerificationURI('')
-    copilotSetFieldValueRef.current = null
-  }
-
   const handleTypeChange = (setFieldValue, typeValue, values) => {
     // 处理插件事务
     if (pluginList[typeValue]) {
@@ -1122,13 +999,13 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
           data.custom_parameter = '';
         }
 
+        data.base_url = data.base_url ?? '';
+        data.cost_ratio = data.cost_ratio ?? 0;
+        data.remark = data.remark ?? '';
         if (data.need2response_models === null || data.need2response_models === undefined) {
-          data.need2response_models = ''
+          data.need2response_models = '';
         }
-
-        data.base_url = data.base_url ?? ''
-        data.remark = data.remark ?? ''
-        data.is_edit = true
+        data.is_edit = true;
         if (data.plugin === null) {
           data.plugin = {};
         }
@@ -1188,195 +1065,24 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
                     {t('channel_edit.tagGroupOverwriteWarning', { count: tagGroupCount })}
                   </Alert>
                 )}
-
-                <FormControl fullWidth error={Boolean(touched.tag && errors.tag)}
-                             sx={{ ...theme.typography.otherInput }}>
-                  <InputLabel htmlFor="channel-tag-label">{customizeT(inputLabel.tag)}</InputLabel>
-                  <OutlinedInput
-                    id="channel-tag-label"
-                    label={customizeT(inputLabel.tag)}
-                    type="text"
-                    value={values.tag}
-                    name="tag"
-                    onBlur={handleBlur}
-                    onChange={handleChange}
-                    inputProps={{}}
-                    aria-describedby="helper-text-channel-tag-label"
-                  />
-                  {touched.tag && errors.tag ? (
-                    <FormHelperText error id="helper-tex-channel-tag-label">
-                      {errors.tag}
-                    </FormHelperText>
-                  ) : (
-                    <FormHelperText id="helper-tex-channel-tag-label"> {customizeT(inputPrompt.tag)} </FormHelperText>
-                  )}
-                </FormControl>
-
-                {!isTag && (
-                  <FormControl fullWidth error={Boolean(touched.name && errors.name)}
-                               sx={{ ...theme.typography.otherInput }}>
-                    <InputLabel htmlFor="channel-name-label">{customizeT(inputLabel.name)}</InputLabel>
-                    <OutlinedInput
-                      id="channel-name-label"
-                      label={customizeT(inputLabel.name)}
-                      type="text"
-                      value={values.name}
-                      name="name"
-                      onBlur={handleBlur}
-                      onChange={handleChange}
-                      inputProps={{ autoComplete: 'name' }}
-                      aria-describedby="helper-text-channel-name-label"
-                    />
-                    {touched.name && errors.name ? (
-                      <FormHelperText error id="helper-tex-channel-name-label">
-                        {errors.name}
-                      </FormHelperText>
-                    ) : (
-                      <FormHelperText
-                        id="helper-tex-channel-name-label"> {customizeT(inputPrompt.name)} </FormHelperText>
-                    )}
-                  </FormControl>
-                )}
-                {inputPrompt.base_url && (
-                  <FormControl fullWidth error={Boolean(touched.base_url && errors.base_url)}
-                               sx={{ ...theme.typography.otherInput }}>
-                    <InputLabel htmlFor="channel-base_url-label">{customizeT(inputLabel.base_url)}</InputLabel>
-                    <OutlinedInput
-                      id="channel-base_url-label"
-                      label={customizeT(inputLabel.base_url)}
-                      type="text"
-                      value={values.base_url}
-                      name="base_url"
-                      onBlur={handleBlur}
-                      onChange={handleChange}
-                      inputProps={{}}
-                      aria-describedby="helper-text-channel-base_url-label"
-                    />
-
-                    {touched.base_url && errors.base_url ? (
-                      <FormHelperText error id="helper-tex-channel-base_url-label">
-                        {errors.base_url}
-                      </FormHelperText>
-                    ) : (
-                      <FormHelperText
-                        id="helper-tex-channel-base_url-label"> {customizeT(inputPrompt.base_url)} </FormHelperText>
-                    )}
-                  </FormControl>
-                )}
-
-                {inputPrompt.other && (
-                  <FormControl fullWidth error={Boolean(touched.other && errors.other)}
-                               sx={{ ...theme.typography.otherInput }}>
-                    <InputLabel htmlFor="channel-other-label">{customizeT(inputLabel.other)}</InputLabel>
-                    <OutlinedInput
-                      id="channel-other-label"
-                      label={customizeT(inputLabel.other)}
-                      type="text"
-                      value={values.other}
-                      name="other"
-                      disabled={hasTag}
-                      onBlur={handleBlur}
-                      onChange={handleChange}
-                      inputProps={{}}
-                      aria-describedby="helper-text-channel-other-label"
-                    />
-                    {touched.other && errors.other ? (
-                      <FormHelperText error id="helper-tex-channel-other-label">
-                        {errors.other}
-                      </FormHelperText>
-                    ) : (
-                      <FormHelperText
-                        id="helper-tex-channel-other-label"> {customizeT(inputPrompt.other)} </FormHelperText>
-                    )}
-                  </FormControl>
-                )}
-
-                <FormControl fullWidth error={Boolean(touched.remark && errors.remark)}
-                             sx={{ ...theme.typography.otherInput }}>
-                  <InputLabel htmlFor="channel-remark-label">{customizeT(inputLabel.remark)}</InputLabel>
-                  <OutlinedInput
-                    id="channel-remark-label"
-                    label={customizeT(inputLabel.remark)}
-                    type="text"
-                    value={values.remark}
-                    name="remark"
-                    onBlur={handleBlur}
-                    onChange={handleChange}
-                    multiline
-                    minRows={2}
-                    inputProps={{}}
-                    aria-describedby="helper-text-channel-remark-label"
-                  />
-                  {touched.remark && errors.remark ? (
-                    <FormHelperText error id="helper-tex-channel-remark-label">
-                      {errors.remark}
-                    </FormHelperText>
-                  ) : (
-                    <FormHelperText
-                      id="helper-tex-channel-remark-label"> {customizeT(inputPrompt.remark)} </FormHelperText>
-                  )}
-                </FormControl>
-
-                <FormControl fullWidth sx={{ ...theme.typography.otherInput }}>
-                  <Autocomplete
-                    multiple
-                    id="channel-groups-label"
-                    options={groupOptions}
-                    value={values.groups}
-                    disabled={hasTag}
-                    onChange={(e, value) => {
-                      const event = {
-                        target: {
-                          name: 'groups',
-                          value: value
-                        }
-                      }
-                      handleChange(event)
-                    }}
-                    onBlur={handleBlur}
-                    filterSelectedOptions
-                    renderInput={(params) => (
-                      <TextField {...params} name="groups" error={Boolean(errors.groups)}
-                                 label={customizeT(inputLabel.groups)}/>
-                    )}
-                    aria-describedby="helper-text-channel-groups-label"
-                  />
-                  {errors.groups ? (
-                    <FormHelperText error id="helper-tex-channel-groups-label">
-                      {errors.groups}
-                    </FormHelperText>
-                  ) : (
-                    <FormHelperText
-                      id="helper-tex-channel-groups-label"> {customizeT(inputPrompt.groups)} </FormHelperText>
-                  )}
-                </FormControl>
-
-                <FormControl fullWidth sx={{ ...theme.typography.otherInput }}>
-                  <Box sx={{ position: 'relative' }}>
-                    <Autocomplete
-                      multiple
-                      freeSolo
-                      disableCloseOnSelect
-                      id="channel-models-label"
-                      disabled={hasTag}
-                      options={modelOptions}
-                      value={values.models}
-                      inputValue={inputValue}
-                      onInputChange={(event, newInputValue) => {
-                        if (newInputValue.includes(',')) {
-                          const modelsList = newInputValue
-                            .split(',')
-                            .map((item) => ({
-                              id: item.trim(),
-                              group: t('channel_edit.customModelTip')
-                            }))
-                            .filter((item) => item.id)
-
-                          const updatedModels = [...new Set([...values.models, ...modelsList])]
-                          const event = {
-                            target: {
-                              name: 'models',
-                              value: updatedModels
+                <CollapsibleSection title={t('channel_edit.sectionBasic')} defaultExpanded>
+                  {!isTag && (
+                    <FormControl fullWidth error={Boolean(touched.type && errors.type)} sx={{ ...theme.typography.otherInput }}>
+                      <InputLabel htmlFor="channel-type-label">{customizeT(inputLabel.type)}</InputLabel>
+                      <Select
+                        id="channel-type-label"
+                        label={customizeT(inputLabel.type)}
+                        value={values.type}
+                        name="type"
+                        onBlur={handleBlur}
+                        onChange={(e) => {
+                          handleChange(e);
+                          handleTypeChange(setFieldValue, e.target.value, values);
+                        }}
+                        MenuProps={{
+                          PaperProps: {
+                            style: {
+                              maxHeight: 200
                             }
                           }
                         }}
@@ -1501,6 +1207,32 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
                         </FormHelperText>
                       ) : (
                         <FormHelperText id="helper-tex-channel-other-label"> {customizeT(inputPrompt.other)} </FormHelperText>
+                      )}
+                    </FormControl>
+                  )}
+
+                  {inputPrompt.remark && (
+                    <FormControl fullWidth error={Boolean(touched.remark && errors.remark)} sx={{ ...theme.typography.otherInput }}>
+                      <InputLabel htmlFor="channel-remark-label">{customizeT(inputLabel.remark)}</InputLabel>
+                      <OutlinedInput
+                        id="channel-remark-label"
+                        label={customizeT(inputLabel.remark)}
+                        type="text"
+                        value={values.remark}
+                        name="remark"
+                        onBlur={handleBlur}
+                        onChange={handleChange}
+                        multiline
+                        minRows={2}
+                        inputProps={{}}
+                        aria-describedby="helper-text-channel-remark-label"
+                      />
+                      {touched.remark && errors.remark ? (
+                        <FormHelperText error id="helper-tex-channel-remark-label">
+                          {errors.remark}
+                        </FormHelperText>
+                      ) : (
+                        <FormHelperText id="helper-tex-channel-remark-label"> {customizeT(inputPrompt.remark)} </FormHelperText>
                       )}
                     </FormControl>
                   )}
@@ -2040,309 +1772,6 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
                   {inputPrompt.model_mapping && (
                     <FormControl
                       fullWidth
-                      disabled={claudeCodeSubmitting}
-                      onClick={() => handleClaudeCodeOAuth(values.proxy)}
-                      startIcon={claudeCodeSubmitting ? null : <Icon icon="simple-icons:anthropic"/>}
-                    >
-                      {claudeCodeSubmitting ? '获取授权链接中...' : 'OAuth 授权'}
-                    </Button>
-                    <Alert severity="info" sx={{ mt: 1 }}>
-                      点击按钮后，将打开 Claude 授权页面。授权成功后，请复制浏览器地址栏中的完整 URL 并粘贴到弹出的输入框中。
-                    </Alert>
-
-                    {/* ClaudeCode OAuth 对话框 */}
-                    <Dialog
-                      open={claudeCodeOAuthVisible}
-                      onClose={handleClaudeCodeCancelOAuth}
-                      maxWidth="md"
-                      fullWidth
-                    >
-                      <DialogTitle>ClaudeCode OAuth 授权</DialogTitle>
-                      <DialogContent>
-                        <Box sx={{ mb: 2 }}>
-                          <Alert severity="info" sx={{ mb: 2 }}>
-                            <Typography variant="body2" component="div">
-                              <strong>授权步骤：</strong>
-                              <ol style={{ margin: '8px 0', paddingLeft: '20px' }}>
-                                <li>点击下方"打开授权页面"按钮（或手动复制链接到浏览器）</li>
-                                <li>在新打开的页面中登录 Claude 账户并同意授权</li>
-                                <li>授权成功后，复制浏览器地址栏中的<strong>完整 URL</strong></li>
-                                <li>将完整 URL 粘贴到下方输入框中，点击"提交授权码"</li>
-                              </ol>
-                            </Typography>
-                          </Alert>
-
-                          <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
-                            <Button
-                              variant="contained"
-                              color="primary"
-                              fullWidth
-                              onClick={() => window.open(claudeCodeAuthURL, '_blank')}
-                              startIcon={<Icon icon="mdi:open-in-new"/>}
-                            >
-                              打开授权页面
-                            </Button>
-                            <Button
-                              variant="outlined"
-                              color="secondary"
-                              onClick={() => {
-                                copy(claudeCodeAuthURL).then(() => {
-                                  showSuccess('授权链接已复制到剪贴板')
-                                }).catch(() => {
-                                  showError('复制失败，请手动复制')
-                                })
-                              }}
-                              startIcon={<Icon icon="mdi:content-copy"/>}
-                              sx={{ minWidth: '120px' }}
-                            >
-                              复制链接
-                            </Button>
-                          </Box>
-
-                          <TextField
-                            fullWidth
-                            label="授权回调 URL 或授权码"
-                            placeholder="粘贴完整的回调 URL，例如：https://console.anthropic.com/oauth/code/callback?code=xxx&state=xxx"
-                            value={claudeCodeAuthCode}
-                            onChange={(e) => setClaudeCodeAuthCode(e.target.value)}
-                            multiline
-                            rows={3}
-                            variant="outlined"
-                          />
-                        </Box>
-                      </DialogContent>
-                      <DialogActions>
-                        <Button onClick={handleClaudeCodeCancelOAuth} disabled={claudeCodeSubmitting}>
-                          取消
-                        </Button>
-                        <Button
-                          onClick={() => handleClaudeCodeSubmitCode(setFieldValue)}
-                          variant="contained"
-                          color="primary"
-                          disabled={claudeCodeSubmitting || !claudeCodeAuthCode}
-                        >
-                          {claudeCodeSubmitting ? '提交中...' : '提交授权码'}
-                        </Button>
-                      </DialogActions>
-                    </Dialog>
-                  </Box>
-                )}
-
-                {/* Codex OAuth 授权按钮 */}
-                {values.type === 59 && !batchAdd && (
-                  <Box sx={{ mt: 2, mb: 2 }}>
-                    <Button
-                      variant="outlined"
-                      color="primary"
-                      fullWidth
-                      disabled={codexSubmitting}
-                      onClick={() => handleCodexOAuth(values.proxy)}
-                      startIcon={codexSubmitting ? null : <Icon icon="simple-icons:openai"/>}
-                    >
-                      {codexSubmitting ? '获取授权链接中...' : 'OAuth 授权'}
-                    </Button>
-                    <Alert severity="info" sx={{ mt: 1 }}>
-                      点击按钮后，将打开 OpenAI 授权页面。授权成功后，请复制浏览器地址栏中的完整 URL 并粘贴到弹出的输入框中。
-                    </Alert>
-
-                    {/* Codex OAuth 对话框 */}
-                    <Dialog
-                      open={codexOAuthVisible}
-                      onClose={handleCodexCancelOAuth}
-                      maxWidth="md"
-                      fullWidth
-                    >
-                      <DialogTitle>Codex OAuth 授权</DialogTitle>
-                      <DialogContent>
-                        <Box sx={{ mb: 2 }}>
-                          <Alert severity="info" sx={{ mb: 2 }}>
-                            <Typography variant="body2" component="div">
-                              <strong>授权步骤：</strong>
-                              <ol style={{ margin: '8px 0', paddingLeft: '20px' }}>
-                                <li>点击下方"打开授权页面"按钮（或手动复制链接到浏览器）</li>
-                                <li>在新打开的页面中登录 OpenAI 账户并同意授权</li>
-                                <li>授权成功后，复制浏览器地址栏中的<strong>完整 URL</strong></li>
-                                <li>将完整 URL 粘贴到下方输入框中，点击"提交授权码"</li>
-                              </ol>
-                            </Typography>
-                          </Alert>
-
-                          <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
-                            <Button
-                              variant="contained"
-                              color="primary"
-                              fullWidth
-                              onClick={() => window.open(codexAuthURL, '_blank')}
-                              startIcon={<Icon icon="mdi:open-in-new"/>}
-                            >
-                              打开授权页面
-                            </Button>
-                            <Button
-                              variant="outlined"
-                              color="secondary"
-                              onClick={() => {
-                                copy(codexAuthURL).then(() => {
-                                  showSuccess('授权链接已复制到剪贴板')
-                                }).catch(() => {
-                                  showError('复制失败，请手动复制')
-                                })
-                              }}
-                              startIcon={<Icon icon="mdi:content-copy"/>}
-                              sx={{ minWidth: '120px' }}
-                            >
-                              复制链接
-                            </Button>
-                          </Box>
-
-                          <TextField
-                            fullWidth
-                            label="授权回调 URL 或授权码"
-                            placeholder="粘贴完整的回调 URL，例如：http://localhost:1455/auth/callback?code=xxx&state=xxx"
-                            value={codexAuthCode}
-                            onChange={(e) => setCodexAuthCode(e.target.value)}
-                            multiline
-                            rows={3}
-                            variant="outlined"
-                          />
-                        </Box>
-                      </DialogContent>
-                      <DialogActions>
-                        <Button onClick={handleCodexCancelOAuth} disabled={codexSubmitting}>
-                          取消
-                        </Button>
-                        <Button
-                          onClick={() => handleCodexSubmitCode(setFieldValue)}
-                          variant="contained"
-                          color="primary"
-                          disabled={codexSubmitting || !codexAuthCode}
-                        >
-                          {codexSubmitting ? '提交中...' : '提交授权码'}
-                        </Button>
-                      </DialogActions>
-                    </Dialog>
-                  </Box>
-                )}
-
-                {/* Copilot OAuth 授权按钮 */}
-                {values.type === 62 && !batchAdd && (
-                  <Box sx={{ mt: 2, mb: 2 }}>
-                    <Button
-                      variant="outlined"
-                      color="primary"
-                      fullWidth
-                      disabled={copilotSubmitting || copilotPolling}
-                      onClick={() => handleCopilotOAuth(setFieldValue)}
-                      startIcon={copilotSubmitting ? null : <Icon icon="simple-icons:github"/>}
-                    >
-                      {copilotSubmitting ? '获取设备码中...' : copilotPolling ? '等待授权中...' : 'GitHub OAuth 授权'}
-                    </Button>
-                    <Alert severity="info" sx={{ mt: 1 }}>
-                      点击按钮后，将打开 GitHub 设备授权页面。请在页面中输入设备码完成授权，授权完成后 Token 将自动填充。
-                    </Alert>
-
-                    {/* Copilot Device Flow 对话框 */}
-                    <Dialog
-                      open={copilotOAuthVisible}
-                      onClose={handleCopilotCancelOAuth}
-                      maxWidth="sm"
-                      fullWidth
-                    >
-                      <DialogTitle>GitHub Copilot 设备授权</DialogTitle>
-                      <DialogContent>
-                        <Box sx={{ mb: 2 }}>
-                          <Alert severity="info" sx={{ mb: 2 }}>
-                            <Typography variant="body2" component="div">
-                              <strong>授权步骤：</strong>
-                              <ol style={{ margin: '8px 0', paddingLeft: '20px' }}>
-                                <li>复制下方的设备码</li>
-                                <li>在 GitHub 页面中粘贴设备码并确认授权</li>
-                                <li>授权完成后，本页面将自动检测并填充 Token</li>
-                              </ol>
-                            </Typography>
-                          </Alert>
-
-                          {/* 设备码显示 */}
-                          <Box sx={{
-                            textAlign: 'center',
-                            my: 3,
-                            p: 3,
-                            border: '2px dashed',
-                            borderColor: 'primary.main',
-                            borderRadius: 2,
-                            backgroundColor: 'action.hover'
-                          }}>
-                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                              请在 GitHub 页面中输入以下设备码：
-                            </Typography>
-                            <Typography variant="h3" sx={{
-                              fontFamily: 'monospace',
-                              fontWeight: 700,
-                              letterSpacing: '0.15em',
-                              color: 'primary.main',
-                              userSelect: 'all'
-                            }}>
-                              {copilotUserCode}
-                            </Typography>
-                            <Button
-                              size="small"
-                              sx={{ mt: 1 }}
-                              onClick={() => {
-                                copy(copilotUserCode).then(() => {
-                                  showSuccess('设备码已复制')
-                                }).catch(() => {
-                                  showError('复制失败')
-                                })
-                              }}
-                              startIcon={<Icon icon="mdi:content-copy"/>}
-                            >
-                              复制设备码
-                            </Button>
-                          </Box>
-
-                          {/* 打开验证页面 */}
-                          <Box sx={{ display: 'flex', gap: 1 }}>
-                            <Button
-                              variant="contained"
-                              color="primary"
-                              fullWidth
-                              onClick={() => window.open(copilotVerificationURI, '_blank')}
-                              startIcon={<Icon icon="mdi:open-in-new"/>}
-                            >
-                              打开 GitHub 验证页面
-                            </Button>
-                          </Box>
-
-                          {/* 轮询状态提示 */}
-                          {copilotPolling && (
-                            <Alert severity="warning" sx={{ mt: 2 }}>
-                              正在等待您完成 GitHub 授权...授权完成后将自动检测
-                            </Alert>
-                          )}
-                        </Box>
-                      </DialogContent>
-                      <DialogActions>
-                        <Button onClick={handleCopilotCancelOAuth}>
-                          取消
-                        </Button>
-                      </DialogActions>
-                    </Dialog>
-                  </Box>
-                )}
-
-                {inputPrompt.model_mapping && (
-                  <FormControl
-                    fullWidth
-                    error={Boolean(touched.model_mapping && errors.model_mapping)}
-                    sx={{ ...theme.typography.otherInput }}
-                  >
-                    <MapInput
-                      mapValue={values.model_mapping}
-                      onChange={(newValue) => {
-                        setFieldValue('model_mapping', newValue)
-                        // 实时同步模型重定向到模型配置
-                        syncModelMappingToModels(newValue, values.models, setFieldValue)
-                      }}
-                      disabled={hasTag}
                       error={Boolean(touched.model_mapping && errors.model_mapping)}
                       sx={{ ...theme.typography.otherInput }}
                     >
@@ -2360,89 +1789,14 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
                           name: customizeT(inputLabel.model_mapping)
                         }}
                       />
-                    </Box>
-                    {touched.custom_parameter && errors.custom_parameter ? (
-                      <FormHelperText error id="helper-tex-channel-custom_parameter-label">
-                        {errors.custom_parameter}
-                      </FormHelperText>
-                    ) : (
-                      <FormHelperText id="helper-tex-channel-custom_parameter-label">
-                        {customizeT(inputPrompt.custom_parameter)}
-                      </FormHelperText>
-                    )}
-                  </FormControl>
-                )}
-                {inputPrompt.need2response_models && (
-                  <FormControl
-                    fullWidth
-                    error={Boolean(touched.need2response_models && errors.need2response_models)}
-                    sx={{ ...theme.typography.otherInput }}
-                  >
-                    <TextField
-                      multiline
-                      minRows={6}
-                      id="channel-need2response_models-label"
-                      name="need2response_models"
-                      label={customizeT(inputLabel.need2response_models)}
-                      value={values.need2response_models || ''}
-                      onBlur={handleBlur}
-                      onChange={handleChange}
-                      disabled={hasTag}
-                    />
-                    {touched.need2response_models && errors.need2response_models ? (
-                      <FormHelperText error id="helper-tex-channel-need2response_models-label">
-                        {errors.need2response_models}
-                      </FormHelperText>
-                    ) : (
-                      <FormHelperText id="helper-tex-channel-need2response_models-label">
-                        {customizeT(inputPrompt.need2response_models)}
-                      </FormHelperText>
-                    )}
-                  </FormControl>
-                )}
-                {inputPrompt.disabled_stream && (
-                  <FormControl
-                    fullWidth
-                    error={Boolean(touched.disabled_stream && errors.disabled_stream)}
-                    sx={{ ...theme.typography.otherInput }}
-                  >
-                    <ListInput
-                      listValue={values.disabled_stream}
-                      onChange={(newValue) => {
-                        setFieldValue('disabled_stream', newValue)
-                      }}
-                      disabled={hasTag}
-                      error={Boolean(touched.disabled_stream && errors.disabled_stream)}
-                      label={{
-                        name: customizeT(inputLabel.disabled_stream),
-                        itemName: customizeT(inputPrompt.disabled_stream)
-                      }}
-                    />
-                  </FormControl>
-                )}
-
-                <FormControl fullWidth error={Boolean(touched.proxy && errors.proxy)}
-                             sx={{ ...theme.typography.otherInput }}>
-                  <InputLabel htmlFor="channel-proxy-label">{customizeT(inputLabel.proxy)}</InputLabel>
-                  <OutlinedInput
-                    id="channel-proxy-label"
-                    label={customizeT(inputLabel.proxy)}
-                    disabled={hasTag}
-                    type="text"
-                    value={values.proxy}
-                    name="proxy"
-                    onBlur={handleBlur}
-                    onChange={handleChange}
-                    inputProps={{}}
-                    aria-describedby="helper-text-channel-proxy-label"
-                  />
-                  {touched.proxy && errors.proxy ? (
-                    <FormHelperText error id="helper-tex-channel-proxy-label">
-                      {errors.proxy}
-                    </FormHelperText>
-                  ) : (
-                    <FormHelperText
-                      id="helper-tex-channel-proxy-label"> {customizeT(inputPrompt.proxy)} </FormHelperText>
+                      {touched.model_mapping && errors.model_mapping ? (
+                        <FormHelperText error id="helper-tex-channel-model_mapping-label">
+                          {errors.model_mapping}
+                        </FormHelperText>
+                      ) : (
+                        <FormHelperText id="helper-tex-channel-model_mapping-label">{customizeT(inputPrompt.model_mapping)}</FormHelperText>
+                      )}
+                    </FormControl>
                   )}
 
                   <FormControl fullWidth error={Boolean(touched.proxy && errors.proxy)} sx={{ ...theme.typography.otherInput }}>
@@ -2600,6 +1954,34 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
                       ) : (
                         <FormHelperText id="helper-tex-channel-custom_parameter-label">
                           {customizeT(inputPrompt.custom_parameter)}
+                        </FormHelperText>
+                      )}
+                    </FormControl>
+                  )}
+                  {inputPrompt.need2response_models && (
+                    <FormControl
+                      fullWidth
+                      error={Boolean(touched.need2response_models && errors.need2response_models)}
+                      sx={{ ...theme.typography.otherInput }}
+                    >
+                      <TextField
+                        multiline
+                        minRows={6}
+                        id="channel-need2response_models-label"
+                        name="need2response_models"
+                        label={customizeT(inputLabel.need2response_models)}
+                        value={values.need2response_models || ''}
+                        onBlur={handleBlur}
+                        onChange={handleChange}
+                        disabled={isTag}
+                      />
+                      {touched.need2response_models && errors.need2response_models ? (
+                        <FormHelperText error id="helper-tex-channel-need2response_models-label">
+                          {errors.need2response_models}
+                        </FormHelperText>
+                      ) : (
+                        <FormHelperText id="helper-tex-channel-need2response_models-label">
+                          {customizeT(inputPrompt.need2response_models)}
                         </FormHelperText>
                       )}
                     </FormControl>

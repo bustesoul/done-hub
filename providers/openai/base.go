@@ -382,7 +382,7 @@ func (p *OpenAIProvider) GetRequestTextBody(relayMode int, ModelName string, req
 		}
 	}
 	// 如果有额外参数，将其添加到请求体中
-	if customParams != nil {
+	if customParams != nil || p.Channel.AllowExtraBody {
 		// 将请求体转换为map，以便添加额外参数
 		var requestMap map[string]interface{}
 		requestBytes, err := json.Marshal(request)
@@ -404,7 +404,9 @@ func (p *OpenAIProvider) GetRequestTextBody(relayMode int, ModelName string, req
 		}
 
 		// 处理自定义额外参数
-		requestMap = p.mergeCustomParams(requestMap, customParams)
+		if customParams != nil {
+			requestMap = p.mergeCustomParams(requestMap, customParams)
+		}
 		if debugResponsesTools {
 			logger.LogDebug(debugCtx, "responses outbound post-merge "+types.SummarizeResponsesRequestToolsAny(requestMap))
 		}

@@ -79,6 +79,20 @@ func (r *relayChat) getPromptTokens() (int, error) {
 }
 
 func (r *relayChat) send() (err *types.OpenAIErrorWithStatusCode, done bool) {
+	// 图像生成模型走 chat 入口是非标用法，按 chat 协议处理会把上游 base64 当文本反算成百万级 token、
+	// 计费爆炸；在 chat 入口分流到 image generations 协议做渠道降级。
+	// 同时查映射后名与原始名，避免渠道做了模型重命名时漏判。
+	if types.IsImageGenerationModel(r.modelName) || types.IsImageGenerationModel(r.getOriginalModel()) {
+		if imgProvider, ok := r.provider.(providersBase.ImageGenerationsInterface); ok {
+			return r.compatibleSendImage(imgProvider)
+		}
+		err = common.StringErrorWrapperLocal(
+			"channel does not support image generations for image model",
+			"channel_error", http.StatusServiceUnavailable)
+		done = true
+		return
+	}
+
 	channel := r.provider.GetChannel()
 	if channel != nil && channel.ShouldUseResponsesForModel(r.modelName) && config.ShouldSendChatAsResponses(channel.CompatibleResponse, r.provider.GetSupportedResponse(), r.modelName) {
 		if resProvider, ok := r.provider.(providersBase.ResponsesInterface); ok {
