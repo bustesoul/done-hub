@@ -56,6 +56,8 @@ import { getPageSize, PAGE_SIZE_OPTIONS, savePageSize } from 'constants';
 import { stickyCellSx } from 'ui-component/stickyCellSx';
 import KeywordTableHead from 'ui-component/TableHead';
 
+const CHANNEL_TYPE_CODEX = 59;
+
 const StyledMenu = styled((props) => (
   <Menu
     elevation={0}
@@ -105,6 +107,109 @@ function statusInfo(t, status) {
       return t('common.unknown');
   }
 }
+
+function SubscriptionQuotaCell({ channelId, channelType }) {
+  const { t } = useTranslation();
+  const [windows, setWindows] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const loadQuota = async () => {
+    if (channelType !== CHANNEL_TYPE_CODEX || loading) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await API.get(`/api/channel/subscription_quota/${channelId}`);
+      const { success, message, windows: quotaWindows } = res.data;
+      if (success) {
+        setWindows(Array.isArray(quotaWindows) ? quotaWindows : []);
+      } else {
+        showError(message);
+      }
+    } catch (error) {
+      showError(error?.message || t('common.unknown'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (channelType !== CHANNEL_TYPE_CODEX) {
+    return (
+      <Typography variant="caption" sx={{ color: 'text.disabled' }}>
+        -
+      </Typography>
+    );
+  }
+
+  if (!windows) {
+    return (
+      <Tooltip title={t('channel_row.showSubscriptionQuota')} placement="top">
+        <span>
+          <IconButton size="small" onClick={loadQuota} disabled={loading}>
+            {loading ? <CircularProgress size={16} /> : <Icon icon="mdi:chart-bar" width={17} />}
+          </IconButton>
+        </span>
+      </Tooltip>
+    );
+  }
+
+  return (
+    <Stack spacing={0.35} alignItems="stretch" sx={{ width: 132, mx: 'auto' }}>
+      {windows.length === 0 && (
+        <Typography variant="caption" sx={{ color: 'text.secondary', textAlign: 'center' }}>
+          {t('channel_row.noSubscriptionQuota')}
+        </Typography>
+      )}
+      {windows.map((window) => {
+        const used = Math.max(0, Math.min(100, Number(window.used_percent) || 0));
+        const remaining = Math.max(0, Math.min(100, Number(window.remaining_percent) || 0));
+        const resetTitle = window.reset_at ? new Date(window.reset_at * 1000).toLocaleString() : '';
+        return (
+          <Tooltip key={`${window.label}-${window.reset_at || 0}`} title={resetTitle} placement="top">
+            <Stack direction="row" spacing={0.5} alignItems="center" sx={{ minWidth: 0 }}>
+              <Typography variant="caption" noWrap sx={{ width: 42, color: 'text.secondary', fontSize: 10 }}>
+                {window.label}
+              </Typography>
+              <Box
+                sx={{
+                  width: 48,
+                  height: 5,
+                  bgcolor: 'action.hover',
+                  borderRadius: 0.75,
+                  overflow: 'hidden',
+                  flexShrink: 0
+                }}
+              >
+                <Box
+                  sx={{
+                    width: `${used}%`,
+                    height: '100%',
+                    bgcolor: used >= 90 ? 'error.main' : used >= 70 ? 'warning.main' : 'success.main'
+                  }}
+                />
+              </Box>
+              <Typography variant="caption" sx={{ width: 34, textAlign: 'right', fontSize: 10, color: 'text.primary' }}>
+                {remaining.toFixed(0)}%
+              </Typography>
+            </Stack>
+          </Tooltip>
+        );
+      })}
+      <Tooltip title={t('channel_row.refreshSubscriptionQuota')} placement="top">
+        <span>
+          <IconButton size="small" onClick={loadQuota} disabled={loading} sx={{ alignSelf: 'center', width: 20, height: 20 }}>
+            {loading ? <CircularProgress size={13} /> : <Icon icon="mdi:refresh" width={14} />}
+          </IconButton>
+        </span>
+      </Tooltip>
+    </Stack>
+  );
+}
+
+SubscriptionQuotaCell.propTypes = {
+  channelId: PropTypes.number,
+  channelType: PropTypes.number
+};
 
 export default function ChannelTableRow({
   item,
@@ -728,6 +833,15 @@ export default function ChannelTableRow({
           )}
         </TableCell>
 
+        <TableCell sx={{ minWidth: 140, textAlign: 'center' }}>
+          {!item.tag && <SubscriptionQuotaCell channelId={item.id} channelType={item.type} />}
+          {item.tag && (
+            <Typography variant="caption" sx={{ color: 'text.disabled' }}>
+              -
+            </Typography>
+          )}
+        </TableCell>
+
         <TableCell sx={{ minWidth: 90, textAlign: 'center' }}>
           {!item.tag && (
             <ResponseTimeLabel
@@ -1239,6 +1353,13 @@ export default function ChannelTableRow({
                                     { id: 'group', label: t('channel_index.group'), align: 'center', disableSort: true, minWidth: 110 },
                                     { id: 'type', label: t('channel_index.type'), align: 'center', minWidth: 100 },
                                     { id: 'status', label: t('channel_index.status'), align: 'center', minWidth: 110 },
+                                    {
+                                      id: 'subscription_quota',
+                                      label: t('channel_index.subscriptionQuota'),
+                                      align: 'center',
+                                      disableSort: true,
+                                      minWidth: 140
+                                    },
                                     { id: 'used_quota', label: t('channel_index.usedBalance'), align: 'center', minWidth: 120 },
                                     { id: 'response_time', label: t('channel_index.responseTime'), align: 'center', minWidth: 110 },
                                     { id: 'priority', label: t('channel_index.priority'), align: 'center', minWidth: 100 },
@@ -1306,6 +1427,9 @@ export default function ChannelTableRow({
                                             {/* {CHANNEL_STATUS_MAP[channel.status]?.label || '未知'} */}
                                           </Typography>
                                         </Stack>
+                                      </TableCell>
+                                      <TableCell sx={{ textAlign: 'center' }}>
+                                        <SubscriptionQuotaCell channelId={channel.id} channelType={channel.type} />
                                       </TableCell>
                                       <TableCell sx={{ textAlign: 'center' }}>
                                         <Tooltip title={t('channel_row.clickUpdateQuota')} placement="top">

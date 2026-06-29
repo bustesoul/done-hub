@@ -165,6 +165,7 @@ export default function ChannelTable({ tag }) {
                 { id: 'tag', label: t('channel_index.tags'), disableSort: true },
                 { id: 'type', label: t('channel_index.type'), disableSort: false },
                 { id: 'status', label: t('channel_index.status'), disableSort: false },
+                { id: 'subscription_quota', label: t('channel_index.subscriptionQuota'), disableSort: true },
                 { id: 'response_time', label: t('channel_index.responseTime'), disableSort: false },
                 { id: 'used', label: t('channel_index.usedBalance'), disableSort: false },
                 { id: 'priority', label: t('channel_index.priority'), disableSort: false, width: '80px' },
