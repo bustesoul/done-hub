@@ -74,6 +74,10 @@ func (r *relayResponses) IsStream() bool {
 	return r.responsesRequest.Stream
 }
 
+func (r *relayResponses) GetServiceTier() string {
+	return r.responsesRequest.ServiceTier
+}
+
 func (r *relayResponses) getPromptTokens() (int, error) {
 	channel := r.provider.GetChannel()
 	return common.CountTokenInputMessages(r.responsesRequest.Input, r.modelName, channel.PreCost), nil

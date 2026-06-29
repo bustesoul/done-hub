@@ -661,6 +661,7 @@
       "outputPrice": "輸出價格",
       "groupRatio": "分組倍率",
       "groupRatioValue": "分組倍率",
+      "serviceTierRatioValue": "服務等級倍率",
       "actualPrice": "實際價格",
       "input": "輸入",
       "output": "輸出",

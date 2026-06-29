@@ -12,9 +12,15 @@ import (
 	"math"
 	"net/http"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+)
+
+const (
+	ServiceTierPriority      = "priority"
+	ServiceTierPriorityRatio = 1.5
 )
 
 type Quota struct {
@@ -27,6 +33,8 @@ type Quota struct {
 	groupRatio       float64
 	inputRatio       float64
 	outputRatio      float64
+	serviceTier      string
+	serviceTierRatio float64
 	costRatio        float64
 	preConsumedQuota int
 	cacheQuota       int
@@ -41,18 +49,36 @@ type Quota struct {
 	extraBillingData  map[string]ExtraBillingData
 }
 
+func NormalizeServiceTier(serviceTier string) string {
+	serviceTier = strings.TrimSpace(serviceTier)
+	if strings.EqualFold(serviceTier, ServiceTierPriority) {
+		return ServiceTierPriority
+	}
+	return ""
+}
+
+func ServiceTierRatio(serviceTier string) float64 {
+	if NormalizeServiceTier(serviceTier) == ServiceTierPriority {
+		return ServiceTierPriorityRatio
+	}
+	return 1
+}
+
 func NewQuota(c *gin.Context, modelName string, promptTokens int) *Quota {
 	isBackupGroup := c.GetBool("is_backupGroup")
+	serviceTier := NormalizeServiceTier(c.GetString("service_tier"))
 
 	quota := &Quota{
-		modelName:      modelName,
-		promptTokens:   promptTokens,
-		userId:         c.GetInt("id"),
-		channelId:      c.GetInt("channel_id"),
-		tokenId:        c.GetInt("token_id"),
-		unlimitedQuota: c.GetBool("token_unlimited_quota"),
-		HandelStatus:   false,
-		isBackupGroup:  isBackupGroup, // 记录是否使用备用分组
+		modelName:        modelName,
+		promptTokens:     promptTokens,
+		userId:           c.GetInt("id"),
+		channelId:        c.GetInt("channel_id"),
+		tokenId:          c.GetInt("token_id"),
+		unlimitedQuota:   c.GetBool("token_unlimited_quota"),
+		HandelStatus:     false,
+		isBackupGroup:    isBackupGroup, // 记录是否使用备用分组
+		serviceTier:      serviceTier,
+		serviceTierRatio: ServiceTierRatio(serviceTier),
 	}
 
 	quota.price = *model.PricingInstance.GetPrice(quota.modelName)
@@ -69,8 +95,8 @@ func NewQuota(c *gin.Context, modelName string, promptTokens int) *Quota {
 	}
 
 	quota.groupRatio = c.GetFloat64("group_ratio") // 这里的倍率已经在 common.go 中正确设置了
-	quota.inputRatio = quota.price.GetInput() * quota.groupRatio
-	quota.outputRatio = quota.price.GetOutput() * quota.groupRatio
+	quota.inputRatio = quota.price.GetInput() * quota.groupRatio * quota.serviceTierRatio
+	quota.outputRatio = quota.price.GetOutput() * quota.groupRatio * quota.serviceTierRatio
 
 	// 成本倍率：仅用于成本/利润统计，不参与用户扣费。未配置或取不到渠道时为 0（不计成本）。
 	quota.costRatio = 0
@@ -287,6 +313,11 @@ func (q *Quota) GetLogMeta(usage *types.Usage) map[string]any {
 		"output_ratio":      q.price.GetOutput(),
 	}
 
+	if q.serviceTier != "" {
+		meta["service_tier"] = q.serviceTier
+		meta["service_tier_ratio"] = q.serviceTierRatio
+	}
+
 	firstResponseTime := q.GetFirstResponseTime()
 	if firstResponseTime > 0 {
 		meta["first_response"] = firstResponseTime
@@ -316,7 +347,7 @@ func (q *Quota) getRequestTime() int {
 // 通过 token 数获取消费配额
 func (q *Quota) GetTotalQuota(promptTokens, completionTokens int, extraBilling map[string]types.ExtraBilling) (quota int) {
 	q.GetExtraBillingData(extraBilling)
-	return q.calcQuota(promptTokens, completionTokens, q.inputRatio, q.outputRatio, q.groupRatio)
+	return q.calcQuota(promptTokens, completionTokens, q.inputRatio, q.outputRatio, q.groupRatio*q.serviceTierRatio)
 }
 
 // calcQuota 按给定倍率计算配额。inputRatio/outputRatio 已含对应倍率（分组倍率或成本倍率），

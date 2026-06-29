@@ -35,8 +35,8 @@ func TestPrepareCodexRequest_PreservesAndCleansPromptCacheFields(t *testing.T) {
 	if request.SafetyIdentifier != "" {
 		t.Fatalf("Codex internal 不支持 SafetyIdentifier，实际: %q", request.SafetyIdentifier)
 	}
-	if request.ServiceTier != "" {
-		t.Fatalf("Codex internal 不支持 ServiceTier，实际: %q", request.ServiceTier)
+	if request.ServiceTier != "priority" {
+		t.Fatalf("ServiceTier 应遵循用户请求，实际: %q", request.ServiceTier)
 	}
 	if request.User != "" {
 		t.Fatalf("User 应迁移/清理，实际: %q", request.User)

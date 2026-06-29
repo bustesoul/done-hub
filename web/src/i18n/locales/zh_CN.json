@@ -554,6 +554,7 @@
       "outputPrice": "原输出价格",
       "groupRatio": "分组倍率",
       "groupRatioValue": "分组倍率",
+      "serviceTierRatioValue": "服务等级倍率",
       "actualPrice": "实际价格",
       "input": "实际输入价格",
       "output": "实际输出价格",

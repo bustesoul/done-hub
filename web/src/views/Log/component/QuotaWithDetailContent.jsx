@@ -55,11 +55,14 @@ export default function QuotaWithDetailContent({ item, userGroup, userIsAdmin, t
 
   // Calculate actual prices based on ratios and group discount
   const groupRatio = item.metadata?.group_ratio || 1;
+  const serviceTier = item.metadata?.service_tier || '';
+  const serviceTierRatio = item.metadata?.service_tier_ratio || 1;
+  const finalRatio = groupRatio * serviceTierRatio;
   const inputPrice =
-    item.metadata?.input_price || (item.metadata?.input_ratio ? `$${calculatePrice(item.metadata.input_ratio, groupRatio, false)} ` : '$0');
+    item.metadata?.input_price || (item.metadata?.input_ratio ? `$${calculatePrice(item.metadata.input_ratio, finalRatio, false)} ` : '$0');
   const outputPrice =
     item.metadata?.output_price ||
-    (item.metadata?.output_ratio ? `$${calculatePrice(item.metadata.output_ratio, groupRatio, false)}` : '$0');
+    (item.metadata?.output_ratio ? `$${calculatePrice(item.metadata.output_ratio, finalRatio, false)}` : '$0');
 
   const inputPriceUnit = inputPrice + ' /M';
   const outputPriceUnit = outputPrice + ' /M';
@@ -87,7 +90,7 @@ export default function QuotaWithDetailContent({ item, userGroup, userIsAdmin, t
   }
 
   if (extraBillingSteps.length > 0) {
-    calculateSteps += ` + (${extraBillingSteps.join(' + ')}) x ${groupRatio}`;
+    calculateSteps += ` + (${extraBillingSteps.join(' + ')}) x ${finalRatio}`;
   }
 
   // let savePercent = '';
@@ -171,6 +174,11 @@ export default function QuotaWithDetailContent({ item, userGroup, userIsAdmin, t
           <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, textAlign: 'left' }}>
             {t('logPage.quotaDetail.groupRatioValue')}: {groupRatio}
           </Typography>
+          {serviceTierRatio !== 1 && (
+            <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, textAlign: 'left' }}>
+              {t('logPage.quotaDetail.serviceTierRatioValue')}: {serviceTier || '-'} x {serviceTierRatio}
+            </Typography>
+          )}
         </Box>
         {/* Actual Price */}
         <Box
@@ -299,6 +307,8 @@ QuotaWithDetailContent.propTypes = {
       input_ratio: PropTypes.number,
       output_ratio: PropTypes.number,
       group_ratio: PropTypes.number,
+      service_tier: PropTypes.string,
+      service_tier_ratio: PropTypes.number,
       group_name: PropTypes.string,
       backup_group_name: PropTypes.string,
       is_backup_group: PropTypes.bool,

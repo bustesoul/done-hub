@@ -36,6 +36,7 @@ type RelayBaseInterface interface {
 	getModelName() string
 	getContext() *gin.Context
 	IsStream() bool
+	GetServiceTier() string
 	// HandleError(err *types.OpenAIErrorWithStatusCode)
 	GetFirstResponseTime() time.Time
 
@@ -50,6 +51,10 @@ func (r *relayBase) getRequest() interface{} {
 
 func (r *relayBase) IsStream() bool {
 	return false
+}
+
+func (r *relayBase) GetServiceTier() string {
+	return ""
 }
 
 func (r *relayBase) setProvider(modelName string) error {

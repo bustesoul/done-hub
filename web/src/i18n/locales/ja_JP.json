@@ -669,6 +669,7 @@
       "outputPrice": "出力価格",
       "groupRatio": "グループ倍率",
       "groupRatioValue": "グループ倍率",
+      "serviceTierRatioValue": "サービス階層倍率",
       "actualPrice": "実際の価格",
       "input": "入力",
       "output": "出力",

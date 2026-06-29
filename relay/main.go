@@ -46,6 +46,9 @@ func Relay(c *gin.Context) {
 	}
 
 	c.Set("is_stream", relay.IsStream())
+	if serviceTier := relay_util.NormalizeServiceTier(relay.GetServiceTier()); serviceTier != "" {
+		c.Set("service_tier", serviceTier)
+	}
 	if err := relay.setProvider(relay.getOriginalModel()); err != nil {
 		// 配置错误 → 404 model_not_found（SDK 不重试）；运行时错误 → 503 collapse（SDK 重试）。
 		if IsModelNotFound(err) {
@@ -193,34 +196,39 @@ func Relay(c *gin.Context) {
 
 		// 记录错误请求日志（LogTypeError），用于在日志页排查失败请求。
 		// 仅最终失败才记一条；无输出的失败请求已通过 quota.Undo 退预扣，这里 quota 为 0，纯诊断。
-			// error_source 把错误来源二分为 local（到达本站即被拒绝/本站判定不可用）
-			// 与 upstream（已转发上游、上游返回错误），便于在日志页一眼区分。
-			// 与 local_error 同源，重命名为更直观的维度。
-			errorSource := "upstream"
-			if apiErr.LocalError {
-				errorSource = "local"
-			}
-			model.RecordErrorLog(
-				c.Request.Context(),
-				c.GetInt("id"),
-				channel.Id,
-				modelName,
-				c.GetString("token_name"),
-				fmt.Sprintf("[%d] %s", apiErr.StatusCode, apiErr.OpenAIError.Type),
-				int(time.Since(startTime).Seconds()),
-				relay.IsStream(),
-				map[string]any{
-					"status_code":    apiErr.StatusCode,
-					"error_type":     apiErr.OpenAIError.Type,
-					"error_message":  utils.TruncateBase64InMessage(apiErr.OpenAIError.Message),
-					"local_error":    apiErr.LocalError,
-					"error_source":   errorSource,
-					"retry_count":    actualRetryTimes,
-					"attempt_count":  finalAttempt,
-					"break_reason":   breakReason,
-					"channel_type":   c.GetInt("channel_type"),
-					"total_channels": c.GetInt("total_channels_at_start"),
-				},
+		// error_source 把错误来源二分为 local（到达本站即被拒绝/本站判定不可用）
+		// 与 upstream（已转发上游、上游返回错误），便于在日志页一眼区分。
+		// 与 local_error 同源，重命名为更直观的维度。
+		errorSource := "upstream"
+		if apiErr.LocalError {
+			errorSource = "local"
+		}
+		errorMetadata := map[string]any{
+			"status_code":    apiErr.StatusCode,
+			"error_type":     apiErr.OpenAIError.Type,
+			"error_message":  utils.TruncateBase64InMessage(apiErr.OpenAIError.Message),
+			"local_error":    apiErr.LocalError,
+			"error_source":   errorSource,
+			"retry_count":    actualRetryTimes,
+			"attempt_count":  finalAttempt,
+			"break_reason":   breakReason,
+			"channel_type":   c.GetInt("channel_type"),
+			"total_channels": c.GetInt("total_channels_at_start"),
+		}
+		if serviceTier := relay_util.NormalizeServiceTier(c.GetString("service_tier")); serviceTier != "" {
+			errorMetadata["service_tier"] = serviceTier
+			errorMetadata["service_tier_ratio"] = relay_util.ServiceTierRatio(serviceTier)
+		}
+		model.RecordErrorLog(
+			c.Request.Context(),
+			c.GetInt("id"),
+			channel.Id,
+			modelName,
+			c.GetString("token_name"),
+			fmt.Sprintf("[%d] %s", apiErr.StatusCode, apiErr.OpenAIError.Type),
+			int(time.Since(startTime).Seconds()),
+			relay.IsStream(),
+			errorMetadata,
 			c.ClientIP(),
 		)
 

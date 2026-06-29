@@ -423,7 +423,6 @@ func (p *CodexProvider) stripUnsupportedCodexFields(request *types.OpenAIRespons
 	request.PreviousResponseID = ""
 	request.PromptCacheRetention = ""
 	request.SafetyIdentifier = ""
-	request.ServiceTier = ""
 	request.User = ""
 }
 

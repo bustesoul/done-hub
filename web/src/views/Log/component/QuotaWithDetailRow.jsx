@@ -12,15 +12,17 @@ export function calculateOriginalQuota(item) {
 
   const quota = item.quota || 0
   const groupRatio = item.metadata?.group_ratio || 1
+  const serviceTierRatio = item.metadata?.service_tier_ratio || 1
+  const totalRatio = groupRatio * serviceTierRatio
 
-  // Simple formula: original price = actual price / group ratio
+  // Simple formula: original price = actual price / final ratio
   // Avoid division by zero
-  if (groupRatio === 0) {
+  if (totalRatio === 0) {
     return quota
   }
 
-  // Calculate original quota by dividing actual quota by group ratio
-  const calculatedOriginalQuota = quota / groupRatio
+  // Calculate original quota by dividing actual quota by group/service tier ratio
+  const calculatedOriginalQuota = quota / totalRatio
 
   // Return the calculated original quota or the metadata value if the calculation is 0
   return calculatedOriginalQuota || item.metadata?.original_quota || item.metadata?.origin_quota || 0
@@ -29,6 +31,7 @@ export function calculateOriginalQuota(item) {
 // QuotaWithDetailRow is only responsible for the price in the main row and the small triangle
 export default function QuotaWithDetailRow({ item, open, setOpen }) {
   const groupRatio = item?.metadata?.group_ratio || 1
+  const serviceTierRatio = item?.metadata?.service_tier_ratio || 1
   // Calculate the original quota based on the formula
   const originalQuota = calculateOriginalQuota(item)
   // Ensure quota has a fallback value
@@ -37,7 +40,7 @@ export default function QuotaWithDetailRow({ item, open, setOpen }) {
     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <Box onClick={() => setOpen((o) => !o)}
            sx={{ display: 'flex', flexDirection: 'column', mr: 1, cursor: 'pointer' }}>
-        {groupRatio < 1 ? (
+        {groupRatio < 1 || serviceTierRatio !== 1 ? (
           <>
             <Typography
               variant="caption"
@@ -85,6 +88,7 @@ QuotaWithDetailRow.propTypes = {
     quota: PropTypes.number,
     metadata: PropTypes.shape({
       group_ratio: PropTypes.number,
+      service_tier_ratio: PropTypes.number,
       original_quota: PropTypes.number,
       origin_quota: PropTypes.number
     })

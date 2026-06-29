@@ -3,8 +3,7 @@ import { useMemo, useState } from 'react';
 import { ArrowForward } from '@mui/icons-material';
 
 import Badge from '@mui/material/Badge'
-
-import { Collapse, Stack, TableCell, TableRow, Tooltip, Typography } from '@mui/material'
+import { Box, Collapse, Stack, TableCell, TableRow, Tooltip, Typography } from '@mui/material'
 
 import { renderQuota, timestamp2string } from 'utils/common'
 import Label from 'ui-component/Label'
@@ -153,7 +152,7 @@ export default function LogTableRow({ item, userIsAdmin, userGroup, columnVisibi
           <TableCell sx={{ p: '10px 8px', textAlign: 'center' }}>{renderType(item.type, LogType, t)}</TableCell>}
         {columnVisibility.model_name &&
           <TableCell
-            sx={{ p: '10px 8px', textAlign: 'center' }}>{viewModelName(item.model_name, item.is_stream)}</TableCell>}
+            sx={{ p: '10px 8px', textAlign: 'center' }}>{viewModelName(item.model_name, item.is_stream, item.metadata?.service_tier)}</TableCell>}
 
         {columnVisibility.duration && (
           <TableCell sx={{ p: '10px 8px', textAlign: 'center' }}>
@@ -224,37 +223,71 @@ LogTableRow.propTypes = {
   columnVisibility: PropTypes.object
 }
 
-function viewModelName(model_name, isStream) {
+function viewModelName(model_name, isStream, serviceTier) {
   if (!model_name) {
     return ''
   }
 
-  if (isStream) {
-    return (
-      <Badge
-        badgeContent="Stream"
-        color="primary"
-        sx={{
-          '& .MuiBadge-badge': {
-            fontSize: '0.55rem',
-            height: '16px',
-            minWidth: '16px',
-            padding: '0 4px',
-            top: '-3px'
-          }
-        }}
-      >
-        <Label color="primary" variant="outlined" copyText={model_name}>
-          {model_name}
-        </Label>
-      </Badge>
-    )
-  }
+  const isFast = String(serviceTier || '').toLowerCase() === 'priority'
 
   return (
-    <Label color="primary" variant="outlined" copyText={model_name}>
-      {model_name}
-    </Label>
+    <Box
+      component="span"
+      sx={{
+        position: 'relative',
+        display: 'inline-flex',
+        pt: isStream ? '6px' : 0,
+        pb: isFast ? '6px' : 0
+      }}
+    >
+      <Label color="primary" variant="outlined" copyText={model_name}>
+        {model_name}
+      </Label>
+      {isStream && (
+        <Box
+          component="span"
+          sx={{
+            position: 'absolute',
+            top: '-3px',
+            right: '-16px',
+            height: '16px',
+            minWidth: '16px',
+            px: '4px',
+            borderRadius: '8px',
+            bgcolor: 'primary.main',
+            color: 'primary.contrastText',
+            fontSize: '0.55rem',
+            lineHeight: '16px',
+            whiteSpace: 'nowrap',
+            pointerEvents: 'none'
+          }}
+        >
+          Stream
+        </Box>
+      )}
+      {isFast && (
+        <Box
+          component="span"
+          sx={{
+            position: 'absolute',
+            right: '-12px',
+            bottom: '-3px',
+            height: '16px',
+            minWidth: '16px',
+            px: '4px',
+            borderRadius: '8px',
+            bgcolor: 'warning.main',
+            color: 'warning.contrastText',
+            fontSize: '0.55rem',
+            lineHeight: '16px',
+            whiteSpace: 'nowrap',
+            pointerEvents: 'none'
+          }}
+        >
+          Fast
+        </Box>
+      )}
+    </Box>
   )
 }
 

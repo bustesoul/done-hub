@@ -688,6 +688,7 @@
       "outputPrice": "Output Price",
       "groupRatio": "Group Ratio",
       "groupRatioValue": "Group Ratio",
+      "serviceTierRatioValue": "Service Tier Ratio",
       "actualPrice": "Actual Price",
       "input": "Input",
       "output": "Output",

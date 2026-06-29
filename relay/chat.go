@@ -73,6 +73,10 @@ func (r *relayChat) IsStream() bool {
 	return r.chatRequest.Stream
 }
 
+func (r *relayChat) GetServiceTier() string {
+	return r.chatRequest.ServiceTier
+}
+
 func (r *relayChat) getPromptTokens() (int, error) {
 	channel := r.provider.GetChannel()
 	return common.CountTokenMessages(r.chatRequest.Messages, r.modelName, channel.PreCost), nil
