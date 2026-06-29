@@ -631,7 +631,16 @@
       "recharge": "チャージ",
       "consumption": "消費",
       "management": "管理",
-      "system": "システム"
+      "system": "システム",
+      "error": "エラー"
+    },
+    "errorDetail": {
+      "source": "発生元",
+      "sourceLocal": "ローカル",
+      "sourceUpstream": "上流",
+      "breakReason": "終了理由",
+      "retryCount": "リトライ回数",
+      "attemptCount": "試行回数"
     },
     "content": {
       "calculate_steps": "計算手順:",
@@ -1122,6 +1131,7 @@
           "placeholder": "ログクリーニング時間"
         },
         "logConsume": "ログ消費を有効にする",
+        "logError": "エラーリクエストログを有効にする",
         "title": "ログ設定"
       },
       "monitoringSettings": {

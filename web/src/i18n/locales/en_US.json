@@ -650,7 +650,16 @@
       "recharge": "Recharge",
       "consumption": "Consumption",
       "management": "Management",
-      "system": "System"
+      "system": "System",
+      "error": "Error"
+    },
+    "errorDetail": {
+      "source": "Source",
+      "sourceLocal": "Local",
+      "sourceUpstream": "Upstream",
+      "breakReason": "Break Reason",
+      "retryCount": "Retries",
+      "attemptCount": "Attempts"
     },
     "content": {
       "calculate_steps": "Calculation steps:",
@@ -1136,6 +1145,7 @@
           "placeholder": "Log Cleanup Time"
         },
         "logConsume": "Enable Log Consumption",
+        "logError": "Enable Error Request Logging",
         "title": "Log Settings"
       },
       "monitoringSettings": {

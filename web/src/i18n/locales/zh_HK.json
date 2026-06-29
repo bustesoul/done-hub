@@ -623,7 +623,16 @@
       "recharge": "充值",
       "consumption": "消費",
       "management": "管理",
-      "system": "系統"
+      "system": "系統",
+      "error": "錯誤"
+    },
+    "errorDetail": {
+      "source": "來源",
+      "sourceLocal": "本站",
+      "sourceUpstream": "上游",
+      "breakReason": "退出原因",
+      "retryCount": "重試次數",
+      "attemptCount": "嘗試次數"
     },
     "content": {
       "calculate_steps": "計算步驟:",
@@ -1114,6 +1123,7 @@
           "placeholder": "日誌清理時間"
         },
         "logConsume": "啟用日誌消費",
+        "logError": "啟用錯誤請求日誌",
         "title": "日誌設置"
       },
       "monitoringSettings": {

@@ -41,6 +41,7 @@ const (
 	LogTypeConsume
 	LogTypeManage
 	LogTypeSystem
+	LogTypeError
 )
 
 func RecordQuotaLog(userId int, logType int, quota int, ip string, content string) {
@@ -160,6 +161,57 @@ func RecordConsumeLog(
 		err := DB.Create(log).Error
 		if err != nil {
 			logger.LogError(ctx, "failed to record log: "+err.Error())
+		}
+	}
+}
+
+// RecordErrorLog 记录一条错误请求日志（LogTypeError）。
+// 仅用于诊断：失败请求已通过 quota.Undo 退还预扣配额，这里 quota/costQuota/token 计量一律为 0，
+// 错误的结构化详情（status_code/error_type/retry_count 等）由调用方打包进 metadata。
+// Content 存简短摘要便于列表浏览，受 LogErrorEnabled 总闸控制，复用批量写入路径。
+func RecordErrorLog(
+	ctx context.Context,
+	userId int,
+	channelId int,
+	modelName string,
+	tokenName string,
+	content string,
+	requestTime int,
+	isStream bool,
+	metadata map[string]any,
+	sourceIp string) {
+	if !config.LogErrorEnabled {
+		return
+	}
+
+	logger.LogInfo(ctx, fmt.Sprintf("record error log: userId=%d, channelId=%d, modelName=%s, tokenName=%s, content=%s, sourceIp=%s", userId, channelId, modelName, tokenName, content, sourceIp))
+
+	username, _ := CacheGetUsername(userId)
+
+	log := &Log{
+		UserId:           userId,
+		Username:         username,
+		CreatedAt:        utils.GetTimestamp(),
+		Type:             LogTypeError,
+		Content:          content,
+		ModelName:        modelName,
+		TokenName:        tokenName,
+		ChannelId:        channelId,
+		RequestTime:      requestTime,
+		IsStream:         isStream,
+		SourceIp:         sourceIp,
+	}
+
+	if metadata != nil {
+		log.Metadata = datatypes.NewJSONType(metadata)
+	}
+
+	if config.BatchUpdateEnabled {
+		AddLogToBatch(log)
+	} else {
+		err := DB.Create(log).Error
+		if err != nil {
+			logger.LogError(ctx, "failed to record error log: "+err.Error())
 		}
 	}
 }
@@ -412,8 +464,10 @@ func SumUsedQuota(params *LogsListParams) (quota int) {
 	return quota
 }
 
+// DeleteOldLog 删除指定时间点之前的高频日志：消费日志（LogTypeConsume）和错误日志（LogTypeError）。
+// 两者都会持续增长，需随历史清理一并删掉；充值/管理/系统日志数量少，不在此清理范围内。
 func DeleteOldLog(targetTimestamp int64) (int64, error) {
-	result := DB.Where("type = ? AND created_at < ?", LogTypeConsume, targetTimestamp).Delete(&Log{})
+	result := DB.Where("type IN (?, ?) AND created_at < ?", LogTypeConsume, LogTypeError, targetTimestamp).Delete(&Log{})
 	return result.RowsAffected, result.Error
 }
 

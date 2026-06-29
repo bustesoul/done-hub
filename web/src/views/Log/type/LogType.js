@@ -6,7 +6,8 @@ const defaultTranslations = {
   'logPage.logType.recharge': 'Recharge',
   'logPage.logType.consumption': 'Consumption',
   'logPage.logType.management': 'Management',
-  'logPage.logType.system': 'System'
+  'logPage.logType.system': 'System',
+  'logPage.logType.error': 'Error'
 };
 
 // Function to get translations with a provided translation function
@@ -17,7 +18,8 @@ const getLogTypeWithTranslation = (translationFunc) => {
     1: { value: '1', text: t('logPage.logType.recharge'), color: 'primary' },
     2: { value: '2', text: t('logPage.logType.consumption'), color: 'orange' },
     3: { value: '3', text: t('logPage.logType.management'), color: 'info' },
-    4: { value: '4', text: t('logPage.logType.system'), color: 'secondary' }
+    4: { value: '4', text: t('logPage.logType.system'), color: 'secondary' },
+    5: { value: '5', text: t('logPage.logType.error'), color: 'error' }
   };
 };
 

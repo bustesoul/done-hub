@@ -62,6 +62,7 @@ const OperationSetting = () => {
     AutomaticDisableChannelNotifyEnabled: 'true',
     ChannelDisableThreshold: 0,
     LogConsumeEnabled: 'true',
+    LogErrorEnabled: 'true',
     DisplayInCurrencyEnabled: 'false',
     DisplayTokenStatEnabled: 'false',
     ApproximateTokenEnabled: 'false',
@@ -880,6 +881,17 @@ const OperationSetting = () => {
                 checked={dataLoaded ? inputs.LogConsumeEnabled === 'true' : false}
                 onChange={handleInputChange}
                 name="LogConsumeEnabled"
+                disabled={!dataLoaded || loading}
+              />
+            }
+          />
+          <FormControlLabel
+            label={t('setting_index.operationSettings.logSettings.logError')}
+            control={
+              <Checkbox
+                checked={dataLoaded ? inputs.LogErrorEnabled === 'true' : false}
+                onChange={handleInputChange}
+                name="LogErrorEnabled"
                 disabled={!dataLoaded || loading}
               />
             }

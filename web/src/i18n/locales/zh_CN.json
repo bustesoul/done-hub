@@ -519,7 +519,16 @@
       "recharge": "充值",
       "consumption": "消费",
       "management": "管理",
-      "system": "系统"
+      "system": "系统",
+      "error": "错误"
+    },
+    "errorDetail": {
+      "source": "来源",
+      "sourceLocal": "本站",
+      "sourceUpstream": "上游",
+      "breakReason": "退出原因",
+      "retryCount": "重试次数",
+      "attemptCount": "尝试次数"
     },
     "content": {
       "channel_group": "分组: {{ channel_group }}",
@@ -981,6 +990,7 @@
       "logSettings": {
         "title": "日志设置",
         "logConsume": "启用日志消费",
+        "logError": "启用错误请求日志",
         "logCleanupTime": {
           "label": "日志清理时间",
           "placeholder": "日志清理时间"

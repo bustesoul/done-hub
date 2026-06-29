@@ -192,7 +192,7 @@ export default function LogTableRow({ item, userIsAdmin, userGroup, columnVisibi
           <TableCell sx={{ p: '10px 8px', textAlign: 'center' }}>{item.source_ip || ''}</TableCell>}
         {columnVisibility.detail && (
           <TableCell sx={{ p: '10px 8px', textAlign: 'center', ...stickyCellSx }}>
-            {viewLogContent(item, t, totalInputTokens, totalOutputTokens)}
+            {item.type === 5 ? viewErrorDetail(item, t) : viewLogContent(item, t, totalInputTokens, totalOutputTokens)}
           </TableCell>
         )}
       </TableRow>
@@ -424,6 +424,42 @@ function calculateTokens(item) {
     show,
     tokenDetails
   }
+}
+
+// viewErrorDetail 渲染错误日志（type=5）的详情列：
+// 主文案是简短的 item.content（[status] error_type），hover Tooltip 展示完整错误信息与重试上下文。
+function viewErrorDetail(item, t) {
+  const meta = item?.metadata || {}
+  const title = (
+    <Stack direction="column" spacing={0.5} sx={{ maxWidth: 480 }}>
+      {meta.error_message && (
+        <Typography variant="caption" sx={{ wordBreak: 'break-all' }}>
+          {meta.error_message}
+        </Typography>
+      )}
+      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+        <Typography variant="caption">{t('logPage.errorDetail.source')}: {isLocal ? t('logPage.errorDetail.sourceLocal') : t('logPage.errorDetail.sourceUpstream')}</Typography>
+        {meta.break_reason && <Typography variant="caption">{t('logPage.errorDetail.breakReason')}: {meta.break_reason}</Typography>}
+        {meta.retry_count !== undefined && <Typography variant="caption">{t('logPage.errorDetail.retryCount')}: {meta.retry_count}</Typography>}
+        {meta.attempt_count !== undefined && <Typography variant="caption">{t('logPage.errorDetail.attemptCount')}: {meta.attempt_count}</Typography>}
+      </Stack>
+    </Stack>
+  )
+  const isLocal = meta.error_source === 'local' || meta.local_error === true
+  return (
+    <Tooltip title={title} placement="top" arrow>
+      <Stack direction="row" spacing={0.5} alignItems="center" sx={{ cursor: 'help' }}>
+        <Label
+          variant="soft"
+          color={isLocal ? 'warning' : 'error'}
+          sx={{ flexShrink: 0, height: 20, '& .MuiBox-root': { p: 0 } }}
+        >
+          {isLocal ? t('logPage.errorDetail.sourceLocal') : t('logPage.errorDetail.sourceUpstream')}
+        </Label>
+        <Typography variant="body2">{item.content || ''}</Typography>
+      </Stack>
+    </Tooltip>
+  )
 }
 
 function viewLogContent(item, t) {

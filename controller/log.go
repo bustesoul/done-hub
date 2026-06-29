@@ -377,6 +377,8 @@ func getLogTypeText(logType int) string {
 		return "管理"
 	case model.LogTypeSystem:
 		return "系统"
+	case model.LogTypeError:
+		return "错误"
 	default:
 		return "未知"
 	}
