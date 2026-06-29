@@ -39,7 +39,12 @@ on:
           - success
       dry_run:
         description: 'Logs simulated changes, no deletions are performed'
-        required: false
+        required: true
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 jobs:
   del_runs:
