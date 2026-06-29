@@ -430,6 +430,7 @@ function calculateTokens(item) {
 // 主文案是简短的 item.content（[status] error_type），hover Tooltip 展示完整错误信息与重试上下文。
 function viewErrorDetail(item, t) {
   const meta = item?.metadata || {}
+  const isLocal = meta.error_source === 'local' || meta.local_error === true
   const title = (
     <Stack direction="column" spacing={0.5} sx={{ maxWidth: 480 }}>
       {meta.error_message && (
@@ -445,7 +446,6 @@ function viewErrorDetail(item, t) {
       </Stack>
     </Stack>
   )
-  const isLocal = meta.error_source === 'local' || meta.local_error === true
   return (
     <Tooltip title={title} placement="top" arrow>
       <Stack direction="row" spacing={0.5} alignItems="center" sx={{ cursor: 'help' }}>
