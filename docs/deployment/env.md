@@ -84,6 +84,6 @@ LOGS_FILENAME="one-hub.log"
 21. `AUTO_PRICE_UPDATES`：自动更新价格，可选值为 `true` 和 `false`，未设置则默认为 `false`。开启后每次启动程序时，会检测数据库中的数据和程序中默认模型价格，如果数据库中的模型价格有缺失将会自动同步到数据库中。 开启带来的问题：你删不掉程序默认的模型价格，删除后，重启又回来了，这个选项适合跟官网一致价格的用户使用。
 22. `AUTO_PRICE_UPDATES_MODE`：价格更新模式，可选值为 `add`:仅增加系统不存在的价格   `overwrite`：覆盖系统所有价格配置  `update`：仅仅更新现有数据   `system`:使用程序内置价格表配置初始化价格配置，默认为 `system`。建议生成环境使用`system`模式，手动去web的价格管理模块手动获取价格更新服务器数据并一一核对更新。
 23. `AUTO_PRICE_UPDATES_INTERVAL` ：价格自动更新时间，单位分钟，仅`AUTO_PRICE_UPDATES_MODE`为`add`、`overwrite`时生效，系统将按照此时间周期性从价格更新服务器获取价格配置并更新系统价格。默认值：1440
-24. `UPDATE_PRICE_SERVICE` ：设置之后将使用指定的价格服务更新价格。不设置则使用系统默认价格服务`https://raw.githubusercontent.com/MartialBE/one-api/prices/prices.json`
+24. `UPDATE_PRICE_SERVICE` ：设置之后将使用指定的价格服务更新价格。不设置则使用系统默认价格服务`https://cdn.jsdelivr.net/gh/Oaklight/onehub_prices@prices/oneapi_prices.json`
 25. `USER_INVOICE_MONTH` ：是否开启用户月度账单功能，开启后系统每月1日凌晨生成用户上月数据汇总账单，数据量大的情况比较消耗资源，谨慎开启，默认`false`
 

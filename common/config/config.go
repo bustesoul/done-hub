@@ -49,7 +49,7 @@ func defaultConfig() {
 	viper.SetDefault("auto_price_updates", false)
 	viper.SetDefault("auto_price_updates_mode", "system")
 	viper.SetDefault("auto_price_updates_interval", 1440)
-	viper.SetDefault("update_price_service", "https://raw.githubusercontent.com/MartialBE/one-api/prices/prices.json")
+	viper.SetDefault("update_price_service", "https://cdn.jsdelivr.net/gh/Oaklight/onehub_prices@prices/oneapi_prices.json")
 	viper.SetDefault("language", "zh_CN")
 	viper.SetDefault("favicon", "")
 	viper.SetDefault("user_invoice_month", false)

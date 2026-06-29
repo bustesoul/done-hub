@@ -9,7 +9,7 @@ lastUpdated: true
 
 目前定价管理是通过管理员账户下的`运营 --> 模型价格 --> 更新价格`进行配置的。
 
-项目官方提供一张价格表：<https://raw.githubusercontent.com/MartialBE/one-api/prices/prices.json>
+项目官方提供一张价格表：<https://cdn.jsdelivr.net/gh/Oaklight/onehub_prices@prices/oneapi_prices.json>
 
 另外社区维护的价格表项目如下：
 
