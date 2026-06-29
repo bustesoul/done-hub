@@ -1,6 +1,5 @@
 // project imports
 import config from 'config';
-import { defaultPrimaryColor } from 'themes/presets';
 
 // action - state management
 import * as actionTypes from './actions';
@@ -11,8 +10,7 @@ export const initialState = {
   fontFamily: config.fontFamily,
   borderRadius: config.borderRadius,
   opened: true,
-  theme: 'light',
-  primaryColor: localStorage.getItem('primaryColor') || defaultPrimaryColor
+  theme: 'light'
 };
 
 // ==============================|| CUSTOMIZATION REDUCER ||============================== //
@@ -45,11 +43,6 @@ const customizationReducer = (state = initialState, action) => {
       return {
         ...state,
         theme: action.theme
-      };
-    case actionTypes.SET_PRIMARY_COLOR:
-      return {
-        ...state,
-        primaryColor: action.primaryColor
       };
     default:
       return state;

@@ -20,7 +20,6 @@ import { Link } from 'react-router-dom';
 import { useLocation } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import ThemeButton from 'ui-component/ThemeButton';
-import ThemeColorButton from 'ui-component/ThemeColorButton';
 import { NoticeButton } from 'ui-component/notice';
 import I18nButton from 'ui-component/i18nButton';
 import { IconMenu2 } from '@tabler/icons-react';
@@ -71,7 +70,6 @@ const Header = () => {
             <Stack direction="row" spacing={1} alignItems="center">
               <NoticeButton />
               <ThemeButton />
-              <ThemeColorButton />
               <I18nButton />
             </Stack>
             <IconButton
@@ -166,7 +164,6 @@ const Header = () => {
             <Stack direction="row" spacing={1} alignItems="center">
               <NoticeButton />
               <ThemeButton />
-              <ThemeColorButton />
               <I18nButton />
             </Stack>
             {account.user ? (
