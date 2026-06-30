@@ -4,8 +4,8 @@ import (
 	"done-hub/common/config"
 	"done-hub/model"
 	"done-hub/providers"
+	"done-hub/providers/claudecode"
 	"done-hub/providers/codex"
-	"errors"
 	"net/http"
 	"strconv"
 
@@ -15,45 +15,48 @@ import (
 func GetChannelSubscriptionQuota(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
 	}
 
 	channel, err := model.GetChannelById(id)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
 	}
-	if channel.Type != config.ChannelTypeCodex {
+
+	if channel.Type != config.ChannelTypeCodex && channel.Type != config.ChannelTypeClaudeCode {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "仅 Codex 渠道支持订阅额度查询",
+			"message": "仅 Codex / Claude Code 渠道支持订阅额度查询",
 		})
 		return
 	}
 
 	provider := providers.GetProvider(channel, c)
-	codexProvider, ok := provider.(*codex.CodexProvider)
-	if !ok {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": errors.New("provider not implemented").Error(),
-		})
-		return
+
+	var windows interface{}
+
+	switch channel.Type {
+	case config.ChannelTypeCodex:
+		p, ok := provider.(*codex.CodexProvider)
+		if !ok {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": "provider not implemented"})
+			return
+		}
+		windows, err = p.SubscriptionQuota()
+
+	case config.ChannelTypeClaudeCode:
+		p, ok := provider.(*claudecode.ClaudeCodeProvider)
+		if !ok {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": "provider not implemented"})
+			return
+		}
+		windows, err = p.SubscriptionQuota()
 	}
 
-	windows, err := codexProvider.SubscriptionQuota()
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
 	}
 
