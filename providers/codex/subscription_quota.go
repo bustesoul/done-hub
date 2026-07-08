@@ -37,8 +37,14 @@ func (p *CodexProvider) SubscriptionQuota() ([]SubscriptionWindow, error) {
 	}
 
 	headers := map[string]string{
-		"Accept":     "application/json",
-		"User-Agent": DefaultCodexUserAgent,
+		"Accept":         "application/json",
+		"User-Agent":     DefaultCodexUserAgent,
+		"openai-beta":    "codex-1",
+		"originator":     "Codex Desktop",
+		"oai-language":   "zh-CN",
+		"sec-fetch-site": "none",
+		"sec-fetch-mode": "no-cors",
+		"sec-fetch-dest": "empty",
 	}
 	p.ApplyCustomHeaders(headers)
 	p.SetHeader(headers, "Authorization", "Bearer "+token)

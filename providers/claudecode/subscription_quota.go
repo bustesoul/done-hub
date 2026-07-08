@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"strconv"
 	"time"
 )
 
@@ -16,9 +15,23 @@ type SubscriptionWindow struct {
 	WindowSeconds    int     `json:"window_seconds"`
 }
 
-// SubscriptionQuota probes GET /v1/models and reads the unified rate-limit
-// headers that Anthropic includes in every response for Claude Code OAuth users.
-// Headers: anthropic-ratelimit-unified-{limit,remaining,reset}
+// claudeUsageWindow 对应 /api/oauth/usage 返回的单个用量窗口。
+// utilization 是 0-100 的使用率百分比；resets_at 是 RFC3339 时间戳。
+type claudeUsageWindow struct {
+	Utilization float64 `json:"utilization"`
+	ResetsAt    string  `json:"resets_at"`
+}
+
+// claudeUsageResponse 对应 Anthropic /api/oauth/usage 返回结构。
+type claudeUsageResponse struct {
+	FiveHour                claudeUsageWindow `json:"five_hour"`
+	SevenDay                claudeUsageWindow `json:"seven_day"`
+	SevenDaySonnet          claudeUsageWindow `json:"seven_day_sonnet"`
+	SevenDayOverageIncluded claudeUsageWindow `json:"seven_day_overage_included"`
+}
+
+// SubscriptionQuota 调用 Claude Code CLI 的专属额度端点 /api/oauth/usage，
+// 解析 JSON body 获取订阅额度。对齐真实 Claude Code CLI 行为。
 func (p *ClaudeCodeProvider) SubscriptionQuota() ([]SubscriptionWindow, error) {
 	token, err := p.GetToken()
 	if err != nil {
@@ -26,89 +39,92 @@ func (p *ClaudeCodeProvider) SubscriptionQuota() ([]SubscriptionWindow, error) {
 	}
 
 	headers := map[string]string{
-		"Authorization":     "Bearer " + token,
-		"anthropic-version": "2023-06-01",
-		"Accept":            "application/json",
+		"Authorization":  "Bearer " + token,
+		"anthropic-beta": "oauth-2025-04-20",
+		"User-Agent":     "claude-code/2.1.7",
+		"Accept":         "application/json, text/plain, */*",
 	}
 
-	url := p.GetFullRequestURL("/v1/models")
+	url := p.GetFullRequestURL("/api/oauth/usage")
 	req, err := p.Requester.NewRequest("GET", url, p.Requester.WithHeader(headers))
 	if err != nil {
 		return nil, fmt.Errorf("创建请求失败: %w", err)
 	}
 
-	// Pass nil response to skip body parsing; we only need the response headers.
-	resp, errWithCode := p.Requester.SendRequest(req, nil, false)
+	var usage claudeUsageResponse
+	_, errWithCode := p.Requester.SendRequest(req, &usage, false)
 	if errWithCode != nil {
 		return nil, errors.New(errWithCode.OpenAIError.Message)
 	}
 
-	limitStr := resp.Header.Get("anthropic-ratelimit-unified-limit")
-	remainingStr := resp.Header.Get("anthropic-ratelimit-unified-remaining")
-	resetStr := resp.Header.Get("anthropic-ratelimit-unified-reset")
-
-	if limitStr == "" || remainingStr == "" {
-		return nil, errors.New("未获取到 Claude Code 订阅额度信息（响应头缺失，账号可能未使用 Claude MAX 订阅）")
+	windows := buildClaudeWindows(&usage)
+	if len(windows) == 0 {
+		return nil, errors.New("未获取到 Claude Code 订阅额度信息")
 	}
-
-	limit, err := strconv.ParseInt(limitStr, 10, 64)
-	if err != nil || limit <= 0 {
-		return nil, fmt.Errorf("解析订阅额度上限失败: %v", err)
-	}
-
-	remaining, err := strconv.ParseInt(remainingStr, 10, 64)
-	if err != nil {
-		return nil, fmt.Errorf("解析剩余额度失败: %v", err)
-	}
-	if remaining < 0 {
-		remaining = 0
-	}
-
-	var resetAt int64
-	if resetStr != "" {
-		resetAt, _ = strconv.ParseInt(resetStr, 10, 64)
-	}
-
-	used := limit - remaining
-	if used < 0 {
-		used = 0
-	}
-	usedPercent := ccClampPercent(float64(used) / float64(limit) * 100)
-
-	now := time.Now().Unix()
-	windowSeconds := 0
-	label := "current"
-	if resetAt > now {
-		windowSeconds = int(resetAt - now)
-		label = ccWindowLabel(windowSeconds)
-	}
-
-	return []SubscriptionWindow{{
-		Label:            label,
-		UsedPercent:      usedPercent,
-		RemainingPercent: 100 - usedPercent,
-		ResetAt:          resetAt,
-		WindowSeconds:    windowSeconds,
-	}}, nil
+	return windows, nil
 }
 
-func ccWindowLabel(seconds int) string {
+// buildClaudeWindows 将 usage 响应转换为 SubscriptionWindow 切片。
+// 顺序：5h、7d、Sonnet 7d、Fable 7d；跳过 resets_at 为空的无效窗口。
+func buildClaudeWindows(usage *claudeUsageResponse) []SubscriptionWindow {
+	windows := make([]SubscriptionWindow, 0, 4)
+	windows = appendClaudeWindow(windows, "", usage.FiveHour)
+	windows = appendClaudeWindow(windows, "", usage.SevenDay)
+	windows = appendClaudeWindow(windows, "Sonnet", usage.SevenDaySonnet)
+	windows = appendClaudeWindow(windows, "Fable", usage.SevenDayOverageIncluded)
+	return windows
+}
+
+func appendClaudeWindow(windows []SubscriptionWindow, prefix string, w claudeUsageWindow) []SubscriptionWindow {
+	if w.ResetsAt == "" {
+		return windows
+	}
+
+	resetAt, err := parseRFC3339(w.ResetsAt)
+	if err != nil {
+		return windows
+	}
+	resetAtUnix := resetAt.Unix()
+
+	now := time.Now().Unix()
+	windowSeconds := int(resetAtUnix - now)
+	if windowSeconds < 0 {
+		windowSeconds = 0
+	}
+
+	used := ccClampPercent(w.Utilization)
+	return append(windows, SubscriptionWindow{
+		Label:            ccWindowLabel(prefix, windowSeconds),
+		UsedPercent:      used,
+		RemainingPercent: 100 - used,
+		ResetAt:          resetAtUnix,
+		WindowSeconds:    windowSeconds,
+	})
+}
+
+// ccWindowLabel 根据窗口剩余秒数生成 label，可选前缀区分不同窗口。
+func ccWindowLabel(prefix string, seconds int) string {
+	var label string
 	switch {
 	case seconds >= 604800:
 		if weeks := seconds / 604800; weeks == 1 {
-			return "1week"
+			label = "1week"
 		} else {
-			return fmt.Sprintf("%dweeks", weeks)
+			label = fmt.Sprintf("%dweeks", weeks)
 		}
 	case seconds >= 86400:
-		return fmt.Sprintf("%dd", seconds/86400)
+		label = fmt.Sprintf("%dd", seconds/86400)
 	case seconds >= 3600:
-		return fmt.Sprintf("%dh", seconds/3600)
+		label = fmt.Sprintf("%dh", seconds/3600)
 	case seconds >= 60:
-		return fmt.Sprintf("%dm", seconds/60)
+		label = fmt.Sprintf("%dm", seconds/60)
 	default:
-		return fmt.Sprintf("%ds", seconds)
+		label = fmt.Sprintf("%ds", seconds)
 	}
+	if prefix == "" {
+		return label
+	}
+	return prefix + " " + label
 }
 
 func ccClampPercent(v float64) float64 {
@@ -122,4 +138,13 @@ func ccClampPercent(v float64) float64 {
 		return 100
 	}
 	return v
+}
+
+func parseRFC3339(s string) (time.Time, error) {
+	for _, format := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02T15:04:05Z", "2006-01-02T15:04:05.000Z"} {
+		if t, err := time.Parse(format, s); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("无法解析时间: %s", s)
 }
