@@ -134,87 +134,32 @@ function statusInfo(t, status) {
 
 function SubscriptionQuotaCell({ channelId, channelType }) {
   const { t } = useTranslation();
-  const [windows, setWindows] = useState(null);
+  const [windows, setWindows] = useState(() => getQuotaCache(channelId)?.windows ?? null);
   const [loading, setLoading] = useState(false);
-  const isLoadingRef = useRef(false);
-  const refreshTimerRef = useRef(null);
-  // Always holds the latest fetch function so the timer callback never goes stale.
-  const fetchRef = useRef(null);
 
   const supported = SUBSCRIPTION_QUOTA_TYPES.includes(channelType);
 
-  // Schedule an automatic background refresh to fire when the earliest window resets.
-  const scheduleAutoRefresh = useCallback((wins) => {
-    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-    if (!wins?.length) return;
-
-    let minResetAt = null;
-    for (const w of wins) {
-      if (w.reset_at && (minResetAt === null || w.reset_at < minResetAt)) {
-        minResetAt = w.reset_at;
-      }
-    }
-    if (!minResetAt) return;
-
-    const now = Math.floor(Date.now() / 1000);
-    const delayMs = (minResetAt - now + 10) * 1000; // 10 s buffer after reset
-    // Only schedule if within 8 days (avoids crazy-long timers for monthly windows).
-    if (delayMs > 0 && delayMs < 8 * 24 * 3600 * 1000) {
-      refreshTimerRef.current = setTimeout(() => fetchRef.current?.(true), delayMs);
-    }
-  }, []);
-
-  const fetchQuota = useCallback(
-    async (silent = false) => {
-      if (isLoadingRef.current) return;
-      isLoadingRef.current = true;
-      if (!silent) setLoading(true);
-      try {
-        const res = await API.get(`/api/channel/subscription_quota/${channelId}`);
-        const { success, message, windows: quotaWindows } = res.data;
-        if (success) {
-          const wins = Array.isArray(quotaWindows) ? quotaWindows : [];
-          setWindows(wins);
-          setQuotaCache(channelId, wins);
-          scheduleAutoRefresh(wins);
-        } else if (!silent) {
-          showError(message);
-        }
-      } catch (err) {
-        if (!silent) showError(err?.message || t('common.unknown'));
-      } finally {
-        isLoadingRef.current = false;
-        if (!silent) setLoading(false);
-      }
-    },
-    [channelId, scheduleAutoRefresh, t]
-  );
-
-  // Keep the ref current so the timer callback always calls the latest closure.
-  fetchRef.current = fetchQuota;
-
-  // On mount (or channel change): restore from cache immediately, then decide
-  // whether to auto-refresh in the background.
-  useEffect(() => {
-    if (!supported) return;
-
-    const cached = getQuotaCache(channelId);
-    if (cached?.windows) {
-      setWindows(cached.windows);
-      const now = Math.floor(Date.now() / 1000);
-      if (cached.resetAt && cached.resetAt <= now) {
-        // Cache has expired — silently refresh in the background.
-        fetchQuota(true);
+  // 纯手动刷新：仅在用户点击时调用查询接口，打开页面只恢复上次的缓存记录，
+  // 避免在用户不知情时调用查询额度接口。
+  const fetchQuota = async () => {
+    if (loading) return;
+    setLoading(true);
+    try {
+      const res = await API.get(`/api/channel/subscription_quota/${channelId}`);
+      const { success, message, windows: quotaWindows } = res.data;
+      if (success) {
+        const wins = Array.isArray(quotaWindows) ? quotaWindows : [];
+        setWindows(wins);
+        setQuotaCache(channelId, wins);
       } else {
-        // Cache is still fresh — just arm the auto-refresh timer.
-        scheduleAutoRefresh(cached.windows);
+        showError(message);
       }
+    } catch (err) {
+      showError(err?.message || t('common.unknown'));
+    } finally {
+      setLoading(false);
     }
-
-    return () => {
-      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-    };
-  }, [channelId, channelType]); // eslint-disable-line react-hooks/exhaustive-deps
+  };
 
   if (!supported) {
     return (
@@ -228,7 +173,7 @@ function SubscriptionQuotaCell({ channelId, channelType }) {
     return (
       <Tooltip title={t('channel_row.showSubscriptionQuota')} placement="top">
         <span>
-          <IconButton size="small" onClick={() => fetchQuota(false)} disabled={loading}>
+          <IconButton size="small" onClick={fetchQuota} disabled={loading}>
             {loading ? <CircularProgress size={16} /> : <Icon icon="mdi:chart-bar" width={17} />}
           </IconButton>
         </span>
@@ -280,7 +225,7 @@ function SubscriptionQuotaCell({ channelId, channelType }) {
       })}
       <Tooltip title={t('channel_row.refreshSubscriptionQuota')} placement="top">
         <span>
-          <IconButton size="small" onClick={() => fetchQuota(false)} disabled={loading} sx={{ alignSelf: 'center', width: 20, height: 20 }}>
+          <IconButton size="small" onClick={fetchQuota} disabled={loading} sx={{ alignSelf: 'center', width: 20, height: 20 }}>
             {loading ? <CircularProgress size={13} /> : <Icon icon="mdi:refresh" width={14} />}
           </IconButton>
         </span>
