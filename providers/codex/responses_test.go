@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"done-hub/providers/base"
 	"done-hub/types"
 	"encoding/json"
 	"net/http"
@@ -64,7 +65,7 @@ func TestPrepareCodexRequest_UsesSessionHeaderAsPromptCacheKey(t *testing.T) {
 		Input: "hello",
 	}
 	provider := &CodexProvider{}
-	provider.Context = ctx
+	provider.Context = base.NewMemoryRequestContext(ctx.Request)
 
 	provider.prepareCodexRequest(request)
 

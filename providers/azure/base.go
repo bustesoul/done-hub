@@ -10,7 +10,7 @@ import (
 type AzureProviderFactory struct{}
 
 // 创建 AzureProvider
-func (f AzureProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f AzureProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	config := getAzureConfig()
 	return &AzureProvider{
 		OpenAIProvider: openai.OpenAIProvider{

@@ -15,7 +15,7 @@ import (
 type SunoProviderFactory struct{}
 
 // 创建 SunoProvider
-func (f SunoProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f SunoProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	return &SunoProvider{
 		OpenAIProvider: openai.OpenAIProvider{
 			BaseProvider: base.BaseProvider{

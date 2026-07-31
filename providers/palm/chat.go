@@ -11,14 +11,12 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-
-	"github.com/gin-gonic/gin"
 )
 
 type palmStreamHandler struct {
 	Usage   *types.Usage
 	Request *types.ChatCompletionRequest
-	Context *gin.Context
+	Context *base.RequestContext
 }
 
 func (p *PalmProvider) CreateChatCompletion(request *types.ChatCompletionRequest) (*types.ChatCompletionResponse, *types.OpenAIErrorWithStatusCode) {

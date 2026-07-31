@@ -18,6 +18,7 @@ import (
 	"done-hub/cron"
 	"done-hub/middleware"
 	"done-hub/model"
+	"done-hub/providers"
 	"done-hub/relay/task"
 	"done-hub/router"
 	"done-hub/safty"
@@ -71,6 +72,9 @@ func main() {
 
 	// Initialize SQL Database
 	model.SetupDB()
+	if err := providers.BackfillProtocolProfiles(model.DB); err != nil {
+		logger.FatalLog("failed to backfill provider protocol profiles: " + err.Error())
+	}
 	defer model.CloseDB()
 	// Initialize Redis
 	redis.InitRedisClient()
@@ -244,7 +248,7 @@ func SyncChannelCache(frequency int) {
 	for {
 		time.Sleep(time.Duration(frequency) * time.Second)
 		logger.SysLog("syncing channels from database")
-		model.ChannelGroup.Load()
+		model.GatewayRoutes.Load()
 		model.PricingInstance.Init()
 		model.ModelOwnedBysInstance.Load()
 		model.GlobalUserGroupRatio.Load()

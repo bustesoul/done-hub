@@ -2,6 +2,7 @@ const defaultConfig = {
   input: {
     name: '',
     type: 1,
+    protocol_profile_id: 'openai-chat-completions',
     key: '',
     base_url: '',
     other: '',

@@ -15,7 +15,7 @@ import (
 type BedrockProviderFactory struct{}
 
 // 创建 BedrockProvider
-func (f BedrockProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f BedrockProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 
 	bedrockProvider := &BedrockProvider{
 		BaseProvider: base.BaseProvider{

@@ -61,7 +61,7 @@ func (r *relayImageEdits) send() (err *types.OpenAIErrorWithStatusCode, done boo
 
 	// 入口协议 == image edits 且响应原样直返：放行 provider 字节透传，
 	// 保留上游 usage.output_tokens_details.image_tokens/text_tokens 等未知字段。
-	r.c.Set(config.GinRawPassThroughAllowedKey, true)
+	gatewayRequestState(r.c).Set(config.GinRawPassThroughAllowedKey, true)
 
 	response, err := provider.CreateImageEdits(&r.request)
 	if err != nil {

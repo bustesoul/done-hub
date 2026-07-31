@@ -9,8 +9,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
-
-	"github.com/gin-gonic/gin"
 )
 
 // countImagesInResponse 统计响应中的图片数量
@@ -35,7 +33,7 @@ type GeminiRelayStreamHandler struct {
 	Usage     *types.Usage
 	Prefix    string
 	ModelName string
-	Context   *gin.Context
+	Context   *base.RequestContext
 
 	Key string
 }

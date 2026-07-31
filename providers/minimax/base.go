@@ -13,7 +13,7 @@ import (
 type MiniMaxProviderFactory struct{}
 
 // 创建 MiniMaxProvider
-func (f MiniMaxProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f MiniMaxProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	return &MiniMaxProvider{
 		OpenAIProvider: openai.OpenAIProvider{
 			BaseProvider: base.BaseProvider{

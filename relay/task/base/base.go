@@ -2,6 +2,7 @@ package base
 
 import (
 	"context"
+	"done-hub/internal/gateway/requeststate"
 	"done-hub/model"
 	"done-hub/providers/base"
 	"done-hub/relay"
@@ -19,7 +20,7 @@ type TaskBase struct {
 	ModelName     string
 	Task          *model.Task
 	OriginTaskID  string
-	BaseProvider  base.ProviderInterface
+	BaseProvider  base.ProviderRuntime
 	Response      any
 }
 
@@ -31,7 +32,7 @@ type TaskInterface interface {
 	GetModelName() string
 	GetTask() *model.Task
 	SetProvider() *TaskError
-	GetProvider() base.ProviderInterface
+	GetProvider() base.ProviderRuntime
 	GinResponse()
 
 	UpdateTaskStatus(ctx context.Context, taskChannelM map[int][]string, taskM map[string]*model.Task) error
@@ -51,7 +52,8 @@ func (t *TaskBase) InitTask() {
 }
 
 func (t *TaskBase) GetModelName() string {
-	billingOriginalModel := t.C.GetBool("billing_original_model")
+	state := requeststate.From(t.C.Request.Context())
+	billingOriginalModel := state != nil && state.Selection().BillingOriginalModel
 	if billingOriginalModel {
 		return t.OriginalModel
 	}
@@ -62,11 +64,11 @@ func (t *TaskBase) GetTask() *model.Task {
 	return t.Task
 }
 
-func (t *TaskBase) GetProvider() base.ProviderInterface {
+func (t *TaskBase) GetProvider() base.ProviderRuntime {
 	return t.BaseProvider
 }
 
-func (t *TaskBase) GetProviderByModel() (base.ProviderInterface, error) {
+func (t *TaskBase) GetProviderByModel() (base.ProviderRuntime, error) {
 	provider, modelName, fail := relay.GetProvider(t.C, t.OriginalModel)
 	if fail != nil {
 		return nil, fail

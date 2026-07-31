@@ -33,7 +33,7 @@ type BaiduProvider struct {
 	UseOpenaiAPI bool
 }
 
-func (f BaiduProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f BaiduProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	useOpenaiAPI := false
 
 	if channel.Plugin != nil {

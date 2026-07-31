@@ -10,7 +10,7 @@ import (
 type MoonshotProviderFactory struct{}
 
 // 创建 MoonshotProvider
-func (f MoonshotProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f MoonshotProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	config := getMoonshotConfig()
 	return &MoonshotProvider{
 		OpenAIProvider: openai.OpenAIProvider{

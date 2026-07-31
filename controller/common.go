@@ -176,7 +176,9 @@ func DisableChannel(channelId int, channelName string, reason string, sendNotify
 		}
 
 		// 执行禁用操作
-		model.UpdateChannelStatusById(channelId, config.ChannelStatusAutoDisabled)
+		if err := model.UpdateChannelStatusById(channelId, config.ChannelStatusAutoDisabled); err != nil {
+			return nil, err
+		}
 
 		// 发送通知：受全局开关控制，并通过 SETNX 在多节点间去重。
 		// reason 可能来自上游 err.Message,可能包含 URL/IP/api_key 等敏感串,
@@ -198,7 +200,10 @@ func DisableChannel(channelId int, channelName string, reason string, sendNotify
 
 // enable & notify
 func EnableChannel(channelId int, channelName string, sendNotify bool) {
-	model.UpdateChannelStatusById(channelId, config.ChannelStatusEnabled)
+	if err := model.UpdateChannelStatusById(channelId, config.ChannelStatusEnabled); err != nil {
+		logger.SysError(fmt.Sprintf("EnableChannel failed for channel %d: %v", channelId, err))
+		return
+	}
 	if !sendNotify {
 		return
 	}

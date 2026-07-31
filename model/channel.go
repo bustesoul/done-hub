@@ -6,48 +6,58 @@ import (
 	"done-hub/common/config"
 	"done-hub/common/logger"
 	"done-hub/common/utils"
+	"done-hub/internal/gateway/domain"
+	"done-hub/internal/gateway/secret"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
 type Channel struct {
-	Id                  int      `json:"id"`
-	Type                int      `json:"type" form:"type" gorm:"default:0"`
-	Key                 string   `json:"key" form:"key" gorm:"type:text"`
-	Status              int      `json:"status" form:"status" gorm:"default:1"`
-	Name                string   `json:"name" form:"name" gorm:"index"`
-	Weight              *uint    `json:"weight" gorm:"default:1"`
-	CreatedTime         int64    `json:"created_time" gorm:"bigint"`
-	TestTime            int64    `json:"test_time" gorm:"bigint"`
-	ResponseTime        int      `json:"response_time"` // in milliseconds
-	BaseURL             *string  `json:"base_url" gorm:"column:base_url;default:''"`
-	Other               string   `json:"other" form:"other"`
-	Remark              string   `json:"remark" form:"remark" gorm:"type:text"`
-	Balance             float64  `json:"balance"` // in USD
-	BalanceUpdatedTime  int64    `json:"balance_updated_time" gorm:"bigint"`
-	Models              string   `json:"models" form:"models"`
-	Group               string   `json:"group" form:"group" gorm:"type:varchar(255);default:'default'"`
-	Tag                 string   `json:"tag" form:"tag" gorm:"type:varchar(32);default:''"`
-	UsedQuota           int64    `json:"used_quota" gorm:"bigint;default:0"`
-	ModelMapping        *string  `json:"model_mapping" gorm:"type:text"`
-	Need2ResponseModels *string  `json:"need2response_models" gorm:"type:text"`
-	ModelHeaders        *string  `json:"model_headers" gorm:"type:varchar(1024);default:''"`
-	CustomParameter     *string  `json:"custom_parameter" gorm:"type:text"`
-	Priority            *int64   `json:"priority" gorm:"bigint;default:0"`
-	Proxy               *string  `json:"proxy" gorm:"type:varchar(255);default:''"`
-	TestModel           string   `json:"test_model" form:"test_model" gorm:"type:varchar(50);default:''"`
-	OnlyChat            bool     `json:"only_chat" form:"only_chat" gorm:"default:false"`
-	PreCost             int      `json:"pre_cost" form:"pre_cost" gorm:"default:1"`
-	CostRatio           *float64 `json:"cost_ratio" form:"cost_ratio" gorm:"type:decimal(10,4);default:0"`
-	HeaderOverride      *string  `json:"header_override" gorm:"type:text"`
-	PassThroughBody     bool     `json:"pass_through_body" form:"pass_through_body" gorm:"default:false"`
-	CompatibleResponse  bool     `json:"compatible_response" gorm:"default:false"`
-	AllowExtraBody      bool     `json:"allow_extra_body" form:"allow_extra_body" gorm:"default:false"`
+	Id                   int        `json:"id"`
+	Type                 int        `json:"type" form:"type" gorm:"default:0"`
+	ProtocolProfileID    string     `json:"protocol_profile_id" form:"protocol_profile_id" gorm:"type:varchar(64);index"`
+	Key                  string     `json:"key" form:"key" gorm:"type:text"`
+	CredentialConfigured bool       `json:"credential_configured" gorm:"-"`
+	CredentialAuthMode   string     `json:"credential_auth_mode,omitempty" gorm:"-"`
+	CredentialStatus     string     `json:"credential_status" gorm:"-"`
+	CredentialTestedAt   *time.Time `json:"credential_tested_at,omitempty" gorm:"-"`
+	ValidationToken      string     `json:"validation_token,omitempty" gorm:"-"`
+	Status               int        `json:"status" form:"status" gorm:"default:1"`
+	Name                 string     `json:"name" form:"name" gorm:"index"`
+	Weight               *uint      `json:"weight" gorm:"default:1"`
+	CreatedTime          int64      `json:"created_time" gorm:"bigint"`
+	TestTime             int64      `json:"test_time" gorm:"bigint"`
+	ResponseTime         int        `json:"response_time"` // in milliseconds
+	BaseURL              *string    `json:"base_url" gorm:"column:base_url;default:''"`
+	Other                string     `json:"other" form:"other"`
+	Remark               string     `json:"remark" form:"remark" gorm:"type:text"`
+	Balance              float64    `json:"balance"` // in USD
+	BalanceUpdatedTime   int64      `json:"balance_updated_time" gorm:"bigint"`
+	Models               string     `json:"models" form:"models"`
+	Group                string     `json:"group" form:"group" gorm:"type:varchar(255);default:'default'"`
+	Tag                  string     `json:"tag" form:"tag" gorm:"type:varchar(32);default:''"`
+	UsedQuota            int64      `json:"used_quota" gorm:"bigint;default:0"`
+	ModelMapping         *string    `json:"model_mapping" gorm:"type:text"`
+	Need2ResponseModels  *string    `json:"need2response_models" gorm:"type:text"`
+	ModelHeaders         *string    `json:"model_headers" gorm:"type:varchar(1024);default:''"`
+	CustomParameter      *string    `json:"custom_parameter" gorm:"type:text"`
+	Priority             *int64     `json:"priority" gorm:"bigint;default:0"`
+	Proxy                *string    `json:"proxy" gorm:"type:varchar(255);default:''"`
+	TestModel            string     `json:"test_model" form:"test_model" gorm:"type:varchar(50);default:''"`
+	OnlyChat             bool       `json:"only_chat" form:"only_chat" gorm:"default:false"`
+	PreCost              int        `json:"pre_cost" form:"pre_cost" gorm:"default:1"`
+	CostRatio            *float64   `json:"cost_ratio" form:"cost_ratio" gorm:"type:decimal(10,4);default:0"`
+	HeaderOverride       *string    `json:"header_override" gorm:"type:text"`
+	PassThroughBody      bool       `json:"pass_through_body" form:"pass_through_body" gorm:"default:false"`
+	CompatibleResponse   bool       `json:"compatible_response" gorm:"default:false"`
+	AllowExtraBody       bool       `json:"allow_extra_body" form:"allow_extra_body" gorm:"default:false"`
 
 	DisabledStream *datatypes.JSONSlice[string] `json:"disabled_stream,omitempty" gorm:"type:json"`
 
@@ -171,7 +181,116 @@ func GetChannelsList(params *SearchChannelsParams) (*DataResult[Channel], error)
 		}
 	}
 
-	return PaginateAndOrder(db, &params.PaginationParams, &channels, allowedChannelOrderFields)
+	result, err := PaginateAndOrder(db, &params.PaginationParams, &channels, allowedChannelOrderFields)
+	if err != nil {
+		return nil, err
+	}
+	if err := hydrateGatewayCredentialSummaries(channels, true); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func hydrateGatewayCredentialSummaries(channels []*Channel, aggregateTags bool) error {
+	if len(channels) == 0 {
+		return nil
+	}
+
+	channelIDs := make([]int, 0, len(channels))
+	channelIDsByRow := make(map[int][]int, len(channels))
+	tags := make([]string, 0)
+	for _, channel := range channels {
+		if channel == nil {
+			continue
+		}
+		channelIDs = append(channelIDs, channel.Id)
+		channelIDsByRow[channel.Id] = []int{channel.Id}
+		if aggregateTags && channel.Tag != "" {
+			tags = append(tags, channel.Tag)
+		}
+	}
+	if len(tags) > 0 {
+		var taggedChannels []Channel
+		if err := DB.Select("id", "tag").Where("tag IN ?", tags).Find(&taggedChannels).Error; err != nil {
+			return err
+		}
+		idsByTag := make(map[string][]int, len(tags))
+		for _, channel := range taggedChannels {
+			idsByTag[channel.Tag] = append(idsByTag[channel.Tag], channel.Id)
+			channelIDs = append(channelIDs, channel.Id)
+		}
+		for _, channel := range channels {
+			if channel != nil && channel.Tag != "" {
+				channelIDsByRow[channel.Id] = idsByTag[channel.Tag]
+			}
+		}
+	}
+
+	var endpoints []GatewayEndpoint
+	if err := DB.Select("channel_id", "active_credential_id").Where("channel_id IN ?", channelIDs).Find(&endpoints).Error; err != nil {
+		return err
+	}
+	activeIDByChannel := make(map[int]uint, len(endpoints))
+	activeIDs := make([]uint, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		activeIDByChannel[endpoint.ChannelID] = endpoint.ActiveCredentialID
+		if endpoint.ActiveCredentialID != 0 {
+			activeIDs = append(activeIDs, endpoint.ActiveCredentialID)
+		}
+	}
+
+	credentialsByID := make(map[uint]GatewayCredential, len(activeIDs))
+	if len(activeIDs) > 0 {
+		var credentials []GatewayCredential
+		if err := DB.Select("id", "auth_mode", "status", "tested_at").Where("id IN ?", activeIDs).Find(&credentials).Error; err != nil {
+			return err
+		}
+		for _, credential := range credentials {
+			credentialsByID[credential.ID] = credential
+		}
+	}
+
+	for _, channel := range channels {
+		if channel == nil {
+			continue
+		}
+		statuses := make(map[string]struct{})
+		authModes := make(map[string]struct{})
+		configured := true
+		for _, channelID := range channelIDsByRow[channel.Id] {
+			activeID := activeIDByChannel[channelID]
+			credential, exists := credentialsByID[activeID]
+			if !exists {
+				configured = false
+				statuses["missing"] = struct{}{}
+				continue
+			}
+			status := credential.Status
+			if credential.AuthMode == string(domain.AuthModeNone) {
+				status = "keyless"
+			}
+			statuses[status] = struct{}{}
+			authModes[credential.AuthMode] = struct{}{}
+			if credential.TestedAt != nil && (channel.CredentialTestedAt == nil || credential.TestedAt.After(*channel.CredentialTestedAt)) {
+				testedAt := *credential.TestedAt
+				channel.CredentialTestedAt = &testedAt
+			}
+		}
+		channel.CredentialConfigured = configured
+		channel.CredentialStatus = onlyMapValue(statuses, "mixed")
+		channel.CredentialAuthMode = onlyMapValue(authModes, "mixed")
+	}
+	return nil
+}
+
+func onlyMapValue(values map[string]struct{}, fallback string) string {
+	if len(values) != 1 {
+		return fallback
+	}
+	for value := range values {
+		return value
+	}
+	return fallback
 }
 
 // tagAwareOrderExpr 为「展示值=整组聚合」的列返回标签感知的排序表达式：标签代表行
@@ -202,45 +321,162 @@ func tagAwareOrderExpr(field, dir string) string {
 func GetAllChannels() ([]*Channel, error) {
 	var channels []*Channel
 	err := DB.Order("id desc").Find(&channels).Error
+	if err == nil {
+		hydrateGatewayCredentials(channels)
+	}
 	return channels, err
 }
 
 func GetChannelById(id int) (*Channel, error) {
 	channel := Channel{Id: id}
 	err := DB.First(&channel, "id = ?", id).Error
-
+	if err == nil {
+		// Compatibility for a database that has not completed the one-time
+		// credential projection yet. GatewayCredential wins whenever present.
+		channel.CredentialConfigured = channel.Key != ""
+		if credential, plaintext, credentialErr := LoadActiveGatewayCredentialSecret(DB, id); credentialErr == nil {
+			channel.Key = plaintext
+			channel.CredentialConfigured = true
+			channel.CredentialAuthMode = credential.AuthMode
+			channel.CredentialStatus = credential.Status
+			channel.CredentialTestedAt = credential.TestedAt
+			if credential.AuthMode == string(domain.AuthModeNone) {
+				channel.CredentialStatus = "keyless"
+			}
+		}
+	}
 	return &channel, err
 }
 
 func GetChannelsByTag(tag string) ([]*Channel, error) {
 	var channels []*Channel
 	err := DB.Where("tag = ?", tag).Find(&channels).Error
+	if err == nil {
+		hydrateGatewayCredentials(channels)
+		err = hydrateGatewayCredentialSummaries(channels, false)
+	}
 	return channels, err
 }
 
-func DeleteChannelTag(channelId int) error {
-	result := DB.Model(&Channel{}).Where("id = ?", channelId).Update("tag", "")
-	if result.Error == nil && result.RowsAffected > 0 {
-		ChannelGroup.Load()
+func hydrateGatewayCredentials(channels []*Channel) {
+	if len(channels) == 0 {
+		return
 	}
-	return result.Error
+	channelIDs := make([]int, 0, len(channels))
+	for _, channel := range channels {
+		if channel != nil {
+			channelIDs = append(channelIDs, channel.Id)
+		}
+	}
+	if len(channelIDs) == 0 {
+		return
+	}
+
+	var endpoints []GatewayEndpoint
+	if err := DB.Select("channel_id", "active_credential_id").
+		Where("channel_id IN ?", channelIDs).
+		Find(&endpoints).Error; err != nil {
+		return
+	}
+	activeIDByChannel := make(map[int]uint, len(endpoints))
+	activeIDs := make([]uint, 0, len(endpoints))
+	seenActiveIDs := make(map[uint]struct{}, len(endpoints))
+	for _, endpoint := range endpoints {
+		if endpoint.ActiveCredentialID == 0 {
+			continue
+		}
+		activeIDByChannel[endpoint.ChannelID] = endpoint.ActiveCredentialID
+		if _, exists := seenActiveIDs[endpoint.ActiveCredentialID]; !exists {
+			seenActiveIDs[endpoint.ActiveCredentialID] = struct{}{}
+			activeIDs = append(activeIDs, endpoint.ActiveCredentialID)
+		}
+	}
+	if len(activeIDs) == 0 {
+		return
+	}
+
+	var credentials []GatewayCredential
+	if err := DB.Where("id IN ?", activeIDs).Find(&credentials).Error; err != nil {
+		return
+	}
+	credentialsByID := make(map[uint]GatewayCredential, len(credentials))
+	for _, credential := range credentials {
+		credentialsByID[credential.ID] = credential
+	}
+	secretCipher, err := secret.NewFromConfig()
+	if err != nil {
+		return
+	}
+	for _, channel := range channels {
+		if channel == nil {
+			continue
+		}
+		activeID := activeIDByChannel[channel.Id]
+		credential, exists := credentialsByID[activeID]
+		if !exists || credential.ChannelID != channel.Id || credential.Status == GatewayCredentialRevoked {
+			continue
+		}
+		plaintext, decryptErr := secretCipher.Decrypt(credential.SecretCiphertext)
+		if decryptErr == nil {
+			channel.Key = plaintext
+		}
+	}
+}
+
+func DeleteChannelTag(channelId int) error {
+	var changed bool
+	if err := DB.Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&Channel{}).Where("id = ?", channelId).Update("tag", "")
+		if result.Error != nil {
+			return result.Error
+		}
+		changed = result.RowsAffected > 0
+		if !changed {
+			return nil
+		}
+		return SyncGatewayChannels(tx, []int{channelId})
+	}); err != nil {
+		return err
+	}
+	if changed {
+		GatewayRoutes.Load()
+	}
+	return nil
 }
 
 func BatchDeleteChannel(ids []int) (int64, error) {
-	result := DB.Where("id IN ?", ids).Delete(&Channel{})
-	if result.Error == nil && result.RowsAffected > 0 {
-		ChannelGroup.Load()
+	var rowsAffected int64
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		result := tx.Where("id IN ?", ids).Delete(&Channel{})
+		if result.Error != nil {
+			return result.Error
+		}
+		rowsAffected = result.RowsAffected
+		return SyncGatewayChannels(tx, ids)
+	})
+	if err != nil {
+		return 0, err
 	}
-	return result.RowsAffected, result.Error
+	if rowsAffected > 0 {
+		GatewayRoutes.Load()
+	}
+	return rowsAffected, nil
 }
 
 func BatchInsertChannels(channels []Channel) error {
-	err := DB.Omit("UsedQuota").Create(&channels).Error
-	if err != nil {
+	if err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Omit("UsedQuota").Create(&channels).Error; err != nil {
+			return err
+		}
+		ids := make([]int, 0, len(channels))
+		for index := range channels {
+			ids = append(ids, channels[index].Id)
+		}
+		return SyncGatewayChannels(tx, ids)
+	}); err != nil {
 		return err
 	}
-
-	ChannelGroup.Load()
+	GatewayRoutes.Load()
 	return nil
 }
 
@@ -250,109 +486,112 @@ type BatchChannelsParams struct {
 }
 
 func BatchUpdateChannelsAzureApi(params *BatchChannelsParams) (int64, error) {
-	db := DB.Model(&Channel{}).Where("id IN ?", params.Ids).Update("other", params.Value)
-	if db.Error != nil {
-		return 0, db.Error
+	var rowsAffected int64
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&Channel{}).Where("id IN ?", params.Ids).Update("other", params.Value)
+		if result.Error != nil {
+			return result.Error
+		}
+		rowsAffected = result.RowsAffected
+		return SyncGatewayChannels(tx, params.Ids)
+	})
+	if err != nil {
+		return 0, err
 	}
-
-	if db.RowsAffected > 0 {
-		ChannelGroup.Load()
+	if rowsAffected > 0 {
+		GatewayRoutes.Load()
 	}
-	return db.RowsAffected, nil
+	return rowsAffected, nil
 }
 
 func BatchDelModelChannels(params *BatchChannelsParams) (int64, error) {
 	var count int64
-
-	var channels []*Channel
-	err := DB.Select("id, models, "+quotePostgresField("group")).Find(&channels, "id IN ?", params.Ids).Error
+	var changedIDs []int
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var channels []*Channel
+		if err := tx.Select("id, models, "+quotePostgresField("group")).Find(&channels, "id IN ?", params.Ids).Error; err != nil {
+			return err
+		}
+		for _, channel := range channels {
+			modelsSlice := strings.Split(channel.Models, ",")
+			changed := false
+			for i, modelName := range modelsSlice {
+				if modelName == params.Value {
+					modelsSlice = append(modelsSlice[:i], modelsSlice[i+1:]...)
+					changed = true
+					break
+				}
+			}
+			if !changed {
+				continue
+			}
+			if err := tx.Model(&Channel{}).Where("id = ?", channel.Id).
+				Update("models", strings.Join(modelsSlice, ",")).Error; err != nil {
+				return err
+			}
+			changedIDs = append(changedIDs, channel.Id)
+			count++
+		}
+		return SyncGatewayChannels(tx, changedIDs)
+	})
 	if err != nil {
 		return 0, err
 	}
-
-	for _, channel := range channels {
-		modelsSlice := strings.Split(channel.Models, ",")
-		for i, m := range modelsSlice {
-			if m == params.Value {
-				modelsSlice = append(modelsSlice[:i], modelsSlice[i+1:]...)
-				break
-			}
-		}
-
-		channel.Models = strings.Join(modelsSlice, ",")
-		channel.UpdateRaw(false)
-		count++
-	}
-
 	if count > 0 {
-		ChannelGroup.Load()
+		GatewayRoutes.Load()
 	}
-
 	return count, nil
 }
 
-// BatchAddUserGroupToChannels 批量添加用户分组到渠道
 func BatchAddUserGroupToChannels(params *BatchChannelsParams) (int64, error) {
 	var count int64
-
-	var channels []*Channel
-	err := DB.Select("id, "+quotePostgresField("group")).Find(&channels, "id IN ?", params.Ids).Error
-	if err != nil {
-		return 0, err
-	}
-
-	for _, channel := range channels {
-		// 获取当前渠道的用户分组列表
-		currentGroups := strings.Split(channel.Group, ",")
-
-		// 清理空字符串并去重
-		uniqueGroups := make(map[string]bool)
-		for _, group := range currentGroups {
-			group = strings.TrimSpace(group)
-			if group != "" {
-				uniqueGroups[group] = true
-			}
+	var changedIDs []int
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var channels []*Channel
+		if err := tx.Select("id, "+quotePostgresField("group")).Find(&channels, "id IN ?", params.Ids).Error; err != nil {
+			return err
 		}
 
-		// 检查要添加的分组是否已存在
-		newGroup := strings.TrimSpace(params.Value)
-		if newGroup != "" && !uniqueGroups[newGroup] {
-			// 分组不存在，添加到渠道
+		for _, channel := range channels {
+			currentGroups := strings.Split(channel.Group, ",")
+			uniqueGroups := make(map[string]bool)
+			for _, group := range currentGroups {
+				group = strings.TrimSpace(group)
+				if group != "" {
+					uniqueGroups[group] = true
+				}
+			}
+			newGroup := strings.TrimSpace(params.Value)
+			if newGroup == "" || uniqueGroups[newGroup] {
+				continue
+			}
 			uniqueGroups[newGroup] = true
-
-			// 重新构建分组字符串
-			var groupSlice []string
+			groupSlice := make([]string, 0, len(uniqueGroups))
 			for group := range uniqueGroups {
 				groupSlice = append(groupSlice, group)
 			}
-
-			newGroupString := strings.Join(groupSlice, ",")
-
-			// 更新渠道分组
-			err = DB.Model(&Channel{}).Where("id = ?", channel.Id).Update("group", newGroupString).Error
-			if err != nil {
-				return count, err
+			slices.Sort(groupSlice)
+			if err := tx.Model(&Channel{}).Where("id = ?", channel.Id).
+				Update("group", strings.Join(groupSlice, ",")).Error; err != nil {
+				return err
 			}
+			changedIDs = append(changedIDs, channel.Id)
 			count++
 		}
+		return SyncGatewayChannels(tx, changedIDs)
+	})
+	if err != nil {
+		return 0, err
 	}
-
 	if count > 0 {
-		ChannelGroup.Load()
+		GatewayRoutes.Load()
 	}
-
 	return count, nil
 }
 
 // BatchAddModelToChannels 批量添加模型到渠道
 func BatchAddModelToChannels(params *BatchChannelsParams) (int64, error) {
 	var count int64
-
-	var channels []*Channel
-	err := DB.Select("id, models").Find(&channels, "id IN ?", params.Ids).Error
-	if err != nil {
-		return 0, err
-	}
 
 	// 解析要添加的模型列表（支持逗号分隔的多个模型）
 	newModels := strings.Split(params.Value, ",")
@@ -368,51 +607,60 @@ func BatchAddModelToChannels(params *BatchChannelsParams) (int64, error) {
 		return 0, nil
 	}
 
-	for _, channel := range channels {
-		// 获取当前渠道的模型列表
-		currentModels := strings.Split(channel.Models, ",")
+	var changedIDs []int
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var channels []*Channel
+		if err := tx.Select("id, models").Find(&channels, "id IN ?", params.Ids).Error; err != nil {
+			return err
+		}
+		for _, channel := range channels {
+			// 获取当前渠道的模型列表
+			currentModels := strings.Split(channel.Models, ",")
 
-		// 清理空字符串并去重
-		uniqueModels := make(map[string]bool)
-		for _, model := range currentModels {
-			model = strings.TrimSpace(model)
-			if model != "" {
-				uniqueModels[model] = true
+			// 清理空字符串并去重
+			uniqueModels := make(map[string]bool)
+			for _, model := range currentModels {
+				model = strings.TrimSpace(model)
+				if model != "" {
+					uniqueModels[model] = true
+				}
+			}
+
+			// 检查要添加的模型，只添加不存在的模型
+			hasNewModel := false
+			for _, newModel := range trimmedNewModels {
+				if !uniqueModels[newModel] {
+					uniqueModels[newModel] = true
+					hasNewModel = true
+				}
+			}
+
+			// 如果有新模型添加，则更新渠道
+			if hasNewModel {
+				// 重新构建模型字符串
+				var modelSlice []string
+				for model := range uniqueModels {
+					modelSlice = append(modelSlice, model)
+				}
+
+				newModelString := strings.Join(modelSlice, ",")
+
+				// 更新渠道模型
+				if err := tx.Model(&Channel{}).Where("id = ?", channel.Id).Update("models", newModelString).Error; err != nil {
+					return err
+				}
+				changedIDs = append(changedIDs, channel.Id)
+				count++
 			}
 		}
-
-		// 检查要添加的模型，只添加不存在的模型
-		hasNewModel := false
-		for _, newModel := range trimmedNewModels {
-			if !uniqueModels[newModel] {
-				uniqueModels[newModel] = true
-				hasNewModel = true
-			}
-		}
-
-		// 如果有新模型添加，则更新渠道
-		if hasNewModel {
-			// 重新构建模型字符串
-			var modelSlice []string
-			for model := range uniqueModels {
-				modelSlice = append(modelSlice, model)
-			}
-
-			newModelString := strings.Join(modelSlice, ",")
-
-			// 更新渠道模型
-			err = DB.Model(&Channel{}).Where("id = ?", channel.Id).Update("models", newModelString).Error
-			if err != nil {
-				return count, err
-			}
-			count++
-		}
+		return SyncGatewayChannels(tx, changedIDs)
+	})
+	if err != nil {
+		return 0, err
 	}
-
 	if count > 0 {
-		ChannelGroup.Load()
+		GatewayRoutes.Load()
 	}
-
 	return count, nil
 }
 
@@ -472,39 +720,46 @@ func (channel *Channel) GetCustomParameter() string {
 }
 
 func (channel *Channel) Insert() error {
-	err := DB.Omit("UsedQuota").Create(channel).Error
-	if err == nil {
-		ChannelGroup.Load()
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Omit("UsedQuota").Create(channel).Error; err != nil {
+			return err
+		}
+		return SyncGatewayChannels(tx, []int{channel.Id})
+	})
+	if err != nil {
+		return err
 	}
-
-	return err
+	GatewayRoutes.Load()
+	return nil
 }
 
 func (channel *Channel) Update(overwrite bool) error {
-
-	err := channel.UpdateRaw(overwrite)
-
-	if err == nil {
-		ChannelGroup.Load()
-		ChannelGroup.ClearChannelCooldowns(channel.Id)
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := channel.updateRaw(tx, overwrite); err != nil {
+			return err
+		}
+		return SyncGatewayChannels(tx, []int{channel.Id})
+	})
+	if err != nil {
+		return err
 	}
-
-	return err
+	GatewayRoutes.Load()
+	GatewayRoutes.ClearChannelCooldowns(channel.Id)
+	return nil
 }
 
-func (channel *Channel) UpdateRaw(overwrite bool) error {
+func (channel *Channel) updateRaw(db *gorm.DB, overwrite bool) error {
 	var err error
 
 	if overwrite {
-		err = DB.Model(channel).Select("*").Omit("UsedQuota").Updates(channel).Error
+		err = db.Model(channel).Select("*").Omit("UsedQuota").Updates(channel).Error
 	} else {
-		err = DB.Model(channel).Omit("UsedQuota").Updates(channel).Error
+		err = db.Model(channel).Omit("UsedQuota").Updates(channel).Error
 	}
 	if err != nil {
 		return err
 	}
-	DB.Model(channel).First(channel, "id = ?", channel.Id)
-	return err
+	return db.Model(channel).First(channel, "id = ?", channel.Id).Error
 }
 
 func (channel *Channel) UpdateResponseTime(responseTime int64) {
@@ -528,11 +783,24 @@ func (channel *Channel) UpdateBalance(balance float64) {
 }
 
 func (channel *Channel) Delete() error {
-	err := DB.Delete(channel).Error
-	if err == nil {
-		ChannelGroup.Load()
+	if channel == nil || channel.Id <= 0 {
+		return errors.New("channel id must be positive")
 	}
-	return err
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		result := tx.Delete(channel)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		return DeleteGatewayChannelResources(tx, channel.Id)
+	})
+	if err != nil {
+		return err
+	}
+	GatewayRoutes.Load()
+	return nil
 }
 
 func (channel *Channel) StatusToStr() string {
@@ -548,24 +816,53 @@ func (channel *Channel) StatusToStr() string {
 	return "禁用"
 }
 
-func UpdateChannelStatusById(id int, status int) {
-	tx := DB.Begin()
-	err := tx.Model(&Channel{}).Where("id = ?", id).Update("status", status).Error
+func UpdateChannelStatusById(id int, status int) error {
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&Channel{}).Where("id = ?", id).Update("status", status)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		return SyncGatewayEndpointStatus(tx, id, status)
+	})
 	if err != nil {
-		logger.SysError("failed to update channel status: " + err.Error())
-		tx.Rollback()
-		return
+		return err
 	}
 
-	tx.Commit()
-
 	isEnabled := status == config.ChannelStatusEnabled
-	go ChannelGroup.ChangeStatus(id, isEnabled)
+	GatewayRoutes.ChangeStatus(id, isEnabled)
 
 	// 启用渠道时清除冻结缓存
 	if isEnabled {
-		ChannelGroup.ClearChannelCooldowns(id)
+		GatewayRoutes.ClearChannelCooldowns(id)
 	}
+	return nil
+}
+
+func UpdateGatewayConnectionScheduling(id int, updates map[string]any) error {
+	if id <= 0 {
+		return errors.New("channel id must be positive")
+	}
+	if len(updates) == 0 {
+		return nil
+	}
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&Channel{}).Where("id = ?", id).Updates(updates)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		return SyncGatewayChannels(tx, []int{id})
+	})
+	if err != nil {
+		return err
+	}
+	GatewayRoutes.Load()
+	return nil
 }
 
 func UpdateChannelUsedQuota(id int, quota int) {
@@ -601,24 +898,41 @@ func ClearChannelTokenCache(channelId int) {
 }
 
 func UpdateChannelKey(id int, key string) error {
-	err := DB.Model(&Channel{}).Where("id = ?", id).Update("key", key).Error
+	err := ReplaceActiveGatewayCredential(DB, id, key)
 	if err != nil {
 		logger.SysError("failed to update channel key: " + err.Error())
 		return err
 	}
 
 	ClearChannelTokenCache(id)
-	ChannelGroup.Load()
+	GatewayRoutes.Load()
 
 	return nil
 }
 
 func DeleteDisabledChannel() (int64, error) {
-	result := DB.Where("status = ? or status = ?", config.ChannelStatusAutoDisabled, config.ChannelStatusManuallyDisabled).Delete(&Channel{})
-	if result.Error == nil && result.RowsAffected > 0 {
-		ChannelGroup.Load()
+	var ids []int
+	var rowsAffected int64
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		query := tx.Model(&Channel{}).
+			Where("status = ? or status = ?", config.ChannelStatusAutoDisabled, config.ChannelStatusManuallyDisabled)
+		if err := query.Pluck("id", &ids).Error; err != nil {
+			return err
+		}
+		result := tx.Where("id IN ?", ids).Delete(&Channel{})
+		if result.Error != nil {
+			return result.Error
+		}
+		rowsAffected = result.RowsAffected
+		return SyncGatewayChannels(tx, ids)
+	})
+	if err != nil {
+		return 0, err
 	}
-	return result.RowsAffected, result.Error
+	if rowsAffected > 0 {
+		GatewayRoutes.Load()
+	}
+	return rowsAffected, nil
 }
 
 type ChannelStatistics struct {

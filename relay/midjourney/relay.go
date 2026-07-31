@@ -5,6 +5,7 @@ package midjourney
 
 import (
 	"done-hub/common/logger"
+	"done-hub/internal/gateway/requeststate"
 	provider "done-hub/providers/midjourney"
 	"fmt"
 	"net/http"
@@ -45,7 +46,10 @@ func RelayMidjourney(c *gin.Context) {
 			"type":        typeMsg,
 			"code":        err.Code,
 		})
-		channelId := c.GetInt("channel_id")
+		channelId := 0
+		if state := requeststate.From(c.Request.Context()); state != nil {
+			channelId = state.Selection().ChannelID
+		}
 		logger.LogError(c, fmt.Sprintf("relay error (channel #%d, status code %d): %s", channelId, statusCode, fmt.Sprintf("%s %s", err.Description, err.Result)))
 	}
 }

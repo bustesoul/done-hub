@@ -71,7 +71,6 @@ func (r *relayVeoOnly) setRequest() error {
 	}
 
 	r.setOriginalModel(modelList[0])
-	r.c.Set("original_model", modelList[0])
 
 	return nil
 }

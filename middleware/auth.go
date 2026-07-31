@@ -3,6 +3,7 @@ package middleware
 import (
 	"done-hub/common/config"
 	"done-hub/common/utils"
+	"done-hub/internal/gateway/requeststate"
 	"done-hub/model"
 	"fmt"
 	"net/http"
@@ -172,7 +173,9 @@ func tokenAuth(c *gin.Context, key string) {
 		if model.IsAdmin(token.UserId) {
 			if strings.HasPrefix(parts[1], "!") {
 				channelId := utils.String2Int(parts[1][1:])
-				c.Set("skip_channel_ids", []int{channelId})
+				request, state := requeststate.Ensure(c.Request)
+				c.Request = request
+				state.Skip(channelId)
 			} else {
 				channelId := utils.String2Int(parts[1])
 				if channelId == 0 {

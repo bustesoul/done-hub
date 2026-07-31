@@ -18,7 +18,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
@@ -295,7 +294,7 @@ func (p *AntigravityProvider) getChatRequest(geminiRequest *gemini.GeminiChatReq
 type AntigravityStreamHandler struct {
 	Usage   *types.Usage
 	Request *types.ChatCompletionRequest
-	Context *gin.Context
+	Context *base.RequestContext
 }
 
 // HandlerStream 处理流式响应

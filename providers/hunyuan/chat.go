@@ -9,14 +9,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
-
-	"github.com/gin-gonic/gin"
 )
 
 type tunyuanStreamHandler struct {
 	Usage   *types.Usage
 	Request *types.ChatCompletionRequest
-	Context *gin.Context
+	Context *base.RequestContext
 }
 
 func (p *HunyuanProvider) CreateChatCompletion(request *types.ChatCompletionRequest) (*types.ChatCompletionResponse, *types.OpenAIErrorWithStatusCode) {

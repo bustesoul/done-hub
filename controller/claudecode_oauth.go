@@ -67,7 +67,7 @@ func generateCodeChallenge(verifier string) string {
 }
 
 // StartClaudeCodeOAuth 开始 ClaudeCode OAuth 认证流程
-// POST /api/claudecode/oauth/start
+// POST /api/admin/provider-connections/oauth-sessions/claude-code
 func StartClaudeCodeOAuth(c *gin.Context) {
 	var req StartClaudeCodeOAuthRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -123,6 +123,9 @@ func StartClaudeCodeOAuth(c *gin.Context) {
 			"auth_url":   authURL,
 			"state":      state,
 			"session_id": state, // 使用 state 作为 session_id
+			"status":     "authorization_required",
+			"flow":       "manual_callback",
+			"expires_in": int(ClaudeCodeOAuthStateCacheDuration / time.Second),
 			"instructions": []string{
 				"1. 点击授权链接，在新窗口中登录 Claude 账户",
 				"2. 同意应用权限",
@@ -141,7 +144,7 @@ type ExchangeClaudeCodeRequest struct {
 }
 
 // ClaudeCodeOAuthCallback 处理用户提交的授权码
-// POST /api/claudecode/oauth/exchange-code
+// POST /api/admin/provider-connections/oauth-sessions/claude-code/exchange
 func ClaudeCodeOAuthCallback(c *gin.Context) {
 	var req ExchangeClaudeCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -215,6 +218,8 @@ func ClaudeCodeOAuthCallback(c *gin.Context) {
 		"message": "授权成功",
 		"data": gin.H{
 			"credentials": credentialsJSON,
+			"status":      "success",
+			"flow":        "manual_callback",
 		},
 	})
 }

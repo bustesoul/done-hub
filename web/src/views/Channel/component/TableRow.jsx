@@ -14,7 +14,6 @@ import {
   Box,
   Button,
   Checkbox,
-  CircularProgress,
   Collapse,
   Dialog,
   DialogActions,
@@ -23,21 +22,14 @@ import {
   DialogTitle,
   Grid,
   IconButton,
-  InputAdornment,
-  LinearProgress,
   Menu,
   MenuItem,
   MenuList,
   Popover,
   Stack,
   Switch,
-  Table,
-  TableBody,
   TableCell,
-  TableContainer,
-  TablePagination,
   TableRow,
-  TextField,
   Tooltip,
   Typography
 } from '@mui/material';
@@ -46,41 +38,16 @@ import Label from 'ui-component/Label';
 // import TableSwitch from 'ui-component/Switch';
 import ResponseTimeLabel from './ResponseTimeLabel';
 import GroupLabel from './GroupLabel';
+import { CredentialStatusCell, GroupInlineEditor, SubscriptionQuotaCell, renderBalance, statusInfo } from './ChannelTableCells';
+import TagChannelsPanel from './TagChannelsPanel';
 
 import { alpha, styled } from '@mui/material/styles';
 import { Icon } from '@iconify/react';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import { ChannelCheck } from './ChannelCheck';
-import { getPageSize, PAGE_SIZE_OPTIONS, savePageSize } from 'constants';
+import { getPageSize, savePageSize } from 'constants';
 import { stickyCellSx } from 'ui-component/stickyCellSx';
-import KeywordTableHead from 'ui-component/TableHead';
-
-const CHANNEL_TYPE_CODEX = 59;
-const CHANNEL_TYPE_CLAUDECODE = 58;
-const SUBSCRIPTION_QUOTA_TYPES = [CHANNEL_TYPE_CODEX, CHANNEL_TYPE_CLAUDECODE];
-const QUOTA_CACHE_PREFIX = 'sq_v1_';
-
-function getQuotaCache(channelId) {
-  try {
-    const raw = localStorage.getItem(QUOTA_CACHE_PREFIX + channelId);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-function setQuotaCache(channelId, windows) {
-  try {
-    let resetAt = null;
-    for (const w of windows) {
-      if (w.reset_at && (resetAt === null || w.reset_at < resetAt)) {
-        resetAt = w.reset_at;
-      }
-    }
-    localStorage.setItem(QUOTA_CACHE_PREFIX + channelId, JSON.stringify({ windows, resetAt }));
-  } catch {}
-}
 
 const StyledMenu = styled((props) => (
   <Menu
@@ -118,126 +85,6 @@ const StyledMenu = styled((props) => (
     }
   }
 }));
-
-function statusInfo(t, status) {
-  switch (status) {
-    case 1:
-      return t('channel_index.enabled');
-    case 2:
-      return t('channel_row.manual');
-    case 3:
-      return t('channel_row.auto');
-    default:
-      return t('common.unknown');
-  }
-}
-
-function SubscriptionQuotaCell({ channelId, channelType }) {
-  const { t } = useTranslation();
-  const [windows, setWindows] = useState(() => getQuotaCache(channelId)?.windows ?? null);
-  const [loading, setLoading] = useState(false);
-
-  const supported = SUBSCRIPTION_QUOTA_TYPES.includes(channelType);
-
-  // 纯手动刷新：仅在用户点击时调用查询接口，打开页面只恢复上次的缓存记录，
-  // 避免在用户不知情时调用查询额度接口。
-  const fetchQuota = async () => {
-    if (loading) return;
-    setLoading(true);
-    try {
-      const res = await API.get(`/api/channel/subscription_quota/${channelId}`);
-      const { success, message, windows: quotaWindows } = res.data;
-      if (success) {
-        const wins = Array.isArray(quotaWindows) ? quotaWindows : [];
-        setWindows(wins);
-        setQuotaCache(channelId, wins);
-      } else {
-        showError(message);
-      }
-    } catch (err) {
-      showError(err?.message || t('common.unknown'));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (!supported) {
-    return (
-      <Typography variant="caption" sx={{ color: 'text.disabled' }}>
-        -
-      </Typography>
-    );
-  }
-
-  if (!windows) {
-    return (
-      <Tooltip title={t('channel_row.showSubscriptionQuota')} placement="top">
-        <span>
-          <IconButton size="small" onClick={fetchQuota} disabled={loading}>
-            {loading ? <CircularProgress size={16} /> : <Icon icon="mdi:chart-bar" width={17} />}
-          </IconButton>
-        </span>
-      </Tooltip>
-    );
-  }
-
-  return (
-    <Stack spacing={0.35} alignItems="stretch" sx={{ width: 132, mx: 'auto' }}>
-      {windows.length === 0 && (
-        <Typography variant="caption" sx={{ color: 'text.secondary', textAlign: 'center' }}>
-          {t('channel_row.noSubscriptionQuota')}
-        </Typography>
-      )}
-      {windows.map((window) => {
-        const used = Math.max(0, Math.min(100, Number(window.used_percent) || 0));
-        const remaining = Math.max(0, Math.min(100, Number(window.remaining_percent) || 0));
-        const resetTitle = window.reset_at ? new Date(window.reset_at * 1000).toLocaleString() : '';
-        return (
-          <Tooltip key={`${window.label}-${window.reset_at || 0}`} title={resetTitle} placement="top">
-            <Stack direction="row" spacing={0.5} alignItems="center" sx={{ minWidth: 0 }}>
-              <Typography variant="caption" noWrap sx={{ width: 42, color: 'text.secondary', fontSize: 10 }}>
-                {window.label}
-              </Typography>
-              <Box
-                sx={{
-                  width: 48,
-                  height: 5,
-                  bgcolor: 'action.hover',
-                  borderRadius: 0.75,
-                  overflow: 'hidden',
-                  flexShrink: 0
-                }}
-              >
-                <Box
-                  sx={{
-                    width: `${used}%`,
-                    height: '100%',
-                    bgcolor: used >= 90 ? 'error.main' : used >= 70 ? 'warning.main' : 'success.main'
-                  }}
-                />
-              </Box>
-              <Typography variant="caption" sx={{ width: 34, textAlign: 'right', fontSize: 10, color: 'text.primary' }}>
-                {remaining.toFixed(0)}%
-              </Typography>
-            </Stack>
-          </Tooltip>
-        );
-      })}
-      <Tooltip title={t('channel_row.refreshSubscriptionQuota')} placement="top">
-        <span>
-          <IconButton size="small" onClick={fetchQuota} disabled={loading} sx={{ alignSelf: 'center', width: 20, height: 20 }}>
-            {loading ? <CircularProgress size={13} /> : <Icon icon="mdi:refresh" width={14} />}
-          </IconButton>
-        </span>
-      </Tooltip>
-    </Stack>
-  );
-}
-
-SubscriptionQuotaCell.propTypes = {
-  channelId: PropTypes.number,
-  channelType: PropTypes.number
-};
 
 export default function ChannelTableRow({
   item,
@@ -864,6 +711,10 @@ export default function ChannelTableRow({
           )}
         </TableCell>
 
+        <TableCell align="center" sx={{ minWidth: 105 }}>
+          <CredentialStatusCell item={item} />
+        </TableCell>
+
         <TableCell sx={{ minWidth: 140, textAlign: 'center' }}>
           {!item.tag && <SubscriptionQuotaCell channelId={item.id} channelType={item.type} />}
           {item.tag && (
@@ -1304,322 +1155,45 @@ export default function ChannelTableRow({
                   </Grid>
                 )}
                 {item.tag && (
-                  <Grid item xs={12}>
-                    {/* 面板已被 sticky 钉在视口内，子表格在此独立横向滚动；不再加横向 margin，
-                      让子表格右缘与面板右缘（即主表格「操作」列冻结右缘）对齐 */}
-                    <Box sx={{ mt: 2, mb: 1 }}>
-                      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
-                        <Stack direction="row" alignItems="center" spacing={1}>
-                          <Typography
-                            variant="subtitle1"
-                            fontWeight="bold"
-                            sx={{
-                              borderLeft: '3px solid',
-                              borderColor: 'primary.main',
-                              pl: 1.5,
-                              py: 0.5
-                            }}
-                          >
-                            {t('channel_row.tagChannelList')} ({totalTagChannels})
-                          </Typography>
-                          <Tooltip title={t('channel_row.refreshList')} placement="top">
-                            <IconButton size="small" color="primary" disabled={isTagChannelsLoading} onClick={() => fetchTagChannels()}>
-                              <Icon icon="mdi:refresh" width={18} height={18} />
-                            </IconButton>
-                          </Tooltip>
-                        </Stack>
-
-                        {selectedChannels.length > 0 && (
-                          <Button
-                            variant="contained"
-                            color="error"
-                            startIcon={<Icon icon="solar:trash-bin-trash-bold" />}
-                            onClick={handleBatchDelete}
-                            size="small"
-                          >
-                            {t('channel_row.batchDelete')} ({selectedChannels.length})
-                          </Button>
-                        )}
-                      </Stack>
-
-                      {tagChannels.length === 0 && isTagChannelsLoading ? (
-                        <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
-                          <CircularProgress size={24} />
-                        </Box>
-                      ) : tagChannels.length === 0 ? (
-                        <Typography variant="body2" sx={{ py: 2, textAlign: 'center', color: 'text.secondary' }}>
-                          {t('channel_row.noTagChannels')}
-                        </Typography>
-                      ) : (
-                        <Box>
-                          {/* 刷新/排序时保持表格挂载，仅在顶部叠加进度条，避免内容被替换为居中 spinner 导致的高度塌陷与「下滑闪烁」 */}
-                          <Box
-                            sx={{
-                              position: 'relative',
-                              border: '1px solid',
-                              borderColor: 'divider',
-                              borderRadius: 1,
-                              overflow: 'hidden',
-                              boxShadow: '0 0 8px rgba(0,0,0,0.05)'
-                            }}
-                          >
-                            {isTagChannelsLoading && (
-                              <LinearProgress sx={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 3, height: 2 }} />
-                            )}
-                            {/* 用原生滚动的 TableContainer（与主表格一致），保证「操作」列 position:sticky 冻结生效；
-                              PerfectScrollbar 的 overflow:hidden + JS 滚动会让 sticky 失效，导致操作列无法冻结 */}
-                            <TableContainer sx={{ maxHeight: 400 }}>
-                              <Table size="small" sx={{ minWidth: 1180, '& .MuiTableCell-root': { py: 1, px: 1.5 } }}>
-                                <KeywordTableHead
-                                  order={tagOrder}
-                                  orderBy={tagOrderBy}
-                                  onRequestSort={handleTagSort}
-                                  numSelected={selectedChannels.length}
-                                  rowCount={tagChannels.length}
-                                  onSelectAllClick={handleToggleAll}
-                                  headLabel={[
-                                    { id: 'select', label: '', align: 'center', disableSort: true, width: '40px' },
-                                    { id: 'id', label: 'ID', align: 'center', width: '70px' },
-                                    { id: 'name', label: t('channel_index.name'), align: 'center', minWidth: 150 },
-                                    { id: 'group', label: t('channel_index.group'), align: 'center', disableSort: true, minWidth: 110 },
-                                    { id: 'type', label: t('channel_index.type'), align: 'center', minWidth: 100 },
-                                    { id: 'status', label: t('channel_index.status'), align: 'center', minWidth: 110 },
-                                    {
-                                      id: 'subscription_quota',
-                                      label: t('channel_index.subscriptionQuota'),
-                                      align: 'center',
-                                      disableSort: true,
-                                      minWidth: 140
-                                    },
-                                    { id: 'used_quota', label: t('channel_index.usedBalance'), align: 'center', minWidth: 120 },
-                                    { id: 'response_time', label: t('channel_index.responseTime'), align: 'center', minWidth: 110 },
-                                    { id: 'priority', label: t('channel_index.priority'), align: 'center', minWidth: 100 },
-                                    { id: 'weight', label: t('channel_index.weight'), align: 'center', minWidth: 100 },
-                                    { id: 'cost_ratio', label: t('channel_index.costRatio'), align: 'center', minWidth: 100 },
-                                    {
-                                      id: 'action',
-                                      label: t('channel_index.actions'),
-                                      align: 'center',
-                                      disableSort: true,
-                                      sticky: true,
-                                      minWidth: 130
-                                    }
-                                  ]}
-                                />
-                                <TableBody>
-                                  {tagChannels.map((channel) => (
-                                    <TableRow key={channel.id} hover>
-                                      <TableCell padding="checkbox" sx={{ pl: 1, textAlign: 'center' }}>
-                                        <Checkbox
-                                          checked={selectedChannels.includes(channel.id)}
-                                          onChange={() => handleToggleChannel(channel.id)}
-                                          size="small"
-                                        />
-                                      </TableCell>
-                                      <TableCell sx={{ textAlign: 'center' }}>
-                                        <Typography variant="body2">{channel.id}</Typography>
-                                      </TableCell>
-                                      <TableCell sx={{ textAlign: 'center' }}>
-                                        <Typography variant="body2" noWrap title={channel.name} sx={{ fontWeight: 500 }}>
-                                          {channel.name}
-                                        </Typography>
-                                      </TableCell>
-                                      <TableCell sx={{ textAlign: 'center' }}>
-                                        <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                                          <GroupLabel group={channel.group ?? ''} groupMap={groupMap} />
-                                        </Box>
-                                      </TableCell>
-                                      <TableCell sx={{ textAlign: 'center' }}>
-                                        {CHANNEL_OPTIONS[channel.type] ? (
-                                          <Label color={CHANNEL_OPTIONS[channel.type].color} variant="outlined">
-                                            {CHANNEL_OPTIONS[channel.type].text}
-                                          </Label>
-                                        ) : (
-                                          <Label color="error" variant="outlined">
-                                            {t('common.unknown')}
-                                          </Label>
-                                        )}
-                                      </TableCell>
-                                      <TableCell sx={{ textAlign: 'center' }}>
-                                        <Stack direction="row" alignItems="center" spacing={0.5} justifyContent="center">
-                                          <Switch
-                                            checked={channel.status === 1}
-                                            onChange={() => handleTagChannelStatus(channel.id, channel.status)}
-                                            size="small"
-                                          />
-                                          <Typography
-                                            variant="caption"
-                                            sx={{
-                                              fontWeight: channel.status === 1 ? 600 : 400,
-                                              color: channel.status === 1 ? 'success.main' : 'text.secondary'
-                                            }}
-                                          >
-                                            {statusInfo(t, channel.status)}
-                                            {/* {CHANNEL_STATUS_MAP[channel.status]?.label || '未知'} */}
-                                          </Typography>
-                                        </Stack>
-                                      </TableCell>
-                                      <TableCell sx={{ textAlign: 'center' }}>
-                                        <SubscriptionQuotaCell channelId={channel.id} channelType={channel.type} />
-                                      </TableCell>
-                                      <TableCell sx={{ textAlign: 'center' }}>
-                                        <Tooltip title={t('channel_row.clickUpdateQuota')} placement="top">
-                                          <Box sx={{ cursor: 'pointer' }} onClick={() => manageChannel(channel.id, 'update_balance')}>
-                                            <Stack direction="column" spacing={0.5} alignItems="center" justifyContent="center">
-                                              <Typography
-                                                variant="body2"
-                                                sx={{
-                                                  fontSize: '0.8rem',
-                                                  fontWeight: 500,
-                                                  '&:hover': { textDecoration: 'underline' }
-                                                }}
-                                              >
-                                                {renderQuota(channel.used_quota)}
-                                              </Typography>
-                                              <Typography
-                                                variant="caption"
-                                                sx={{
-                                                  color: 'success.main',
-                                                  fontWeight: 600
-                                                }}
-                                              >
-                                                {renderBalance(channel.type, channel.balance)}
-                                              </Typography>
-                                            </Stack>
-                                          </Box>
-                                        </Tooltip>
-                                      </TableCell>
-                                      <TableCell sx={{ textAlign: 'center' }}>
-                                        <ResponseTimeLabel test_time={channel.test_time} response_time={channel.response_time} />
-                                      </TableCell>
-
-                                      <TableCell sx={{ textAlign: 'center' }}>
-                                        <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                                          <GroupInlineEditor
-                                            label={t('channel_index.priority')}
-                                            value={channel.priority ?? 0}
-                                            min="0"
-                                            onChange={(v) => handleTagChannelPriorityChange(channel.id, v)}
-                                            onCommit={() => commitTagChannelPriority(channel)}
-                                            disabled={
-                                              channel.priority ===
-                                              (tagChannelOriginalsRef.current[channel.id]?.priority ?? channel.priority)
-                                            }
-                                          />
-                                        </Box>
-                                      </TableCell>
-                                      <TableCell sx={{ textAlign: 'center' }}>
-                                        <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                                          <GroupInlineEditor
-                                            label={t('channel_index.weight')}
-                                            value={channel.weight ?? 1}
-                                            min="1"
-                                            onChange={(v) => handleTagChannelWeightChange(channel.id, v)}
-                                            onCommit={() => commitTagChannelWeight(channel)}
-                                            disabled={
-                                              channel.weight === (tagChannelOriginalsRef.current[channel.id]?.weight ?? channel.weight)
-                                            }
-                                          />
-                                        </Box>
-                                      </TableCell>
-                                      <TableCell sx={{ textAlign: 'center' }}>
-                                        <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                                          <GroupInlineEditor
-                                            label={t('channel_index.costRatio')}
-                                            value={channel.cost_ratio ?? 0}
-                                            min="0"
-                                            step="0.1"
-                                            onChange={(v) => handleTagChannelCostRatioChange(channel.id, v)}
-                                            onCommit={() => commitTagChannelCostRatio(channel)}
-                                            disabled={
-                                              channel.cost_ratio ===
-                                              (tagChannelOriginalsRef.current[channel.id]?.cost_ratio ?? channel.cost_ratio)
-                                            }
-                                          />
-                                        </Box>
-                                      </TableCell>
-                                      <TableCell align="center" sx={stickyCellSx}>
-                                        <Stack direction="row" spacing={1} justifyContent="center">
-                                          <Tooltip title={t('channel_row.testModels')} placement="top">
-                                            <IconButton
-                                              size="small"
-                                              sx={{ p: 0.5, color: 'info.main' }}
-                                              onClick={(event) => {
-                                                handleTagChannelTest(channel);
-                                                // 记录点击位置用于弹出模型列表
-                                                if (channel.models.split(',').length > 1) {
-                                                  tagModelPopover.onOpen(event);
-                                                }
-                                              }}
-                                            >
-                                              <Icon icon="mdi:speedometer" width={18} height={18} />
-                                            </IconButton>
-                                          </Tooltip>
-
-                                          <Tooltip title={t('common.edit')} placement="top">
-                                            <IconButton
-                                              size="small"
-                                              sx={{ p: 0.5, color: 'primary.main' }}
-                                              onClick={() => {
-                                                setSubEditChannelId(channel.id);
-                                                subEdit.onTrue();
-                                              }}
-                                            >
-                                              <Icon icon="solar:pen-bold" width={18} height={18} />
-                                            </IconButton>
-                                          </Tooltip>
-
-                                          <Tooltip title={t('channel_index.actions')} placement="top">
-                                            <IconButton
-                                              size="small"
-                                              sx={{ p: 0.5 }}
-                                              onClick={(event) => {
-                                                // 设置当前操作的渠道
-                                                setCurrentTestingChannel(channel);
-                                                // 打开更多操作菜单
-                                                popover.onOpen(event);
-                                              }}
-                                            >
-                                              <Icon icon="eva:more-vertical-fill" width={18} height={18} />
-                                            </IconButton>
-                                          </Tooltip>
-                                        </Stack>
-                                      </TableCell>
-                                    </TableRow>
-                                  ))}
-                                </TableBody>
-                              </Table>
-                            </TableContainer>
-                          </Box>
-                          <Box sx={{ display: 'flex', justifyContent: 'flex-end', pt: 1 }}>
-                            <TablePagination
-                              component="div"
-                              count={totalTagChannels}
-                              page={tagPage}
-                              onPageChange={handleChangeTagPage}
-                              rowsPerPage={tagRowsPerPage}
-                              onRowsPerPageChange={handleChangeTagRowsPerPage}
-                              rowsPerPageOptions={PAGE_SIZE_OPTIONS}
-                              labelRowsPerPage={t('channel_row.rowsPerPage')}
-                              labelDisplayedRows={({ from, to, count }) => t('channel_row.paginationDisplayedRows', { from, to, count })}
-                              sx={{
-                                '.MuiTablePagination-toolbar': {
-                                  minHeight: '40px',
-                                  pl: 1
-                                },
-                                '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': {
-                                  fontSize: '0.75rem'
-                                },
-                                '.MuiTablePagination-select': {
-                                  padding: '0 8px'
-                                }
-                              }}
-                            />
-                          </Box>
-                        </Box>
-                      )}
-                    </Box>
-                  </Grid>
+                  <TagChannelsPanel
+                    tagChannels={tagChannels}
+                    totalTagChannels={totalTagChannels}
+                    loading={isTagChannelsLoading}
+                    selectedChannels={selectedChannels}
+                    page={tagPage}
+                    rowsPerPage={tagRowsPerPage}
+                    order={tagOrder}
+                    orderBy={tagOrderBy}
+                    groupMap={groupMap}
+                    tagChannelOriginals={tagChannelOriginalsRef.current}
+                    manageChannel={manageChannel}
+                    onRefresh={fetchTagChannels}
+                    onBatchDelete={handleBatchDelete}
+                    onToggleAll={handleToggleAll}
+                    onToggleChannel={handleToggleChannel}
+                    onSort={handleTagSort}
+                    onPageChange={handleChangeTagPage}
+                    onRowsPerPageChange={handleChangeTagRowsPerPage}
+                    onStatusChange={handleTagChannelStatus}
+                    onPriorityChange={handleTagChannelPriorityChange}
+                    onPriorityCommit={commitTagChannelPriority}
+                    onWeightChange={handleTagChannelWeightChange}
+                    onWeightCommit={commitTagChannelWeight}
+                    onCostRatioChange={handleTagChannelCostRatioChange}
+                    onCostRatioCommit={commitTagChannelCostRatio}
+                    onTestChannel={(channel, event) => {
+                      handleTagChannelTest(channel);
+                      if (channel.models.split(',').length > 1) tagModelPopover.onOpen(event);
+                    }}
+                    onEditChannel={(channelId) => {
+                      setSubEditChannelId(channelId);
+                      subEdit.onTrue();
+                    }}
+                    onOpenActions={(channel, event) => {
+                      setCurrentTestingChannel(channel);
+                      popover.onOpen(event);
+                    }}
+                  />
                 )}
               </Grid>
             </Box>
@@ -1887,69 +1461,4 @@ ChannelTableRow.propTypes = {
   selected: PropTypes.bool,
   onSelect: PropTypes.func,
   tags: PropTypes.array
-};
-
-function renderBalance(type, balance) {
-  // balance 可能为 null（渠道从未更新过余额），统一兜底为 0 并保留两位小数，避免 toFixed 抛错
-  const value = Number(balance) || 0;
-  switch (type) {
-    case 28: // Deepseek
-    case 45: // Deepseek
-      return <>¥{value.toFixed(2)}</>;
-    default:
-      return <>${value.toFixed(2)}</>;
-  }
-}
-
-// 行内数字编辑器：outlined + 浮动标签，普通渠道行与标签代表行共用同一控件保证样式一致。
-// tip 非空时（标签代表行）整体包一层 Tooltip 说明「作用于整组」，并由 label 后缀「·组」标明范围；普通行字段名由表头说明，无需 tip。
-function GroupInlineEditor({ label, tip, value, min, step, onChange, onCommit, disabled }) {
-  const field = (
-    <Box sx={{ display: 'flex' }}>
-      <TextField
-        type="number"
-        label={label}
-        variant="outlined"
-        size="small"
-        value={value ?? ''}
-        onChange={(e) => onChange(Number(e.target.value))}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            onCommit();
-          }
-        }}
-        onBlur={onCommit}
-        inputProps={{ min, step }}
-        sx={{ width: '90px' }}
-        InputProps={{
-          endAdornment: (
-            <InputAdornment position="end">
-              <IconButton size="small" color="primary" disabled={disabled} onClick={onCommit}>
-                <Icon icon="mdi:check" />
-              </IconButton>
-            </InputAdornment>
-          )
-        }}
-      />
-    </Box>
-  );
-  return tip ? (
-    <Tooltip title={tip} placement="top" arrow>
-      {field}
-    </Tooltip>
-  ) : (
-    field
-  );
-}
-
-GroupInlineEditor.propTypes = {
-  label: PropTypes.string,
-  tip: PropTypes.string,
-  value: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
-  min: PropTypes.string,
-  step: PropTypes.string,
-  onChange: PropTypes.func,
-  onCommit: PropTypes.func,
-  disabled: PropTypes.bool
 };

@@ -19,7 +19,7 @@ import (
 type BedrockMessagesProviderFactory struct{}
 
 // Create 创建 BedrockMessagesProvider（Claude in Amazon Bedrock，原生 Messages 端点）
-func (f BedrockMessagesProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f BedrockMessagesProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	p := &BedrockMessagesProvider{
 		BaseProvider: base.BaseProvider{
 			Config:    getConfig(),

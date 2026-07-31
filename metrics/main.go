@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"done-hub/internal/gateway/requeststate"
 	"strconv"
 	"time"
 
@@ -75,14 +76,19 @@ func RecordHttp(c *gin.Context, duration time.Duration) {
 
 // 记录渠道请求
 func RecordProvider(c *gin.Context, statusCode int) {
-	model := c.GetString("original_model")
+	state := requeststate.From(c.Request.Context())
+	if state == nil {
+		return
+	}
+	selection := state.Selection()
+	model := selection.OriginalModel
 
 	if model == "" {
 		return
 	}
 
-	channelType := c.GetInt("channel_type")
-	channelId := c.GetInt("channel_id")
+	channelType := selection.ChannelType
+	channelId := selection.ChannelID
 
 	go SafelyRecordMetric(func() {
 		providerCounter.WithLabelValues(

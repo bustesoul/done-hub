@@ -14,7 +14,7 @@ import (
 type PalmProviderFactory struct{}
 
 // 创建 PalmProvider
-func (f PalmProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f PalmProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	return &PalmProvider{
 		BaseProvider: base.BaseProvider{
 			Config:    getConfig(),

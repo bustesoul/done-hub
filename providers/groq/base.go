@@ -11,7 +11,7 @@ import (
 type GroqProviderFactory struct{}
 
 // 创建 GroqProvider
-func (f GroqProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f GroqProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	return &GroqProvider{
 		OpenAIProvider: openai.OpenAIProvider{
 			BaseProvider: base.BaseProvider{

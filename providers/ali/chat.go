@@ -11,14 +11,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
-
-	"github.com/gin-gonic/gin"
 )
 
 type aliStreamHandler struct {
 	Usage              *types.Usage
 	Request            *types.ChatCompletionRequest
-	Context            *gin.Context
+	Context            *base.RequestContext
 	lastStreamResponse string
 }
 

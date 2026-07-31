@@ -11,14 +11,12 @@ import (
 	"io"
 	"net/http"
 	"strings"
-
-	"github.com/gin-gonic/gin"
 )
 
 type CloudflareAIStreamHandler struct {
 	Usage   *types.Usage
 	Request *types.ChatCompletionRequest
-	Context *gin.Context
+	Context *base.RequestContext
 }
 
 func (p *CloudflareAIProvider) CreateChatCompletion(request *types.ChatCompletionRequest) (*types.ChatCompletionResponse, *types.OpenAIErrorWithStatusCode) {

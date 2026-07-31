@@ -42,7 +42,7 @@ func GetModelList(c *gin.Context) {
 		}
 	}
 
-	provider := providers.GetProvider(channel, c)
+	provider := providers.GetProvider(channel, providerRequestContext(c))
 	if provider == nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,

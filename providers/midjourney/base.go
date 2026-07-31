@@ -19,7 +19,7 @@ import (
 type MidjourneyProviderFactory struct{}
 
 // 创建 MidjourneyProvider
-func (f MidjourneyProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f MidjourneyProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	return &MidjourneyProvider{
 		BaseProvider: base.BaseProvider{
 			Config:    getConfig(),

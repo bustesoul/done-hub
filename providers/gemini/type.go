@@ -5,6 +5,7 @@ import (
 	"done-hub/common/image"
 	"done-hub/common/storage"
 	"done-hub/common/utils"
+	"done-hub/providers/base"
 	"done-hub/types"
 	"encoding/base64"
 	"encoding/json"
@@ -16,7 +17,6 @@ import (
 	"strings"
 
 	goahocorasick "github.com/anknown/ahocorasick"
-	"github.com/gin-gonic/gin"
 )
 
 const GeminiImageSymbol = "![done-hub-gemini-image]"
@@ -151,7 +151,7 @@ func (r *GeminiChatRequest) GetJsonRaw() []byte {
 	return r.JsonRaw
 }
 
-func (r *GeminiChatRequest) SetJsonRaw(c *gin.Context) {
+func (r *GeminiChatRequest) SetJsonRaw(c *base.RequestContext) {
 	rawData, err := c.GetRawData()
 	if err != nil {
 		return

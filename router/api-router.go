@@ -156,6 +156,36 @@ func SetApiRouter(router *gin.Engine) {
 			modelOwnedByRoute.DELETE("/:id", controller.DeleteModelOwnedBy)
 		}
 
+		providerAdminRoute := apiRouter.Group("/admin")
+		providerAdminRoute.Use(middleware.AdminAuth())
+		{
+			providerAdminRoute.GET("/connection-profiles", controller.GetConnectionProfiles)
+			providerAdminRoute.GET("/provider-definitions", controller.GetProviderDefinitions)
+			providerAdminRoute.GET("/provider-connections", controller.GetChannelsList)
+			providerAdminRoute.POST("/provider-connections/probe", controller.ProbeProviderConnectionDraft)
+			providerAdminRoute.GET("/provider-connections/:id", controller.GetChannel)
+			providerAdminRoute.POST("/provider-connections", controller.AddProviderConnection)
+			providerAdminRoute.DELETE("/provider-connections", controller.BatchDeleteChannel)
+			providerAdminRoute.PATCH("/provider-connections/:id", controller.UpdateChannel)
+			providerAdminRoute.DELETE("/provider-connections/:id", controller.DeleteChannel)
+			providerAdminRoute.POST("/provider-connections/:id/clone", controller.CloneProviderConnection)
+			providerAdminRoute.POST("/provider-connections/:id/status", controller.SetProviderConnectionStatus)
+			providerAdminRoute.PATCH("/provider-connections/:id/scheduling", controller.UpdateProviderConnectionScheduling)
+			providerAdminRoute.POST("/provider-connections/:id/probe", controller.ProbeProviderConnection)
+			providerAdminRoute.GET("/provider-connections/:id/credentials", controller.ListProviderCredentials)
+			providerAdminRoute.POST("/provider-connections/:id/credentials", controller.CreateProviderCredential)
+			providerAdminRoute.POST("/provider-connections/:id/credentials/:credential_id/test", controller.TestProviderCredential)
+			providerAdminRoute.POST("/provider-connections/:id/credentials/:credential_id/activate", controller.ActivateProviderCredential)
+			providerAdminRoute.POST("/provider-connections/:id/credentials/:credential_id/revoke", controller.RevokeProviderCredential)
+			providerAdminRoute.POST("/provider-connections/oauth-sessions/:provider", controller.StartProviderOAuthSession)
+			providerAdminRoute.POST("/provider-connections/oauth-sessions/:provider/exchange", controller.ExchangeProviderOAuthSession)
+			providerAdminRoute.GET("/provider-connections/oauth-sessions/:provider/:session_id", controller.GetProviderOAuthSession)
+			providerAdminRoute.DELETE("/provider-connections/oauth-sessions/:provider/:session_id", controller.CancelProviderOAuthSession)
+		}
+		apiRouter.GET("/provider-connections/oauth-sessions/:provider/callback", controller.ProviderOAuthSessionCallback)
+		apiRouter.GET("/geminicli/oauth/callback", controller.ProviderOAuthSessionCallbackFor("gemini-cli"))
+		apiRouter.GET("/antigravity/oauth/callback", controller.ProviderOAuthSessionCallbackFor("antigravity"))
+
 		modelInfoRoute := apiRouter.Group("/model_info")
 		modelInfoRoute.GET("/", controller.GetAllModelInfo)
 		modelInfoRoute.Use(middleware.AdminAuth())
@@ -182,6 +212,7 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			channelRoute.GET("/", controller.GetChannelsList)
 			channelRoute.GET("/models", relay.ListModelsForAdmin)
+			channelRoute.GET("/provider_definitions", controller.GetProviderDefinitions)
 			channelRoute.POST("/provider_models_list", controller.GetModelList)
 			channelRoute.GET("/:id", controller.GetChannel)
 			channelRoute.GET("/test", controller.TestAllChannels)
@@ -189,7 +220,7 @@ func SetApiRouter(router *gin.Engine) {
 			channelRoute.GET("/update_balance", controller.UpdateAllChannelsBalance)
 			channelRoute.GET("/update_balance/:id", controller.UpdateChannelBalance)
 			channelRoute.GET("/subscription_quota/:id", controller.GetChannelSubscriptionQuota)
-			channelRoute.POST("/", controller.AddChannel)
+			channelRoute.POST("/", controller.AddProviderConnection)
 			channelRoute.PUT("/", controller.UpdateChannel)
 			channelRoute.PUT("/batch/azure_api", controller.BatchUpdateChannelsAzureApi)
 			channelRoute.PUT("/batch/del_model", controller.BatchDelModelChannels)
@@ -197,49 +228,10 @@ func SetApiRouter(router *gin.Engine) {
 			channelRoute.PUT("/batch/add_user_group", controller.BatchAddUserGroupToChannels)
 		}
 
-		// GeminiCli OAuth routes (no auth required for callback)
-		geminiCliRoute := apiRouter.Group("/geminicli")
-		{
-			geminiCliRoute.POST("/oauth/start", middleware.AdminAuth(), controller.StartGeminiCliOAuth)
-			geminiCliRoute.GET("/oauth/callback", controller.GeminiCliOAuthCallback)
-			geminiCliRoute.GET("/oauth/status/:state", middleware.AdminAuth(), controller.GetGeminiCliOAuthStatus)
-			channelRoute.DELETE("/disabled", controller.DeleteDisabledChannel)
-			channelRoute.DELETE("/:id/tag", controller.DeleteChannelTag)
-			channelRoute.DELETE("/:id", controller.DeleteChannel)
-			channelRoute.DELETE("/batch", controller.BatchDeleteChannel)
-		}
-
-		// ClaudeCode OAuth routes
-		claudeCodeRoute := apiRouter.Group("/claudecode")
-		claudeCodeRoute.Use(middleware.AdminAuth())
-		{
-			claudeCodeRoute.POST("/oauth/start", controller.StartClaudeCodeOAuth)
-			claudeCodeRoute.POST("/oauth/exchange-code", controller.ClaudeCodeOAuthCallback)
-		}
-
-		// Codex OAuth routes
-		codexRoute := apiRouter.Group("/codex")
-		codexRoute.Use(middleware.AdminAuth())
-		{
-			codexRoute.POST("/oauth/start", controller.StartCodexOAuth)
-			codexRoute.POST("/oauth/exchange-code", controller.CodexOAuthCallback)
-		}
-
-		// Copilot OAuth routes
-		copilotRoute := apiRouter.Group("/copilot")
-		copilotRoute.Use(middleware.AdminAuth())
-		{
-			copilotRoute.POST("/oauth/device-code", controller.StartCopilotOAuth)
-			copilotRoute.POST("/oauth/poll", controller.PollCopilotOAuth)
-		}
-
-		// Antigravity OAuth routes
-		antigravityRoute := apiRouter.Group("/antigravity")
-		{
-			antigravityRoute.POST("/oauth/start", middleware.AdminAuth(), controller.StartAntigravityOAuth)
-			antigravityRoute.GET("/oauth/callback", controller.AntigravityOAuthCallback)
-			antigravityRoute.GET("/oauth/status/:state", middleware.AdminAuth(), controller.GetAntigravityOAuthStatus)
-		}
+		channelRoute.DELETE("/disabled", controller.DeleteDisabledChannel)
+		channelRoute.DELETE("/:id/tag", controller.DeleteChannelTag)
+		channelRoute.DELETE("/:id", controller.DeleteChannel)
+		channelRoute.DELETE("/batch", controller.BatchDeleteChannel)
 
 		channelTagRoute := apiRouter.Group("/channel_tag")
 		channelTagRoute.Use(middleware.AdminAuth())

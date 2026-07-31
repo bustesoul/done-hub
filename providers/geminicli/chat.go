@@ -14,8 +14,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-
-	"github.com/gin-gonic/gin"
 )
 
 // CreateChatCompletion 创建聊天补全（非流式）
@@ -208,7 +206,7 @@ func (p *GeminiCliProvider) getChatRequest(geminiRequest *gemini.GeminiChatReque
 type GeminiCliStreamHandler struct {
 	Usage   *types.Usage
 	Request *types.ChatCompletionRequest
-	Context *gin.Context
+	Context *base.RequestContext
 }
 
 // HandlerStream 处理流式响应

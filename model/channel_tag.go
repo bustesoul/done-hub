@@ -1,13 +1,11 @@
 package model
 
 import (
-	"crypto/md5"
 	"done-hub/common/config"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"strings"
-	"time"
+
+	"gorm.io/gorm"
 )
 
 type SearchChannelsTagParams struct {
@@ -52,9 +50,15 @@ func CheckTagTypeConsistency(tag string, channelType int, excludeID int) error {
 
 func GetChannelsTagList(params *SearchChannelsTagParams) (*DataResult[Channel], error) {
 	var channels []*Channel
-	// 子表格需逐行管理 key，故不 Omit("key")
-	db := DB.Where("tag = ?", params.Tag)
-	return PaginateAndOrder(db, &params.PaginationParams, &channels, allowedChannelOrderFields)
+	db := DB.Omit("key").Where("tag = ?", params.Tag)
+	result, err := PaginateAndOrder(db, &params.PaginationParams, &channels, allowedChannelOrderFields)
+	if err != nil {
+		return nil, err
+	}
+	if err := hydrateGatewayCredentialSummaries(channels, false); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func GetChannelsTagAllList() ([]*ChannelTag, error) {
@@ -99,125 +103,42 @@ func GetChannelsTag(tag string) (*ChannelTagCollection, error) {
 	channelTag.Key = ""
 
 	channelTag.KeyMap = make(map[string]int)
-	for _, c := range channels {
-		keyMd5 := md5.Sum([]byte(c.Key))
-		keyMd5Str := hex.EncodeToString(keyMd5[:])
-		channelTag.KeyMap[keyMd5Str] = c.Id
-		channelTag.Key += c.Key + "\n"
-	}
-
-	channelTag.Key = strings.TrimRight(channelTag.Key, "\n")
 	return &channelTag, nil
 }
 
 func UpdateChannelsTag(tag string, channel *Channel) error {
-	channelTag, err := GetChannelsTag(tag)
+	_, err := GetChannelsTag(tag)
 	if err != nil {
 		return err
 	}
-
-	if channel.Key == "" {
-		return errors.New("key不能为空")
-	}
-
 	// tag 是分组的唯一标识，若清空会因 Select("*") 强制写入而意外解散整组
 	if channel.Tag == "" {
 		return errors.New("tag不能为空")
 	}
 
-	addKeys := []string{}
-	delIds := []int{}
-
-	newKeysMap := make(map[string]bool)
-
-	keys := strings.Split(channel.Key, "\n")
-	for _, key := range keys {
-		if key == "" {
-			continue
-		}
-		keyMd5 := md5.Sum([]byte(key))
-		keyMd5Str := hex.EncodeToString(keyMd5[:])
-		newKeysMap[keyMd5Str] = true
-
-		// 如果key不在现有的KeyMap中，则添加到addKeys
-		if _, ok := channelTag.KeyMap[keyMd5Str]; !ok {
-			addKeys = append(addKeys, key)
-		}
-	}
-
-	// 检查现有的keys，如果不在新的keys中，则需要删除
-	for keyMd5Str, id := range channelTag.KeyMap {
-		if _, ok := newKeysMap[keyMd5Str]; !ok {
-			delIds = append(delIds, id)
-		}
-	}
-
-	tx := DB.Begin()
-	// 先处理要删除的数据
-	if len(delIds) > 0 {
-		err = tx.Where("id IN (?)", delIds).Delete(&Channel{}).Error
-		if err != nil {
-			tx.Rollback()
-			return err
-		}
-	}
-
-	// 处理要添加的数据
-	if len(addKeys) > 0 {
-		maxKey := len(channelTag.KeyMap)
-
-		addChannels := make([]Channel, 0, len(addKeys))
-		for _, key := range addKeys {
-			addChannel := *channel
-			addChannel.Name = fmt.Sprintf("%s_%d", channel.Name, maxKey)
-			addChannel.Key = key
-			addChannel.Status = config.ChannelStatusEnabled
-			addChannel.Balance = 0
-			addChannel.BalanceUpdatedTime = 0
-			addChannel.UsedQuota = 0
-			addChannel.ResponseTime = 0
-			addChannel.CreatedTime = time.Now().Unix()
-			addChannel.TestTime = 0
-			addChannels = append(addChannels, addChannel)
-			maxKey++
-		}
-		err = BatchInsert(tx, addChannels)
-		if err != nil {
-			tx.Rollback()
-			return err
-		}
-	}
-
-	err = tx.Model(Channel{}).Where("tag = ?", tag).Updates(
-		Channel{
-			BaseURL:             channel.BaseURL,
-			Other:               channel.Other,
-			Remark:              channel.Remark,
-      Models:              channel.Models,
-			Group:               channel.Group,
-			Tag:                 channel.Tag,
-			ModelMapping:        channel.ModelMapping,
-			Need2ResponseModels: channel.Need2ResponseModels,
-			ModelHeaders:        channel.ModelHeaders,
-			CustomParameter:     channel.CustomParameter,
-			Proxy:               channel.Proxy,
-			TestModel:           channel.TestModel,
-			OnlyChat:            channel.OnlyChat,
-			Plugin:              channel.Plugin,
-			PreCost:             channel.PreCost,
-			DisabledStream:      channel.DisabledStream,
-			CompatibleResponse:  channel.CompatibleResponse,
-		}).Error
-
-	if err != nil {
-		tx.Rollback()
-		return err
-	}
-
-	tx.Commit()
-
-	ChannelGroup.Load()
-
+	err = mutateChannelsTag(tag, nil, func(tx *gorm.DB, _ []int) error {
+		return tx.Model(Channel{}).Where("tag = ?", tag).Updates(
+			Channel{
+				ProtocolProfileID:   channel.ProtocolProfileID,
+				BaseURL:             channel.BaseURL,
+				Other:               channel.Other,
+				Remark:              channel.Remark,
+				Models:              channel.Models,
+				Group:               channel.Group,
+				Tag:                 channel.Tag,
+				ModelMapping:        channel.ModelMapping,
+				Need2ResponseModels: channel.Need2ResponseModels,
+				ModelHeaders:        channel.ModelHeaders,
+				CustomParameter:     channel.CustomParameter,
+				Proxy:               channel.Proxy,
+				TestModel:           channel.TestModel,
+				OnlyChat:            channel.OnlyChat,
+				Plugin:              channel.Plugin,
+				PreCost:             channel.PreCost,
+				DisabledStream:      channel.DisabledStream,
+				CompatibleResponse:  channel.CompatibleResponse,
+			}).Error
+	})
 	return err
 }
 
@@ -226,22 +147,18 @@ func DeleteChannelsTag(tag string, delDisabled bool) error {
 		return nil
 	}
 
-	// 单条 Delete 本身原子，无需显式事务；条件从 DB.Where 起新建，避免污染共享句柄
-	query := DB.Where("tag = ?", tag)
+	var extraScope func(*gorm.DB) *gorm.DB
 	if delDisabled {
-		query = query.Where("status IN ?", []int{config.ChannelStatusAutoDisabled, config.ChannelStatusManuallyDisabled})
+		extraScope = func(db *gorm.DB) *gorm.DB {
+			return db.Where("status IN ?", []int{config.ChannelStatusAutoDisabled, config.ChannelStatusManuallyDisabled})
+		}
 	}
-
-	result := query.Delete(&Channel{})
-	if result.Error != nil {
-		return result.Error
-	}
-
-	if result.RowsAffected > 0 {
-		ChannelGroup.Load()
-	}
-
-	return nil
+	return mutateChannelsTag(tag, extraScope, func(tx *gorm.DB, ids []int) error {
+		if len(ids) == 0 {
+			return nil
+		}
+		return tx.Where("id IN ?", ids).Delete(&Channel{}).Error
+	})
 }
 
 func ChangeChannelsTagStatus(tag string, status int) error {
@@ -249,52 +166,64 @@ func ChangeChannelsTagStatus(tag string, status int) error {
 		return nil
 	}
 
-	result := DB.Model(&Channel{}).Where("tag = ?", tag).Update("status", status)
-	if result.Error != nil {
-		return result.Error
-	}
-
-	if result.RowsAffected > 0 {
-		ChannelGroup.Load()
-	}
-
-	return nil
+	return mutateChannelsTag(tag, nil, func(tx *gorm.DB, _ []int) error {
+		return tx.Model(&Channel{}).Where("tag = ?", tag).Update("status", status).Error
+	})
 }
 
 func UpdateChannelsTagPriority(tag string, value int) error {
-	result := DB.Model(&Channel{}).Where("tag = ?", tag).Update("priority", value)
-	if result.Error != nil {
-		return result.Error
-	}
-
-	if result.RowsAffected > 0 {
-		ChannelGroup.Load()
-	}
-	return nil
+	return updateChannelsTagField(tag, "priority", value)
 }
 
 // UpdateChannelsTagWeight 将整组渠道的权重统一设为同一值（权重为逐行字段，需专用入口批量设置）。
 func UpdateChannelsTagWeight(tag string, value uint) error {
-	result := DB.Model(&Channel{}).Where("tag = ?", tag).Update("weight", value)
-	if result.Error != nil {
-		return result.Error
-	}
-
-	if result.RowsAffected > 0 {
-		ChannelGroup.Load()
-	}
-	return nil
+	return updateChannelsTagField(tag, "weight", value)
 }
 
 // UpdateChannelsTagCostRatio 将整组渠道的成本倍率统一设为同一值。
 func UpdateChannelsTagCostRatio(tag string, value float64) error {
-	result := DB.Model(&Channel{}).Where("tag = ?", tag).Update("cost_ratio", value)
-	if result.Error != nil {
-		return result.Error
-	}
+	return updateChannelsTagField(tag, "cost_ratio", value)
+}
 
-	if result.RowsAffected > 0 {
-		ChannelGroup.Load()
+func getChannelIDsByTag(tag string) ([]int, error) {
+	var channelIDs []int
+	err := DB.Model(&Channel{}).Where("tag = ?", tag).Pluck("id", &channelIDs).Error
+	return channelIDs, err
+}
+
+func updateChannelsTagField(tag, field string, value any) error {
+	return mutateChannelsTag(tag, nil, func(tx *gorm.DB, _ []int) error {
+		return tx.Model(&Channel{}).Where("tag = ?", tag).Update(field, value).Error
+	})
+}
+
+// mutateChannelsTag is the single-write boundary for tag management: source
+// rows and Gateway projections commit or roll back together, then the runtime
+// snapshot is reloaded only after commit.
+func mutateChannelsTag(
+	tag string,
+	extraScope func(*gorm.DB) *gorm.DB,
+	mutate func(*gorm.DB, []int) error,
+) error {
+	var channelIDs []int
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		query := tx.Model(&Channel{}).Where("tag = ?", tag)
+		if extraScope != nil {
+			query = extraScope(query)
+		}
+		if err := query.Pluck("id", &channelIDs).Error; err != nil {
+			return err
+		}
+		if err := mutate(tx, channelIDs); err != nil {
+			return err
+		}
+		return SyncGatewayChannels(tx, channelIDs)
+	})
+	if err != nil {
+		return err
+	}
+	if len(channelIDs) > 0 {
+		GatewayRoutes.Load()
 	}
 	return nil
 }

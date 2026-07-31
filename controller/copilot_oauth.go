@@ -47,7 +47,7 @@ func copilotCleanupExpired() {
 // ─── HTTP handler: start device flow ─────────────────────────────────────────
 
 // StartCopilotOAuth initiates the GitHub device OAuth flow.
-// POST /api/copilot/oauth/device-code
+// POST /api/admin/provider-connections/oauth-sessions/copilot
 //
 // Response JSON:
 //
@@ -94,6 +94,8 @@ func StartCopilotOAuth(c *gin.Context) {
 		"message": "",
 		"data": gin.H{
 			"session_id":       sessionID,
+			"status":           "authorization_required",
+			"flow":             "device_code",
 			"user_code":        resp.UserCode,
 			"verification_uri": resp.VerificationURI,
 			"expires_in":       resp.ExpiresIn,
@@ -105,7 +107,7 @@ func StartCopilotOAuth(c *gin.Context) {
 // ─── HTTP handler: poll ───────────────────────────────────────────────────────
 
 // PollCopilotOAuth polls for the access token after the user has authorized.
-// POST /api/copilot/oauth/poll
+// GET /api/admin/provider-connections/oauth-sessions/copilot/:session_id
 //
 // Request JSON:  { "session_id": "..." }
 //
@@ -129,9 +131,12 @@ func PollCopilotOAuth(c *gin.Context) {
 	var req struct {
 		SessionID string `json:"session_id"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		common.APIRespondWithError(c, http.StatusOK, err)
-		return
+	req.SessionID = c.Param("session_id")
+	if req.SessionID == "" {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			common.APIRespondWithError(c, http.StatusOK, err)
+			return
+		}
 	}
 	if req.SessionID == "" {
 		common.APIRespondWithError(c, http.StatusOK, fmt.Errorf("session_id is required"))
@@ -237,6 +242,8 @@ func PollCopilotOAuth(c *gin.Context) {
 	data := gin.H{
 		"status":       "success",
 		"github_token": tokenResp.AccessToken,
+		"credentials":  tokenResp.AccessToken,
+		"flow":         "device_code",
 	}
 	if user != nil {
 		data["github_login"] = user.Login

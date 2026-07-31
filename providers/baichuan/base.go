@@ -12,7 +12,7 @@ type BaichuanProviderFactory struct{}
 
 // 创建 BaichuanProvider
 // https://platform.baichuan-ai.com/docs/api
-func (f BaichuanProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f BaichuanProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	return &BaichuanProvider{
 		OpenAIProvider: openai.OpenAIProvider{
 			BaseProvider: base.BaseProvider{

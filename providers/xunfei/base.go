@@ -18,7 +18,7 @@ import (
 type XunfeiProviderFactory struct{}
 
 // 创建 XunfeiProvider
-func (f XunfeiProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f XunfeiProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	return &XunfeiProvider{
 		BaseProvider: base.BaseProvider{
 			Config:    getConfig(),

@@ -1,15 +1,19 @@
 package controller
 
 import (
+	"bytes"
 	"done-hub/common"
 	"done-hub/common/config"
 	"done-hub/common/logger"
 	"done-hub/common/model_utils"
 	"done-hub/common/notify"
 	"done-hub/common/utils"
+	"done-hub/internal/gateway/domain"
 	"done-hub/model"
 	"done-hub/providers"
 	providers_base "done-hub/providers/base"
+	claude_provider "done-hub/providers/claude"
+	gemini_provider "done-hub/providers/gemini"
 	"done-hub/types"
 	"encoding/json"
 	"errors"
@@ -51,6 +55,15 @@ func testChannel(channel *model.Channel, testModel string) (openaiErr *types.Ope
 	}
 
 	channelType := getModelType(testModel)
+	profileID := domain.ProtocolProfileID(channel.ProtocolProfileID)
+	switch profileID {
+	case domain.ProfileOpenAIResponses:
+		channelType = "response"
+	case domain.ProfileAnthropicMessages:
+		channelType = "claude"
+	case domain.ProfileGoogleGemini:
+		channelType = "gemini"
+	}
 	channel.SetProxy()
 
 	var url string
@@ -63,6 +76,10 @@ func testChannel(channel *model.Channel, testModel string) (openaiErr *types.Ope
 		url = "/v1/chat/completions"
 	case "response":
 		url = "/v1/responses"
+	case "claude":
+		url = "/claude/v1/messages"
+	case "gemini":
+		url = "/gemini/v1beta/models/" + testModel + ":generateContent"
 	default:
 		return nil, errors.New("不支持的模型类型")
 	}
@@ -70,7 +87,15 @@ func testChannel(channel *model.Channel, testModel string) (openaiErr *types.Ope
 	// 创建测试上下文
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	req, err := http.NewRequest("POST", url, nil)
+	var requestBody []byte
+	if channelType == "gemini" {
+		requestBody, _ = json.Marshal(gemini_provider.GeminiChatRequest{
+			Contents: []gemini_provider.GeminiChatContent{
+				{Role: "user", Parts: []gemini_provider.GeminiPart{{Text: "You just need to output 'hi' next."}}},
+			},
+		})
+	}
+	req, err := http.NewRequest("POST", url, bytes.NewReader(requestBody))
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +103,7 @@ func testChannel(channel *model.Channel, testModel string) (openaiErr *types.Ope
 	c.Request = req
 
 	// 获取并验证provider
-	provider := providers.GetProvider(channel, c)
+	provider := providers.GetProvider(channel, providerRequestContext(c))
 	if provider == nil {
 		return nil, errors.New("channel not implemented")
 	}
@@ -132,6 +157,34 @@ func testChannel(channel *model.Channel, testModel string) (openaiErr *types.Ope
 		}
 
 		response, openAIErrorWithStatusCode = createResponsesForTest(responseProvider, newModelName, false)
+	case "claude":
+		claudeProvider, ok := provider.(claude_provider.ClaudeChatInterface)
+		if !ok {
+			return nil, errors.New("channel does not implement Anthropic Messages")
+		}
+		claudeResponse, claudeErr := claudeProvider.CreateClaudeChat(&claude_provider.ClaudeRequest{
+			Model:     newModelName,
+			MaxTokens: 16,
+			Messages: []claude_provider.Message{
+				{Role: "user", Content: "You just need to output 'hi' next."},
+			},
+		})
+		response = claudeResponse
+		if claudeErr != nil {
+			openAIErrorWithStatusCode = claudeErr
+		}
+	case "gemini":
+		geminiProvider, ok := provider.(gemini_provider.GeminiChatInterface)
+		if !ok {
+			return nil, errors.New("channel does not implement Google Gemini")
+		}
+		response, openAIErrorWithStatusCode = geminiProvider.CreateGeminiChat(&gemini_provider.GeminiChatRequest{
+			Model:  newModelName,
+			Action: "generateContent",
+			Contents: []gemini_provider.GeminiChatContent{
+				{Role: "user", Parts: []gemini_provider.GeminiPart{{Text: "You just need to output 'hi' next."}}},
+			},
+		})
 	case "chat":
 		if channel.ShouldUseResponsesForModel(newModelName) && config.ShouldSendChatAsResponses(channel.CompatibleResponse, provider.GetSupportedResponse(), newModelName) {
 			responseProvider, ok := provider.(providers_base.ResponsesInterface)
@@ -311,6 +364,108 @@ func TestChannel(c *gin.Context) {
 		"success": success,
 		"message": msg,
 		"time":    consumedTime,
+	})
+}
+
+func ProbeProviderConnection(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		common.APIRespondWithError(c, http.StatusBadRequest, err)
+		return
+	}
+	channel, err := model.GetChannelById(id)
+	if err != nil {
+		common.APIRespondWithError(c, http.StatusNotFound, err)
+		return
+	}
+	if channel.ProtocolProfileID == "" {
+		if profileID, profileErr := providers.DefaultProtocolProfile(channel.Type); profileErr == nil {
+			channel.ProtocolProfileID = string(profileID)
+		}
+	}
+	testModel := c.Query("model")
+	startedAt := time.Now()
+	openaiErr, testErr := testChannel(channel, testModel)
+	latency := time.Since(startedAt).Milliseconds()
+
+	if openaiErr != nil || testErr != nil {
+		writeProviderProbeError(c, openaiErr, testErr, latency, "inference")
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"stage":               "completed",
+			"latency_ms":          latency,
+			"protocol_profile_id": channel.ProtocolProfileID,
+			"request_id":          c.GetString("request_id"),
+		},
+	})
+}
+
+func ProbeProviderConnectionDraft(c *gin.Context) {
+	var channel model.Channel
+	if err := c.ShouldBindJSON(&channel); err != nil {
+		common.APIRespondWithError(c, http.StatusBadRequest, err)
+		return
+	}
+	if err := providers.ValidateChannelConfig(&channel, true); err != nil {
+		common.APIRespondWithError(c, http.StatusBadRequest, err)
+		return
+	}
+	keys := strings.Split(channel.Key, "\n")
+	baseURLs := strings.Split(channel.GetBaseURL(), "\n")
+	allowEmptyCredential := providers.AllowsEmptyCredential(channel.Type)
+	tested := 0
+	var maxLatency int64
+	for index, key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" && (!allowEmptyCredential || index > 0) {
+			continue
+		}
+		candidate := channel
+		candidate.Key = key
+		proxy := channel.GetProxy()
+		candidate.Proxy = &proxy
+		if len(baseURLs) > 0 {
+			baseURL := strings.TrimSpace(baseURLs[0])
+			if len(baseURLs) > index && strings.TrimSpace(baseURLs[index]) != "" {
+				baseURL = strings.TrimSpace(baseURLs[index])
+			}
+			candidate.BaseURL = &baseURL
+		}
+		startedAt := time.Now()
+		openaiErr, testErr := testChannel(&candidate, candidate.TestModel)
+		latency := time.Since(startedAt).Milliseconds()
+		if latency > maxLatency {
+			maxLatency = latency
+		}
+		if openaiErr != nil || testErr != nil {
+			writeProviderProbeError(c, openaiErr, testErr, latency, fmt.Sprintf("inference[%d]", index))
+			return
+		}
+		tested++
+	}
+	if tested == 0 {
+		common.APIRespondWithError(c, http.StatusBadRequest, errors.New("没有可探测的连接凭据"))
+		return
+	}
+	validationToken, err := issueProviderValidationToken(&channel)
+	if err != nil {
+		common.APIRespondWithError(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"stage":               "completed",
+			"latency_ms":          maxLatency,
+			"tested_connections":  tested,
+			"protocol_profile_id": channel.ProtocolProfileID,
+			"request_id":          c.GetString("request_id"),
+			"validation_token":    validationToken,
+		},
 	})
 }
 

@@ -15,7 +15,7 @@ import (
 
 type relayBase struct {
 	c              *gin.Context
-	provider       providersBase.ProviderInterface
+	provider       providersBase.ProviderRuntime
 	originalModel  string
 	modelName      string
 	otherArg       string
@@ -31,7 +31,7 @@ type RelayBaseInterface interface {
 	setRequest() error
 	getRequest() any
 	setProvider(modelName string) error
-	getProvider() providersBase.ProviderInterface
+	getProvider() providersBase.ProviderRuntime
 	getOriginalModel() string
 	getModelName() string
 	getContext() *gin.Context
@@ -88,7 +88,7 @@ func (r *relayBase) getContext() *gin.Context {
 	return r.c
 }
 
-func (r *relayBase) getProvider() providersBase.ProviderInterface {
+func (r *relayBase) getProvider() providersBase.ProviderRuntime {
 	return r.provider
 }
 
@@ -97,7 +97,7 @@ func (r *relayBase) getOriginalModel() string {
 }
 
 func (r *relayBase) getModelName() string {
-	billingOriginalModel := r.c.GetBool("billing_original_model")
+	billingOriginalModel := gatewayRequestState(r.c).Selection().BillingOriginalModel
 
 	if billingOriginalModel {
 		return r.originalModel

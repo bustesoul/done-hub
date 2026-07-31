@@ -9,6 +9,7 @@ import (
 	"done-hub/common"
 	"done-hub/common/logger"
 	"done-hub/controller"
+	"done-hub/internal/gateway/requeststate"
 	"done-hub/model"
 	provider "done-hub/providers/midjourney"
 	"done-hub/relay"
@@ -33,33 +34,12 @@ func RelayMidjourneyImage(c *gin.Context) {
 		})
 		return
 	}
-	resp, err := http.Get(midjourneyTask.ImageUrl)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "http_get_image_failed",
-		})
-		return
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		responseBody, _ := io.ReadAll(resp.Body)
-		c.JSON(resp.StatusCode, gin.H{
-			"error": string(responseBody),
-		})
-		return
-	}
-	// 从Content-Type头获取MIME类型
-	contentType := resp.Header.Get("Content-Type")
-	if contentType == "" {
-		// 如果无法确定内容类型，则默认为jpeg
-		contentType = "image/jpeg"
-	}
-	// 设置响应的内容类型
-	c.Writer.Header().Set("Content-Type", contentType)
-	// 将图片流式传输到响应体
-	_, err = io.Copy(c.Writer, resp.Body)
-	if err != nil {
-		log.Println("Failed to stream image:", err)
+	if err := proxyMidjourneyImageViaGateway(c, midjourneyTask.ChannelId, midjourneyTask.ImageUrl); err != nil {
+		if c.Writer.Written() {
+			logger.LogError(c.Request.Context(), "midjourney image proxy: "+err.Error())
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
 	}
 }
 
@@ -163,7 +143,7 @@ func RelaySwapFace(c *gin.Context) *provider.MidjourneyResponse {
 	}
 	requestURL := getMjRequestPath(c.Request.URL.String())
 
-	mjResp, _, err := mjProvider.Send(60, requestURL)
+	mjResp, _, err := sendMidjourneyViaGateway(c, mjProvider, 60, requestURL)
 	if err != nil {
 		quotaInstance.Undo(c)
 		return &mjResp.Response
@@ -196,7 +176,7 @@ func RelaySwapFace(c *gin.Context) *provider.MidjourneyResponse {
 				Description: errWithOA.Message,
 			}
 		}
-		mjResp, _, err = mjProvider.Send(60, requestURL)
+		mjResp, _, err = sendMidjourneyViaGateway(c, mjProvider, 60, requestURL)
 		if err != nil {
 			quotaInstance.Undo(c)
 			return &mjResp.Response
@@ -223,7 +203,7 @@ func RelaySwapFace(c *gin.Context) *provider.MidjourneyResponse {
 		Status:      "",
 		Progress:    "0%",
 		FailReason:  "",
-		ChannelId:   c.GetInt("channel_id"),
+		ChannelId:   gatewayChannelID(c),
 		Quota:       quota,
 		Mode:        mjModelType,
 	}
@@ -260,7 +240,7 @@ func RelayMidjourneyTaskImageSeed(c *gin.Context) *provider.MidjourneyResponse {
 	}
 
 	requestURL := getMjRequestPath(c.Request.URL.String())
-	midjResponseWithStatus, _, err := mjProvider.Send(30, requestURL)
+	midjResponseWithStatus, _, err := sendMidjourneyViaGateway(c, mjProvider, 30, requestURL)
 	if err != nil {
 		return &midjResponseWithStatus.Response
 	}
@@ -454,7 +434,7 @@ func RelayMidjourneySubmit(c *gin.Context, relayMode int) *provider.MidjourneyRe
 		}
 	}
 
-	midjResponseWithStatus, responseBody, err := mjProvider.Send(60, requestURL)
+	midjResponseWithStatus, responseBody, err := sendMidjourneyViaGateway(c, mjProvider, 60, requestURL)
 	if err != nil {
 		quotaInstance.Undo(c)
 		return &midjResponseWithStatus.Response
@@ -487,7 +467,7 @@ func RelayMidjourneySubmit(c *gin.Context, relayMode int) *provider.MidjourneyRe
 			}
 		}
 
-		midjResponseWithStatus, responseBody, err = mjProvider.Send(60, requestURL)
+		midjResponseWithStatus, responseBody, err = sendMidjourneyViaGateway(c, mjProvider, 60, requestURL)
 		if err != nil {
 			quotaInstance.Undo(c)
 			return &midjResponseWithStatus.Response
@@ -520,7 +500,7 @@ func RelayMidjourneySubmit(c *gin.Context, relayMode int) *provider.MidjourneyRe
 		Status:      "",
 		Progress:    "0%",
 		FailReason:  "",
-		ChannelId:   c.GetInt("channel_id"),
+		ChannelId:   gatewayChannelID(c),
 		Quota:       quota,
 		Mode:        mjModelType,
 	}
@@ -655,4 +635,14 @@ func getMJProvider(c *gin.Context, modelName string) (*provider.MidjourneyProvid
 	}
 
 	return mjProvider, nil
+}
+
+func gatewayChannelID(c *gin.Context) int {
+	if c == nil || c.Request == nil {
+		return 0
+	}
+	if state := requeststate.From(c.Request.Context()); state != nil {
+		return state.Selection().ChannelID
+	}
+	return 0
 }

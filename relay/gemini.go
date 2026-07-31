@@ -80,8 +80,6 @@ func (r *relayGeminiOnly) setRequest() error {
 		Action: action,
 	}
 	r.setOriginalModel(r.geminiRequest.Model)
-	// 设置原始模型到 Context，用于统一请求响应模型功能
-	r.c.Set("original_model", r.geminiRequest.Model)
 
 	return nil
 }
@@ -197,8 +195,9 @@ func (r *relayGeminiOnly) send() (err *types.OpenAIErrorWithStatusCode, done boo
 func (r *relayGeminiOnly) releaseBody() {
 	r.requestBody = nil
 	r.c.Set(config.GinRequestBodyKey, nil)
-	r.c.Set(config.GinProcessedBytesKey, nil)
-	r.c.Set(config.GinProcessedBytesIsVertexAI, nil)
+	gatewayRequestState(r.c).Set(config.GinRequestBodyKey, nil)
+	gatewayRequestState(r.c).Set(config.GinProcessedBytesKey, nil)
+	gatewayRequestState(r.c).Set(config.GinProcessedBytesIsVertexAI, nil)
 }
 
 // handleCachedContentFailure 撞上 "CachedContent not found" 后剥掉 cachedContent，
@@ -220,14 +219,14 @@ func (r *relayGeminiOnly) handleCachedContentFailure(apiErr *types.OpenAIErrorWi
 
 	stripped := false
 	// bytes 路径：Gemini / VertexAI / VertexAIExpress provider
-	if raw, ok := r.c.Get(config.GinProcessedBytesKey); ok {
+	if raw, ok := gatewayRequestState(r.c).Get(config.GinProcessedBytesKey); ok {
 		if data, ok := raw.([]byte); ok && len(data) > 0 {
-			r.c.Set(config.GinProcessedBytesKey, gemini.StripCachedContentBytes(data))
+			gatewayRequestState(r.c).Set(config.GinProcessedBytesKey, gemini.StripCachedContentBytes(data))
 			stripped = true
 		}
 	}
 	// map 路径：GeminiCli / Antigravity provider
-	if raw, ok := r.c.Get(config.GinProcessedBodyKey); ok {
+	if raw, ok := gatewayRequestState(r.c).Get(config.GinProcessedBodyKey); ok {
 		if m, ok := raw.(map[string]interface{}); ok {
 			gemini.StripCachedContentMap(m)
 			stripped = true
@@ -272,7 +271,7 @@ func (r *relayGeminiOnly) handleThoughtSignatureFailure(apiErr *types.OpenAIErro
 		return
 	}
 
-	raw, ok := r.c.Get(config.GinProcessedBytesKey)
+	raw, ok := gatewayRequestState(r.c).Get(config.GinProcessedBytesKey)
 	if !ok {
 		return
 	}
@@ -285,7 +284,7 @@ func (r *relayGeminiOnly) handleThoughtSignatureFailure(apiErr *types.OpenAIErro
 	if count == 0 {
 		return
 	}
-	r.c.Set(config.GinProcessedBytesKey, replaced)
+	gatewayRequestState(r.c).Set(config.GinProcessedBytesKey, replaced)
 
 	var channelId int
 	if r.provider != nil {

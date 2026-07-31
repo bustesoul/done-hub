@@ -58,7 +58,7 @@ type StartAntigravityOAuthRequest struct {
 }
 
 // StartAntigravityOAuth 开始 Antigravity OAuth 认证流程
-// POST /api/antigravity/oauth/start
+// POST /api/admin/provider-connections/oauth-sessions/antigravity
 func StartAntigravityOAuth(c *gin.Context) {
 	var req StartAntigravityOAuthRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -111,17 +111,23 @@ func StartAntigravityOAuth(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":             true,
-		"auth_url":            authURL,
-		"state":               state,
-		"message":             message,
-		"auto_project_detect": autoDetect,
-		"detected_project_id": req.ProjectID,
+		"success": true,
+		"message": message,
+		"data": gin.H{
+			"auth_url":            authURL,
+			"state":               state,
+			"session_id":          state,
+			"status":              "authorization_required",
+			"flow":                "browser_callback",
+			"expires_in":          int(AntigravityOAuthStateCacheDuration / time.Second),
+			"auto_project_detect": autoDetect,
+			"detected_project_id": req.ProjectID,
+		},
 	})
 }
 
 // GetAntigravityOAuthStatus 查询 OAuth 授权状态
-// GET /api/antigravity/oauth/status/:state
+// GET /api/admin/provider-connections/oauth-sessions/antigravity/:session_id
 func GetAntigravityOAuthStatus(c *gin.Context) {
 	state := c.Param("state")
 	if state == "" {
@@ -135,24 +141,28 @@ func GetAntigravityOAuthStatus(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
-			"status":  "pending",
 			"message": "授权进行中，请完成授权流程",
+			"data":    gin.H{"status": "pending", "flow": "browser_callback"},
 		})
 		return
 	}
 
+	status := "success"
+	if !result.Success {
+		status = "failed"
+	}
 	c.JSON(http.StatusOK, gin.H{
-		"success":     true,
-		"status":      "completed",
-		"result":      result.Success,
-		"message":     result.Message,
-		"project_id":  result.ProjectID,
-		"credentials": result.Credentials,
+		"success": true,
+		"message": result.Message,
+		"data": gin.H{
+			"status": status, "flow": "browser_callback",
+			"project_id": result.ProjectID, "credentials": result.Credentials,
+		},
 	})
 }
 
 // AntigravityOAuthCallback OAuth 回调处理
-// GET /api/antigravity/oauth/callback
+// GET /api/antigravity/oauth/callback (externally registered compatibility URI)
 func AntigravityOAuthCallback(c *gin.Context) {
 	code := c.Query("code")
 	state := c.Query("state")
@@ -728,9 +738,11 @@ func renderAntigravityOAuthResult(c *gin.Context, success bool, message, project
         if (window.opener && !window.opener.closed) {
             console.log('Sending message to parent window');
             window.opener.postMessage({
-                type: 'antigravity_oauth_result',
+                type: 'provider_oauth_result',
+                provider: 'antigravity',
                 success: %s,
                 projectId: '%s',
+                project_id: '%s',
                 credentials: %s
             }, '*');
             console.log('Message sent');
@@ -768,7 +780,7 @@ func renderAntigravityOAuthResult(c *gin.Context, success bool, message, project
     </script>
 </body>
 </html>
-`, statusClass, iconSVG, statusText, detailMessage, successStr, projectID, credentialsJSON, successStr, projectID, credentialsJSON)
+`, statusClass, iconSVG, statusText, detailMessage, successStr, projectID, credentialsJSON, successStr, projectID, projectID, credentialsJSON)
 
 	c.Header("Content-Type", "text/html; charset=utf-8")
 	c.String(http.StatusOK, html)

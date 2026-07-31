@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -23,7 +22,7 @@ type OpenAIResponsesStreamHandler struct {
 	Prefix    string
 	Model     string
 	MessageID string
-	Context   *gin.Context
+	Context   *base.RequestContext
 
 	searchType string
 	toolIndex  int
@@ -161,14 +160,8 @@ func (p *OpenAIProvider) patchResponsesRequestBody(request *types.OpenAIResponse
 	if p.Context == nil {
 		return nil, false
 	}
-	rawBody, err := common.ReadBodyRaw(p.Context)
-	if err != nil || len(rawBody) == 0 {
-		return nil, false
-	}
-
-	// 必须看起来像 /v1/responses 原生请求（含 model 字段），
-	// 否则可能是 chat→responses 兼容路径走错了入口，直接放弃透传。
-	if !gjson.GetBytes(rawBody, "model").Exists() {
+	rawBody, ok := p.ReadNativeRawBody("model")
+	if !ok {
 		return nil, false
 	}
 

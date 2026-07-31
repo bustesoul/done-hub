@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -24,7 +23,7 @@ type ClaudeRelayStreamHandler struct {
 	ModelName  string
 	Prefix     string
 	StartUsage *Usage
-	Context    *gin.Context
+	Context    *base.RequestContext
 
 	AddEvent bool
 

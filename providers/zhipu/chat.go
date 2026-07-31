@@ -12,15 +12,13 @@ import (
 	"io"
 	"net/http"
 	"strings"
-
-	"github.com/gin-gonic/gin"
 )
 
 type zhipuStreamHandler struct {
 	Usage   *types.Usage
 	Request *types.ChatCompletionRequest
 	IsCode  bool
-	Context *gin.Context
+	Context *base.RequestContext
 }
 
 func (p *ZhipuProvider) CreateChatCompletion(request *types.ChatCompletionRequest) (*types.ChatCompletionResponse, *types.OpenAIErrorWithStatusCode) {

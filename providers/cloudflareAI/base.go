@@ -14,7 +14,7 @@ import (
 type CloudflareAIProviderFactory struct{}
 
 // 创建 CloudflareAIProvider
-func (f CloudflareAIProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f CloudflareAIProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	cf := &CloudflareAIProvider{
 		BaseProvider: base.BaseProvider{
 			Config:    getConfig(),

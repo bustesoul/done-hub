@@ -20,7 +20,7 @@ import (
 type TencentProviderFactory struct{}
 
 // 创建 TencentProvider
-func (f TencentProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f TencentProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	return &TencentProvider{
 		BaseProvider: base.BaseProvider{
 			Config:    getConfig(),

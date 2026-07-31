@@ -9,7 +9,9 @@ import (
 	"done-hub/common/requester"
 	"done-hub/common/utils"
 	"done-hub/controller"
-	"done-hub/metrics"
+	"done-hub/internal/gateway/domain"
+	"done-hub/internal/gateway/requeststate"
+	gatewayretry "done-hub/internal/gateway/retry"
 	"done-hub/model"
 	"done-hub/providers"
 	providersBase "done-hub/providers/base"
@@ -31,6 +33,7 @@ import (
 func Path2Relay(c *gin.Context, path string) RelayBaseInterface {
 	var relay RelayBaseInterface
 	if strings.HasPrefix(path, "/v1/chat/completions") {
+		setInboundProtocol(c, domain.ProtocolOpenAIChat)
 		relay = NewRelayChat(c)
 	} else if strings.HasPrefix(path, "/v1/completions") {
 		relay = NewRelayCompletions(c)
@@ -51,8 +54,10 @@ func Path2Relay(c *gin.Context, path string) RelayBaseInterface {
 	} else if strings.HasPrefix(path, "/v1/audio/translations") {
 		relay = NewRelayTranslations(c)
 	} else if strings.HasPrefix(path, "/claude") {
+		setInboundProtocol(c, domain.ProtocolClaudeMessages)
 		relay = NewRelayClaudeOnly(c)
 	} else if strings.HasPrefix(path, "/gemini") {
+		setInboundProtocol(c, domain.ProtocolGemini)
 		if strings.Contains(path, "veo") && strings.Contains(path, ":predictLongRunning") {
 			relay = NewRelayVeoOnly(c)
 		} else if strings.Contains(path, ":predict") {
@@ -61,8 +66,10 @@ func Path2Relay(c *gin.Context, path string) RelayBaseInterface {
 			relay = NewRelayGeminiOnly(c)
 		}
 	} else if strings.HasPrefix(path, "/v1/responses/compact") {
+		setInboundProtocol(c, domain.ProtocolOpenAIResponses)
 		relay = NewRelayResponsesCompact(c)
 	} else if strings.HasPrefix(path, "/v1/responses") {
+		setInboundProtocol(c, domain.ProtocolOpenAIResponses)
 		relay = NewRelayResponses(c)
 	}
 
@@ -166,7 +173,7 @@ func buildGroupChain(tokenGroup, backupGroup, userGroup string) []string {
 	return chain
 }
 
-func GetProvider(c *gin.Context, modelName string) (provider providersBase.ProviderInterface, newModelName string, fail error) {
+func GetProvider(c *gin.Context, modelName string) (provider providersBase.ProviderRuntime, newModelName string, fail error) {
 	// 检查令牌模型限制
 	err := CheckLimitModel(c, modelName)
 	if err != nil {
@@ -211,7 +218,7 @@ func GetProvider(c *gin.Context, modelName string) (provider providersBase.Provi
 	configErrs := make([]string, 0)
 
 	for _, groupName := range validChain {
-		matchedModelName, err := model.ChannelGroup.GetMatchedModelName(groupName, modelName)
+		matchedModelName, err := model.GatewayRoutes.GetMatchedModelName(groupName, modelName)
 		if err != nil {
 			lastErr = err
 			configErrs = append(configErrs, fmt.Sprintf("%s: %v", model.GlobalUserGroupRatio.GetDisplayNameWithStatus(groupName), err))
@@ -272,8 +279,9 @@ func GetProvider(c *gin.Context, modelName string) (provider providersBase.Provi
 	c.Set("token_group", usedGroup)
 	c.Set("original_token_group", originalGroup) // 保存原始第一优先级分组，用于日志记录
 	c.Set("is_backupGroup", isBackupGroup)
-	c.Set("channel_id", channel.Id)
-	c.Set("channel_type", channel.Type)
+	if fail = bindProtocolRoute(c, channel); fail != nil {
+		return
+	}
 
 	// 重新设置分组倍率
 	groupRatio := model.GlobalUserGroupRatio.GetBySymbol(usedGroup)
@@ -281,13 +289,11 @@ func GetProvider(c *gin.Context, modelName string) (provider providersBase.Provi
 		c.Set("group_ratio", groupRatio.Ratio)
 	}
 
-	provider = providers.GetProvider(channel, c)
-	if provider == nil {
-		fail = errors.New("channel not found")
+	provider, fail = providers.GetProviderWithError(channel, providerRequestContext(c))
+	if fail != nil {
 		return
 	}
 	provider.SetOriginalModel(modelName) // 保存用户原始请求的模型名称
-	c.Set("original_model", modelName)
 
 	newModelName, fail = provider.ModelMappingHandler(actualModelName) // 使用匹配到的模型名称进行映射
 	if fail != nil {
@@ -301,10 +307,33 @@ func GetProvider(c *gin.Context, modelName string) (provider providersBase.Provi
 		BillingOriginalModel = true
 	}
 
-	c.Set("new_model", newModelName)
-	c.Set("billing_original_model", BillingOriginalModel)
+	gatewayRequestState(c).SetSelection(requeststate.Selection{
+		ChannelID:            channel.Id,
+		ChannelType:          channel.Type,
+		OriginalModel:        modelName,
+		UpstreamModel:        newModelName,
+		BillingOriginalModel: BillingOriginalModel,
+	})
 
 	return
+}
+
+func providerRequestContext(c *gin.Context) *providersBase.RequestContext {
+	state := gatewayRequestState(c)
+	state.SetParam("version", c.Param("version"))
+	for _, key := range []string{
+		config.GinRequestBodyKey,
+		config.GinRawPassThroughAllowedKey,
+		"mj_model",
+		"provider",
+	} {
+		if value, exists := c.Get(key); exists {
+			state.Set(key, value)
+		}
+	}
+	requestContext := providersBase.NewRequestContext(c.Request, state)
+	requestContext.SetOriginalModel(state.Selection().OriginalModel)
+	return requestContext
 }
 
 func fetchChannel(c *gin.Context, modelName string) (channel *model.Channel, fail error) {
@@ -337,7 +366,7 @@ func buildChannelFilters(c *gin.Context, modelName string) []model.ChannelsFilte
 		filters = append(filters, model.FilterOnlyChat())
 	}
 
-	if skipChannelIds, ok := utils.GetGinValue[[]int](c, "skip_channel_ids"); ok {
+	if skipChannelIds := gatewayRequestState(c).SkippedEndpointIDs(); len(skipChannelIds) > 0 {
 		filters = append(filters, model.FilterChannelId(skipChannelIds))
 	}
 
@@ -350,6 +379,9 @@ func buildChannelFilters(c *gin.Context, modelName string) []model.ChannelsFilte
 	if isStream := c.GetBool("is_stream"); isStream {
 		filters = append(filters, model.FilterDisabledStream(modelName))
 	}
+	if inboundProtocol(c) != "" {
+		filters = append(filters, filterProtocolProfile(c))
+	}
 
 	return filters
 }
@@ -359,7 +391,7 @@ func fetchChannelByModel(c *gin.Context, modelName string) (*model.Channel, erro
 	filters := buildChannelFilters(c, modelName)
 
 	// 传递 gin.Context 给 balancer，用于生成 session hash
-	channel, err := model.ChannelGroup.NextByValidatedModel(group, modelName, c, filters...)
+	channel, err := model.GatewayRoutes.NextByValidatedModel(group, modelName, c, filters...)
 	if err != nil {
 		// 这里只判 NextByValidatedModel 自产的两个 sentinel；isRuntimeChannelErr 还列了另外 2 个
 		// （ErrInvalidChannelIdSentinel / ErrChannelDisabledSentinel）来自 fetchChannelById 直接返回，不经此分支。
@@ -385,29 +417,30 @@ func fetchChannelByModel(c *gin.Context, modelName string) (*model.Channel, erro
 // 这是所有非流式 JSON 响应（chat/completions/embeddings/moderations/rerank/responses/claude/gemini）
 // 的统一出口拦截点，避免逐个 provider 手动改写导致的覆盖遗漏。
 func unifyResponseModel(c *gin.Context, data interface{}) {
+	requestContext := providerRequestContext(c)
 	switch v := data.(type) {
 	case *types.ChatCompletionResponse:
-		v.Model = providersBase.GetResponseModelNameFromContext(c, v.Model)
+		v.Model = providersBase.GetResponseModelNameFromContext(requestContext, v.Model)
 	case *types.CompletionResponse:
-		v.Model = providersBase.GetResponseModelNameFromContext(c, v.Model)
+		v.Model = providersBase.GetResponseModelNameFromContext(requestContext, v.Model)
 	case *types.EmbeddingResponse:
-		v.Model = providersBase.GetResponseModelNameFromContext(c, v.Model)
+		v.Model = providersBase.GetResponseModelNameFromContext(requestContext, v.Model)
 	case *types.ModerationResponse:
-		v.Model = providersBase.GetResponseModelNameFromContext(c, v.Model)
+		v.Model = providersBase.GetResponseModelNameFromContext(requestContext, v.Model)
 	case *types.RerankResponse:
-		v.Model = providersBase.GetResponseModelNameFromContext(c, v.Model)
+		v.Model = providersBase.GetResponseModelNameFromContext(requestContext, v.Model)
 	case *types.OpenAIResponsesResponses:
-		v.Model = providersBase.GetResponseModelNameFromContext(c, v.Model)
+		v.Model = providersBase.GetResponseModelNameFromContext(requestContext, v.Model)
 	case *claude.ClaudeResponse:
-		v.Model = providersBase.GetResponseModelNameFromContext(c, v.Model)
+		v.Model = providersBase.GetResponseModelNameFromContext(requestContext, v.Model)
 	case *gemini.GeminiChatResponse:
 		// Gemini 原生响应回显的是 modelVersion；同时存在 model 字段，二者都按需改写。
 		// 仅当原值非空时改写，避免给本不含该字段的响应凭空注入。
 		if v.ModelVersion != "" {
-			v.ModelVersion = providersBase.GetResponseModelNameFromContext(c, v.ModelVersion)
+			v.ModelVersion = providersBase.GetResponseModelNameFromContext(requestContext, v.ModelVersion)
 		}
 		if v.Model != "" {
-			v.Model = providersBase.GetResponseModelNameFromContext(c, v.Model)
+			v.Model = providersBase.GetResponseModelNameFromContext(requestContext, v.Model)
 		}
 	}
 }
@@ -416,7 +449,8 @@ func unifyResponseModel(c *gin.Context, data interface{}) {
 // Claude 的 anthropic-ratelimit-* 等）写入下游响应，并把上游 request-id 以
 // X-Upstream-Request-Id 回写。必须在 WriteHeader 之前调用；未暂存对应 key 的渠道无影响。
 func applyPassThroughHeaders(c *gin.Context) {
-	if v, ok := c.Get(config.GinPassThroughHeaders); ok {
+	state := gatewayRequestState(c)
+	if v, ok := state.Get(config.GinPassThroughHeaders); ok {
 		if headers, ok := v.(http.Header); ok {
 			for name, values := range headers {
 				for _, value := range values {
@@ -425,7 +459,7 @@ func applyPassThroughHeaders(c *gin.Context) {
 			}
 		}
 	}
-	if v, ok := c.Get(config.GinUpstreamRequestIdKey); ok {
+	if v, ok := state.Get(config.GinUpstreamRequestIdKey); ok {
 		if requestID, ok := v.(string); ok && requestID != "" {
 			c.Writer.Header().Set("X-Upstream-Request-Id", requestID)
 		}
@@ -442,7 +476,7 @@ func writeRawResponseBodyIfPresent(c *gin.Context) bool {
 		config.GinRawResponseBodyKey,
 	}
 	for _, key := range rawKeys {
-		raw, ok := c.Get(key)
+		raw, ok := gatewayRequestState(c).Get(key)
 		if !ok {
 			continue
 		}
@@ -486,9 +520,13 @@ func responseJsonClient(c *gin.Context, data interface{}) *types.OpenAIErrorWith
 	applyPassThroughHeaders(c)
 	c.Writer.Header().Set("Content-Type", "application/json")
 	c.Writer.WriteHeader(http.StatusOK)
+	recordGatewayOutput(c, len(responseBody))
 	_, err = c.Writer.Write(responseBody)
 	if err != nil {
+		terminateGatewayOutput(c, err)
 		logger.LogError(c.Request.Context(), "write_response_body_failed:"+err.Error())
+	} else {
+		terminateGatewayOutput(c, nil)
 	}
 
 	return nil
@@ -519,7 +557,12 @@ func responseStreamClient(c *gin.Context, stream requester.StreamReaderInterface
 		// 安全写入：客户端断开后静默跳过
 		tryWrite := func(msg string) {
 			if !clientDisconnected {
-				c.Writer.Write([]byte(msg))
+				recordGatewayOutput(c, len(msg))
+				if _, writeErr := c.Writer.Write([]byte(msg)); writeErr != nil {
+					clientDisconnected = true
+					terminateGatewayOutput(c, writeErr)
+					return
+				}
 				c.Writer.Flush()
 			}
 		}
@@ -543,6 +586,7 @@ func responseStreamClient(c *gin.Context, stream requester.StreamReaderInterface
 				if !errors.Is(err, io.EOF) {
 					tryWrite("data: " + err.Error() + "\n\n")
 					finalErr = common.StringErrorWrapper(err.Error(), "stream_error", 900)
+					terminateGatewayOutput(c, err)
 					logger.LogError(c.Request.Context(), "Stream err:"+err.Error())
 				} else {
 					if finalErr == nil && endHandler != nil {
@@ -551,11 +595,13 @@ func responseStreamClient(c *gin.Context, stream requester.StreamReaderInterface
 						}
 					}
 					tryWrite("data: [DONE]\n\n")
+					terminateGatewayOutput(c, nil)
 				}
 				return
 
 			case <-ctxDone:
 				clientDisconnected = true
+				terminateGatewayOutput(c, ctx.Err())
 				ctxDone = nil // 置 nil 后此 case 不再命中，避免 CPU 空转
 			}
 		}
@@ -585,7 +631,12 @@ func responseGeneralStreamClient(c *gin.Context, stream requester.StreamReaderIn
 
 		tryWrite := func(msg string) {
 			if !clientDisconnected {
-				fmt.Fprint(c.Writer, msg)
+				recordGatewayOutput(c, len(msg))
+				if _, writeErr := fmt.Fprint(c.Writer, msg); writeErr != nil {
+					clientDisconnected = true
+					terminateGatewayOutput(c, writeErr)
+					return
+				}
 				c.Writer.Flush()
 			}
 		}
@@ -605,6 +656,7 @@ func responseGeneralStreamClient(c *gin.Context, stream requester.StreamReaderIn
 			case err := <-errChan:
 				if !errors.Is(err, io.EOF) {
 					tryWrite(err.Error())
+					terminateGatewayOutput(c, err)
 					logger.LogError(c.Request.Context(), "Stream err:"+err.Error())
 				} else {
 					if endHandler != nil {
@@ -612,11 +664,13 @@ func responseGeneralStreamClient(c *gin.Context, stream requester.StreamReaderIn
 							tryWrite(streamData)
 						}
 					}
+					terminateGatewayOutput(c, nil)
 				}
 				return
 
 			case <-ctxDone:
 				clientDisconnected = true
+				terminateGatewayOutput(c, ctx.Err())
 				ctxDone = nil // 置 nil 后此 case 不再命中，避免 CPU 空转
 			}
 		}
@@ -633,9 +687,15 @@ func responseMultipart(c *gin.Context, resp *http.Response) *types.OpenAIErrorWi
 		c.Writer.Header().Set(k, v[0])
 	}
 
+	if session := gatewayStreamSession(c); session != nil {
+		_ = session.BeginHeaders()
+	}
 	c.Writer.WriteHeader(resp.StatusCode)
 
-	_, err := io.Copy(c.Writer, resp.Body)
+	written, err := io.Copy(c.Writer, resp.Body)
+	if written > 0 {
+		recordGatewayOutput(c, int(written))
+	}
 	if err != nil {
 		return common.ErrorWrapper(err, "write_response_body_failed", http.StatusInternalServerError)
 	}
@@ -670,38 +730,60 @@ func responseCache(c *gin.Context, response string, isStream bool) {
 
 }
 
-func shouldRetry(c *gin.Context, apiErr *types.OpenAIErrorWithStatusCode, channelType int) bool {
-	channelId := c.GetInt("specific_channel_id")
-	ignore := c.GetBool("specific_channel_id_ignore")
-
-	if apiErr == nil {
-		return false
+func classifyRelayError(c *gin.Context, apiErr *types.OpenAIErrorWithStatusCode, channelType int) *gatewayretry.UpstreamError {
+	class := gatewayretry.ErrorClassUnknown
+	local := apiErr.LocalError
+	if apiErr.LocalError {
+		class = gatewayretry.ErrorClassLocalValidation
+	} else if channelID := c.GetInt("specific_channel_id"); channelID > 0 && !c.GetBool("specific_channel_id_ignore") {
+		class = gatewayretry.ErrorClassConfigInvalid
+		local = true
+	} else {
+		switch apiErr.StatusCode {
+		case http.StatusBadRequest:
+			if shouldRetryBadRequest(c, channelType, apiErr) {
+				class = gatewayretry.ErrorClassAuthInvalid
+			} else {
+				class = gatewayretry.ErrorClassLocalValidation
+			}
+		case http.StatusUnauthorized:
+			class = gatewayretry.ErrorClassAuthInvalid
+		case http.StatusPaymentRequired, http.StatusForbidden:
+			class = gatewayretry.ErrorClassPermissionDenied
+		case http.StatusNotFound:
+			class = gatewayretry.ErrorClassModelNotFound
+		case http.StatusRequestEntityTooLarge:
+			class = gatewayretry.ErrorClassRequestTooLarge
+		case http.StatusTooManyRequests:
+			class = gatewayretry.ErrorClassRateLimited
+		case http.StatusTemporaryRedirect:
+			class = gatewayretry.ErrorClassTransient
+		case http.StatusRequestTimeout:
+			class = gatewayretry.ErrorClassClientCanceled
+		default:
+			if apiErr.StatusCode/100 == 5 {
+				class = gatewayretry.ErrorClassTransient
+			} else {
+				class = gatewayretry.ErrorClassLocalValidation
+			}
+		}
 	}
 
-	metrics.RecordProvider(c, apiErr.StatusCode)
-
-	if apiErr.LocalError ||
-		(channelId > 0 && !ignore) {
-		return false
+	var retryAfter time.Duration
+	if apiErr.RateLimitResetAt > 0 {
+		retryAfter = time.Until(time.Unix(apiErr.RateLimitResetAt, 0))
+		if retryAfter < 0 {
+			retryAfter = 0
+		}
 	}
 
-	switch apiErr.StatusCode {
-	case http.StatusTooManyRequests, http.StatusTemporaryRedirect:
-		return true
-	case http.StatusRequestTimeout:
-		return false
-	case http.StatusBadRequest:
-		return shouldRetryBadRequest(c, channelType, apiErr)
+	return &gatewayretry.UpstreamError{
+		Class:       class,
+		StatusCode:  apiErr.StatusCode,
+		RetryAfter:  retryAfter,
+		Local:       local,
+		Description: apiErr.OpenAIError.Message,
 	}
-
-	if apiErr.StatusCode/100 == 5 {
-		return true
-	}
-
-	if apiErr.StatusCode/100 == 2 {
-		return false
-	}
-	return true
 }
 
 func shouldRetryBadRequest(c *gin.Context, channelType int, apiErr *types.OpenAIErrorWithStatusCode) bool {

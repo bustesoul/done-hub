@@ -43,7 +43,7 @@ const (
 type CodexProviderFactory struct{}
 
 // 创建 CodexProvider
-func (f CodexProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f CodexProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	provider := &CodexProvider{
 		OpenAIProvider: openai.OpenAIProvider{
 			BaseProvider: base.BaseProvider{

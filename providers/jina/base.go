@@ -15,7 +15,7 @@ import (
 type JinaProviderFactory struct{}
 
 // 创建 JinaProvider
-func (f JinaProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f JinaProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	return &JinaProvider{
 		OpenAIProvider: openai.OpenAIProvider{
 			BaseProvider: base.BaseProvider{

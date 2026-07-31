@@ -31,7 +31,7 @@ func ConvertGeminiFromChatOpenai(request *types.ChatCompletionRequest) (any, *ty
 	return geminiRequest, nil
 }
 
-func ConvertGeminiToChatOpenai(provider base.ProviderInterface, response *http.Response, request *types.ChatCompletionRequest) (*types.ChatCompletionResponse, *types.OpenAIErrorWithStatusCode) {
+func ConvertGeminiToChatOpenai(provider base.ProviderRuntime, response *http.Response, request *types.ChatCompletionRequest) (*types.ChatCompletionResponse, *types.OpenAIErrorWithStatusCode) {
 	geminiResponse := &gemini.GeminiChatResponse{}
 	err := json.NewDecoder(response.Body).Decode(geminiResponse)
 	if err != nil {
@@ -41,7 +41,7 @@ func ConvertGeminiToChatOpenai(provider base.ProviderInterface, response *http.R
 	return gemini.ConvertToChatOpenai(provider, geminiResponse, request)
 }
 
-func GeminiChatCompleteStrem(provider base.ProviderInterface, request *types.ChatCompletionRequest) requester.HandlerPrefix[string] {
+func GeminiChatCompleteStrem(provider base.ProviderRuntime, request *types.ChatCompletionRequest) requester.HandlerPrefix[string] {
 	chatHandler := &gemini.GeminiStreamHandler{
 		Usage:   provider.GetUsage(),
 		Request: request,

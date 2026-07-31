@@ -164,7 +164,7 @@ func (r *relayImageGenerations) send() (err *types.OpenAIErrorWithStatusCode, do
 
 	// 入口协议 == images 且响应原样直返：放行 provider 字节透传，
 	// 保留上游 usage.output_tokens_details.image_tokens/text_tokens 等未知字段。
-	r.c.Set(config.GinRawPassThroughAllowedKey, true)
+	gatewayRequestState(r.c).Set(config.GinRawPassThroughAllowedKey, true)
 
 	response, err := provider.CreateImageGenerations(&r.request)
 	if err != nil {

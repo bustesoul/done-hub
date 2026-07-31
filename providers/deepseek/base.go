@@ -10,7 +10,7 @@ import (
 type DeepseekProviderFactory struct{}
 
 // 创建 DeepseekProvider
-func (f DeepseekProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f DeepseekProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	config := getDeepseekConfig()
 	return &DeepseekProvider{
 		OpenAIProvider: openai.OpenAIProvider{

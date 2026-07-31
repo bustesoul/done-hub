@@ -13,8 +13,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/gin-gonic/gin"
 )
 
 // CreateGeminiChat 创建Gemini格式的聊天（非流式）
@@ -89,7 +87,7 @@ type AntigravityRelayStreamHandler struct {
 	Usage     *types.Usage
 	Prefix    string
 	ModelName string
-	Context   *gin.Context
+	Context   *base.RequestContext
 	Key       string
 }
 

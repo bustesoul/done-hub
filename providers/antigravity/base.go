@@ -24,7 +24,7 @@ const TokenCacheKey = "api_token:antigravity"
 type AntigravityProviderFactory struct{}
 
 // Create 创建 AntigravityProvider
-func (f AntigravityProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f AntigravityProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	provider := &AntigravityProvider{
 		GeminiProvider: gemini.GeminiProvider{
 			OpenAIProvider: openai.OpenAIProvider{

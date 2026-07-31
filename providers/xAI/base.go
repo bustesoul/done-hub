@@ -18,7 +18,7 @@ import (
 type XAIProviderFactory struct{}
 
 // 创建 XAIProvider
-func (f XAIProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f XAIProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	fmt.Println("Creating XAIProvider for channel:")
 	return &XAIProvider{
 		OpenAIProvider: openai.OpenAIProvider{

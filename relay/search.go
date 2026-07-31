@@ -62,7 +62,7 @@ func handleSearch(c *gin.Context, request *types.ChatCompletionRequest) {
 		return
 	}
 
-	chatProvider, ok := provider.(providersBase.ChatInterface)
+	chatProvider, ok := provider.(chatProviderWithUsage)
 	if !ok {
 		return
 	}
@@ -144,7 +144,12 @@ func createSearchQueryRequest(userMsg, model string) *types.ChatCompletionReques
 }
 
 // 执行查询
-func executeQuery(c *gin.Context, chatProvider providersBase.ChatInterface, queryRequest *types.ChatCompletionRequest, model string) (string, error) {
+type chatProviderWithUsage interface {
+	providersBase.ChatInterface
+	providersBase.ProviderUsage
+}
+
+func executeQuery(c *gin.Context, chatProvider chatProviderWithUsage, queryRequest *types.ChatCompletionRequest, model string) (string, error) {
 	usage := &types.Usage{}
 	chatProvider.SetUsage(usage)
 

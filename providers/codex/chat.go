@@ -4,13 +4,12 @@ import (
 	"done-hub/common"
 	"done-hub/common/logger"
 	"done-hub/common/requester"
+	"done-hub/providers/base"
 	"done-hub/types"
 	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/gin-gonic/gin"
 )
 
 // CreateChatCompletion 创建聊天完成（非流式）
@@ -144,7 +143,7 @@ func (p *CodexProvider) applyDefaultHeaders(headers map[string]string) {
 type CodexStreamHandler struct {
 	Usage   *types.Usage
 	Request *types.ChatCompletionRequest
-	Context *gin.Context
+	Context *base.RequestContext
 }
 
 // HandlerStream 处理流式响应（将 Responses 格式转换为 Chat 格式）

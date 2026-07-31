@@ -56,7 +56,7 @@ type StartGeminiCliOAuthRequest struct {
 }
 
 // StartGeminiCliOAuth 开始 GeminiCli OAuth 认证流程
-// POST /api/geminicli/oauth/start
+// POST /api/admin/provider-connections/oauth-sessions/gemini-cli
 func StartGeminiCliOAuth(c *gin.Context) {
 	var req StartGeminiCliOAuthRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -114,17 +114,23 @@ func StartGeminiCliOAuth(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":             true,
-		"auth_url":            authURL,
-		"state":               state,
-		"message":             message,
-		"auto_project_detect": autoDetect,
-		"detected_project_id": req.ProjectID,
+		"success": true,
+		"message": message,
+		"data": gin.H{
+			"auth_url":            authURL,
+			"state":               state,
+			"session_id":          state,
+			"status":              "authorization_required",
+			"flow":                "browser_callback",
+			"expires_in":          int(OAuthStateCacheDuration / time.Second),
+			"auto_project_detect": autoDetect,
+			"detected_project_id": req.ProjectID,
+		},
 	})
 }
 
 // GetGeminiCliOAuthStatus 查询 OAuth 授权状态
-// GET /api/geminicli/oauth/status/:state
+// GET /api/admin/provider-connections/oauth-sessions/gemini-cli/:session_id
 func GetGeminiCliOAuthStatus(c *gin.Context) {
 	state := c.Param("state")
 	if state == "" {
@@ -139,25 +145,29 @@ func GetGeminiCliOAuthStatus(c *gin.Context) {
 		// 还没有结果，返回 pending 状态
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
-			"status":  "pending",
 			"message": "授权进行中，请完成授权流程",
+			"data":    gin.H{"status": "pending", "flow": "browser_callback"},
 		})
 		return
 	}
 
 	// 返回结果
+	status := "success"
+	if !result.Success {
+		status = "failed"
+	}
 	c.JSON(http.StatusOK, gin.H{
-		"success":     true,
-		"status":      "completed",
-		"result":      result.Success,
-		"message":     result.Message,
-		"project_id":  result.ProjectID,
-		"credentials": result.Credentials,
+		"success": true,
+		"message": result.Message,
+		"data": gin.H{
+			"status": status, "flow": "browser_callback",
+			"project_id": result.ProjectID, "credentials": result.Credentials,
+		},
 	})
 }
 
 // GeminiCliOAuthCallback OAuth 回调处理
-// GET /api/geminicli/oauth/callback
+// GET /api/geminicli/oauth/callback (externally registered compatibility URI)
 func GeminiCliOAuthCallback(c *gin.Context) {
 	code := c.Query("code")
 	state := c.Query("state")
@@ -504,9 +514,11 @@ func renderOAuthResult(c *gin.Context, success bool, message, projectID, credent
         if (window.opener && !window.opener.closed) {
             console.log('Sending message to parent window');
             window.opener.postMessage({
-                type: 'geminicli_oauth_result',
+                type: 'provider_oauth_result',
+                provider: 'gemini-cli',
                 success: %s,
                 projectId: '%s',
+                project_id: '%s',
                 credentials: %s
             }, '*');
             console.log('Message sent');
@@ -544,7 +556,7 @@ func renderOAuthResult(c *gin.Context, success bool, message, projectID, credent
     </script>
 </body>
 </html>
-`, statusClass, iconSVG, statusText, detailMessage, successStr, projectID, credentialsJSON, successStr, projectID, credentialsJSON)
+`, statusClass, iconSVG, statusText, detailMessage, successStr, projectID, credentialsJSON, successStr, projectID, projectID, credentialsJSON)
 
 	c.Header("Content-Type", "text/html; charset=utf-8")
 	c.String(http.StatusOK, html)

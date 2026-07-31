@@ -15,7 +15,7 @@ import (
 type SiliconflowProviderFactory struct{}
 
 // 创建 SiliconflowProvider
-func (f SiliconflowProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f SiliconflowProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	return &SiliconflowProvider{
 		OpenAIProvider: openai.OpenAIProvider{
 			BaseProvider: base.BaseProvider{

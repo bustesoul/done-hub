@@ -31,7 +31,7 @@ const defaultScope = "https://www.googleapis.com/auth/cloud-platform"
 type VertexAIProviderFactory struct{}
 
 // 创建 VertexAIProvider
-func (f VertexAIProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f VertexAIProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	proxyAddr := channel.GetProxy()
 
 	vertexAIProvider := &VertexAIProvider{

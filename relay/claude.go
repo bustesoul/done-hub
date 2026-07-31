@@ -8,6 +8,7 @@ import (
 	"done-hub/common/model_utils"
 	"done-hub/common/requester"
 	"done-hub/common/utils"
+	"done-hub/internal/gateway/domain"
 	"done-hub/providers/antigravity"
 	"done-hub/providers/claude"
 	"done-hub/providers/gemini"
@@ -51,8 +52,6 @@ func (r *relayClaudeOnly) setRequest() error {
 		return err
 	}
 	r.setOriginalModel(r.claudeRequest.Model)
-	// 设置原始模型到 Context，用于统一请求响应模型功能
-	r.c.Set("original_model", r.claudeRequest.Model)
 
 	// 保持原始的流式/非流式状态
 
@@ -79,6 +78,11 @@ func (r *relayClaudeOnly) send() (err *types.OpenAIErrorWithStatusCode, done boo
 
 	// 检查是否为自定义渠道，如果是则使用Claude->OpenAI->Claude的转换逻辑
 	channelType := r.provider.GetChannel().Type
+	if target, explicit := targetProtocol(r.provider.GetChannel()); explicit && target != domain.ProtocolClaudeMessages {
+		if _, conversionErr := convertProtocolRequest(r.c, r.claudeRequest); conversionErr != nil {
+			return common.ErrorWrapperLocal(conversionErr, "protocol_conversion_failed", http.StatusBadRequest), true
+		}
+	}
 
 	if channelType == config.ChannelTypeCustom {
 

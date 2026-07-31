@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"done-hub/common/logger"
+	"done-hub/internal/gateway/requeststate"
 	"done-hub/metrics"
 	"strings"
 	"time"
@@ -41,6 +42,10 @@ func GinzapWithConfig() gin.HandlerFunc {
 		requestID := c.GetString(logger.RequestIdKey)
 		userID := c.GetInt("id")
 
+		selection := requeststate.Selection{}
+		if state := requeststate.From(c.Request.Context()); state != nil {
+			selection = state.Selection()
+		}
 		fields := []zapcore.Field{
 			zap.Int("status", c.Writer.Status()),
 			zap.String("request_id", requestID),
@@ -51,11 +56,11 @@ func GinzapWithConfig() gin.HandlerFunc {
 			zap.String("user-agent", c.Request.UserAgent()),
 			zap.Duration("latency", latency),
 			zap.Int("user_id", userID),
-			zap.String("original_model", c.GetString("original_model")),
-			zap.String("new_model", c.GetString("new_model")),
+			zap.String("original_model", selection.OriginalModel),
+			zap.String("new_model", selection.UpstreamModel),
 			zap.Int("token_id", c.GetInt("token_id")),
 			zap.String("token_name", c.GetString("token_name")),
-			zap.Int("channel_id", c.GetInt("channel_id")),
+			zap.Int("channel_id", selection.ChannelID),
 		}
 
 		if len(c.Errors) > 0 {

@@ -17,7 +17,7 @@ type OllamaProvider struct {
 }
 
 // 创建 OllamaProvider
-func (f OllamaProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f OllamaProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	config := getOllamaConfig()
 
 	return &OllamaProvider{

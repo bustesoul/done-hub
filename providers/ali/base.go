@@ -30,7 +30,7 @@ type AliProvider struct {
 
 // 创建 AliProvider
 // https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation
-func (f AliProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f AliProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	useOpenaiAPI := false
 
 	if channel.Plugin != nil {

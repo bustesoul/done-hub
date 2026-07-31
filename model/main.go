@@ -25,7 +25,7 @@ func SetupDB() {
 	if err != nil {
 		logger.FatalLog("failed to initialize database: " + err.Error())
 	}
-	ChannelGroup.Load()
+	GatewayRoutes.Load()
 	GlobalUserGroupRatio.Load()
 	config.RootUserEmail = GetRootUserEmail()
 	NewModelOwnedBys()
@@ -126,6 +126,10 @@ func InitDB() (err error) {
 		migrationBefore(DB)
 
 		err = db.AutoMigrate(&Channel{})
+		if err != nil {
+			return err
+		}
+		err = MigrateGatewayResources(db)
 		if err != nil {
 			return err
 		}

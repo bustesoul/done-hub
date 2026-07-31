@@ -67,7 +67,7 @@ func generateCodexCodeChallenge(verifier string) string {
 }
 
 // StartCodexOAuth 开始 Codex OAuth 认证流程
-// POST /api/codex/oauth/start
+// POST /api/admin/provider-connections/oauth-sessions/codex
 func StartCodexOAuth(c *gin.Context) {
 	var req StartCodexOAuthRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -125,6 +125,9 @@ func StartCodexOAuth(c *gin.Context) {
 			"auth_url":   authURL,
 			"state":      state,
 			"session_id": state, // 使用 state 作为 session_id
+			"status":     "authorization_required",
+			"flow":       "manual_callback",
+			"expires_in": int(CodexOAuthStateCacheDuration / time.Second),
 			"instructions": []string{
 				"1. 点击授权链接，在新窗口中登录 OpenAI 账户",
 				"2. 同意应用权限",
@@ -143,7 +146,7 @@ type ExchangeCodexCodeRequest struct {
 }
 
 // CodexOAuthCallback 处理用户提交的授权码
-// POST /api/codex/oauth/exchange-code
+// POST /api/admin/provider-connections/oauth-sessions/codex/exchange
 func CodexOAuthCallback(c *gin.Context) {
 	var req ExchangeCodexCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -222,6 +225,8 @@ func CodexOAuthCallback(c *gin.Context) {
 		"message": "授权成功",
 		"data": gin.H{
 			"credentials": credentialsJSON,
+			"status":      "success",
+			"flow":        "manual_callback",
 		},
 	})
 }

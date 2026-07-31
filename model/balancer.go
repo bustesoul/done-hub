@@ -48,7 +48,7 @@ type ChannelChoice struct {
 	Disable       bool
 }
 
-type ChannelsChooser struct {
+type GatewayRouteIndex struct {
 	sync.RWMutex
 	Channels  map[int]*ChannelChoice
 	Rule      map[string]map[string][][]int // group -> model -> priority -> channelIds
@@ -89,17 +89,17 @@ func init() {
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
 		for range ticker.C {
-			ChannelGroup.CleanupExpiredCooldowns()
+			GatewayRoutes.CleanupExpiredCooldowns()
 		}
 	}()
 }
 
-func (cc *ChannelsChooser) SetCooldowns(channelId int, modelName string) bool {
+func (cc *GatewayRouteIndex) SetCooldowns(channelId int, modelName string) bool {
 	return cc.SetCooldownsWithDuration(channelId, modelName, int64(config.RetryCooldownSeconds))
 }
 
 // SetCooldownsWithDuration 设置指定渠道和模型的冷却时间（支持自定义冻结时长）
-func (cc *ChannelsChooser) SetCooldownsWithDuration(channelId int, modelName string, durationSeconds int64) bool {
+func (cc *GatewayRouteIndex) SetCooldownsWithDuration(channelId int, modelName string, durationSeconds int64) bool {
 	if channelId == 0 || modelName == "" || durationSeconds == 0 {
 		return false
 	}
@@ -126,7 +126,7 @@ func (cc *ChannelsChooser) SetCooldownsWithDuration(channelId int, modelName str
 	return true
 }
 
-func (cc *ChannelsChooser) IsInCooldown(channelId int, modelName string) bool {
+func (cc *GatewayRouteIndex) IsInCooldown(channelId int, modelName string) bool {
 	if channelId == 0 || modelName == "" {
 		return false
 	}
@@ -143,7 +143,7 @@ func (cc *ChannelsChooser) IsInCooldown(channelId int, modelName string) bool {
 	return nowTime < cooldownTime.(int64)
 }
 
-func (cc *ChannelsChooser) CleanupExpiredCooldowns() {
+func (cc *GatewayRouteIndex) CleanupExpiredCooldowns() {
 	now := time.Now().Unix()
 	cc.Cooldowns.Range(func(key, value interface{}) bool {
 		if now >= value.(int64) {
@@ -154,7 +154,7 @@ func (cc *ChannelsChooser) CleanupExpiredCooldowns() {
 }
 
 // ClearChannelCooldowns 清除指定渠道的所有冻结缓存
-func (cc *ChannelsChooser) ClearChannelCooldowns(channelId int) {
+func (cc *GatewayRouteIndex) ClearChannelCooldowns(channelId int) {
 	prefix := fmt.Sprintf("%d:", channelId)
 	cc.Cooldowns.Range(func(key, value interface{}) bool {
 		if strings.HasPrefix(key.(string), prefix) {
@@ -164,7 +164,7 @@ func (cc *ChannelsChooser) ClearChannelCooldowns(channelId int) {
 	})
 }
 
-func (cc *ChannelsChooser) Disable(channelId int) {
+func (cc *GatewayRouteIndex) Disable(channelId int) {
 	cc.Lock()
 	defer cc.Unlock()
 	if _, ok := cc.Channels[channelId]; !ok {
@@ -174,7 +174,7 @@ func (cc *ChannelsChooser) Disable(channelId int) {
 	cc.Channels[channelId].Disable = true
 }
 
-func (cc *ChannelsChooser) Enable(channelId int) {
+func (cc *GatewayRouteIndex) Enable(channelId int) {
 	cc.Lock()
 	defer cc.Unlock()
 	if _, ok := cc.Channels[channelId]; !ok {
@@ -184,7 +184,7 @@ func (cc *ChannelsChooser) Enable(channelId int) {
 	cc.Channels[channelId].Disable = false
 }
 
-func (cc *ChannelsChooser) ChangeStatus(channelId int, status bool) {
+func (cc *GatewayRouteIndex) ChangeStatus(channelId int, status bool) {
 	if status {
 		cc.Enable(channelId)
 	} else {
@@ -193,13 +193,13 @@ func (cc *ChannelsChooser) ChangeStatus(channelId int, status bool) {
 }
 
 // checkStickySession 检查是否有粘性 session 映射，如果有且渠道可用，则返回该渠道
-func (cc *ChannelsChooser) checkStickySession(channelIds []int, filters []ChannelsFilterFunc, modelName string, ginContext interface{}) *Channel {
+func (cc *GatewayRouteIndex) checkStickySession(channelIds []int, choices map[int]*ChannelChoice, filters []ChannelsFilterFunc, modelName string, ginContext interface{}) *Channel {
 	if !config.RedisEnabled || ginContext == nil || len(channelIds) == 0 {
 		return nil
 	}
 
 	// 获取第一个候选渠道以确定渠道类型（同一批候选渠道类型相同）
-	firstChoice, ok := cc.Channels[channelIds[0]]
+	firstChoice, ok := choices[channelIds[0]]
 	if !ok {
 		return nil
 	}
@@ -218,7 +218,7 @@ func (cc *ChannelsChooser) checkStickySession(channelIds []int, filters []Channe
 	}
 
 	// 检查映射的渠道是否存在且未被禁用
-	mappedChoice, ok := cc.Channels[mappedChannelID]
+	mappedChoice, ok := choices[mappedChannelID]
 	if !ok || mappedChoice.Disable {
 		// 映射的渠道不存在或已禁用，删除映射
 		redis.DeleteStickySessionMapping(sessionHash, channelType)
@@ -276,7 +276,7 @@ func (cc *ChannelsChooser) checkStickySession(channelIds []int, filters []Channe
 }
 
 // createStickySession 为选定的渠道创建粘性 session 映射
-func (cc *ChannelsChooser) createStickySession(channel *Channel, ginContext interface{}) {
+func (cc *GatewayRouteIndex) createStickySession(channel *Channel, ginContext interface{}) {
 	if !config.RedisEnabled || ginContext == nil || channel == nil {
 		return
 	}
@@ -696,9 +696,9 @@ func extractMessageContent(msgMap map[string]interface{}) string {
 	return ""
 }
 
-func (cc *ChannelsChooser) balancer(channelIds []int, filters []ChannelsFilterFunc, modelName string, ginContext interface{}) *Channel {
+func (cc *GatewayRouteIndex) balancer(channelIds []int, choices map[int]*ChannelChoice, filters []ChannelsFilterFunc, modelName string, ginContext interface{}) *Channel {
 	// 1. 检查粘性 session（优先级最高）
-	stickyChannel := cc.checkStickySession(channelIds, filters, modelName, ginContext)
+	stickyChannel := cc.checkStickySession(channelIds, choices, filters, modelName, ginContext)
 	if stickyChannel != nil {
 		return stickyChannel
 	}
@@ -708,7 +708,7 @@ func (cc *ChannelsChooser) balancer(channelIds []int, filters []ChannelsFilterFu
 
 	validChannels := make([]*ChannelChoice, 0, len(channelIds))
 	for _, channelId := range channelIds {
-		choice, ok := cc.Channels[channelId]
+		choice, ok := choices[channelId]
 		if !ok || choice.Disable {
 			continue
 		}
@@ -760,7 +760,7 @@ func (cc *ChannelsChooser) balancer(channelIds []int, filters []ChannelsFilterFu
 }
 
 // GetMatchedModelName 获取匹配到的实际模型名称
-func (cc *ChannelsChooser) GetMatchedModelName(group, modelName string) (string, error) {
+func (cc *GatewayRouteIndex) GetMatchedModelName(group, modelName string) (string, error) {
 	cc.RLock()
 	defer cc.RUnlock()
 	if _, ok := cc.Rule[group]; !ok {
@@ -802,10 +802,10 @@ func (cc *ChannelsChooser) GetMatchedModelName(group, modelName string) (string,
 	return matchModel, nil
 }
 
-func (cc *ChannelsChooser) Next(group, modelName string, filters ...ChannelsFilterFunc) (*Channel, error) {
+func (cc *GatewayRouteIndex) Next(group, modelName string, filters ...ChannelsFilterFunc) (*Channel, error) {
 	cc.RLock()
-	defer cc.RUnlock()
 	if _, ok := cc.Rule[group]; !ok {
+		cc.RUnlock()
 		return nil, fmt.Errorf(ErrNoAvailableChannelForModel, GlobalUserGroupRatio.GetDisplayName(group), modelName)
 	}
 
@@ -835,16 +835,20 @@ func (cc *ChannelsChooser) Next(group, modelName string, filters ...ChannelsFilt
 
 		channelsPriority, ok = cc.Rule[group][matchModel]
 		if !ok {
+			cc.RUnlock()
 			return nil, errors.New(ErrModelNotFound)
 		}
 	}
 
 	if len(channelsPriority) == 0 {
+		cc.RUnlock()
 		return nil, errors.New(ErrChannelNotFound)
 	}
+	channelsPriority, choices := cc.snapshotCandidatesLocked(channelsPriority)
+	cc.RUnlock()
 
 	for _, priority := range channelsPriority {
-		channel := cc.balancer(priority, filters, modelName, nil)
+		channel := cc.balancer(priority, choices, filters, modelName, nil)
 		if channel != nil {
 			return channel, nil
 		}
@@ -855,25 +859,29 @@ func (cc *ChannelsChooser) Next(group, modelName string, filters ...ChannelsFilt
 
 // NextByValidatedModel 使用已经验证过的模型名称获取渠道，跳过模型匹配逻辑
 // ginContext 用于生成 session hash 和粘性 session 处理
-func (cc *ChannelsChooser) NextByValidatedModel(group, validatedModelName string, ginContext interface{}, filters ...ChannelsFilterFunc) (*Channel, error) {
+func (cc *GatewayRouteIndex) NextByValidatedModel(group, validatedModelName string, ginContext interface{}, filters ...ChannelsFilterFunc) (*Channel, error) {
 	cc.RLock()
-	defer cc.RUnlock()
 
 	if _, ok := cc.Rule[group]; !ok {
+		cc.RUnlock()
 		return nil, fmt.Errorf(ErrNoAvailableChannelForModel, GlobalUserGroupRatio.GetDisplayName(group), validatedModelName)
 	}
 
 	channelsPriority, ok := cc.Rule[group][validatedModelName]
 	if !ok {
+		cc.RUnlock()
 		return nil, errors.New(ErrModelNotFoundInGroup)
 	}
 
 	if len(channelsPriority) == 0 {
+		cc.RUnlock()
 		return nil, ErrNoChannelsAvailableSentinel
 	}
+	channelsPriority, choices := cc.snapshotCandidatesLocked(channelsPriority)
+	cc.RUnlock()
 
 	for _, priority := range channelsPriority {
-		channel := cc.balancer(priority, filters, validatedModelName, ginContext)
+		channel := cc.balancer(priority, choices, filters, validatedModelName, ginContext)
 		if channel != nil {
 			return channel, nil
 		}
@@ -882,7 +890,7 @@ func (cc *ChannelsChooser) NextByValidatedModel(group, validatedModelName string
 	return nil, ErrNoAvailableChannelsAfterFilteringSentinel
 }
 
-func (cc *ChannelsChooser) GetGroupModels(group string) ([]string, error) {
+func (cc *GatewayRouteIndex) GetGroupModels(group string) ([]string, error) {
 	cc.RLock()
 	defer cc.RUnlock()
 
@@ -898,14 +906,37 @@ func (cc *ChannelsChooser) GetGroupModels(group string) ([]string, error) {
 	return models, nil
 }
 
-func (cc *ChannelsChooser) GetModelsGroups() map[string]map[string]bool {
+func (cc *GatewayRouteIndex) GetModelsGroups() map[string]map[string]bool {
 	cc.RLock()
 	defer cc.RUnlock()
 
-	return cc.ModelGroup
+	result := make(map[string]map[string]bool, len(cc.ModelGroup))
+	for modelName, groups := range cc.ModelGroup {
+		groupCopy := make(map[string]bool, len(groups))
+		for group, enabled := range groups {
+			groupCopy[group] = enabled
+		}
+		result[modelName] = groupCopy
+	}
+	return result
 }
 
-func (cc *ChannelsChooser) GetChannel(channelId int) *Channel {
+func (cc *GatewayRouteIndex) snapshotCandidatesLocked(priorities [][]int) ([][]int, map[int]*ChannelChoice) {
+	priorityCopy := make([][]int, len(priorities))
+	choices := make(map[int]*ChannelChoice)
+	for index, channelIDs := range priorities {
+		priorityCopy[index] = append([]int(nil), channelIDs...)
+		for _, channelID := range channelIDs {
+			if choice, exists := cc.Channels[channelID]; exists && choice != nil {
+				choiceCopy := *choice
+				choices[channelID] = &choiceCopy
+			}
+		}
+	}
+	return priorityCopy, choices
+}
+
+func (cc *GatewayRouteIndex) GetChannel(channelId int) *Channel {
 	cc.RLock()
 	defer cc.RUnlock()
 
@@ -917,7 +948,7 @@ func (cc *ChannelsChooser) GetChannel(channelId int) *Channel {
 }
 
 // CountAvailableChannels 计算指定分组和模型的可用渠道数量（排除禁用、冷却和过滤的渠道）
-func (cc *ChannelsChooser) CountAvailableChannels(group, modelName string, filters ...ChannelsFilterFunc) int {
+func (cc *GatewayRouteIndex) CountAvailableChannels(group, modelName string, filters ...ChannelsFilterFunc) int {
 	cc.RLock()
 	defer cc.RUnlock()
 
@@ -944,7 +975,7 @@ func (cc *ChannelsChooser) CountAvailableChannels(group, modelName string, filte
 
 // countValidChannels 计算指定渠道列表中的可用渠道数量
 // 与balancer方法使用相同的过滤逻辑
-func (cc *ChannelsChooser) countValidChannels(channelIds []int, filters []ChannelsFilterFunc, modelName string) int {
+func (cc *GatewayRouteIndex) countValidChannels(channelIds []int, filters []ChannelsFilterFunc, modelName string) int {
 	count := 0
 	for _, channelId := range channelIds {
 		choice, ok := cc.Channels[channelId]
@@ -972,11 +1003,14 @@ func (cc *ChannelsChooser) countValidChannels(channelIds []int, filters []Channe
 	return count
 }
 
-var ChannelGroup = ChannelsChooser{}
+var GatewayRoutes = GatewayRouteIndex{}
 
-func (cc *ChannelsChooser) Load() {
-	var channels []*Channel
-	DB.Where("status = ?", config.ChannelStatusEnabled).Find(&channels)
+func (cc *GatewayRouteIndex) Load() {
+	channels, err := LoadGatewayChannelSnapshots(DB)
+	if err != nil {
+		logger.SysError("gateway channel snapshot load failed: " + err.Error())
+		return
+	}
 
 	newGroup := make(map[string]map[string][][]int)
 	newChannels := make(map[int]*ChannelChoice)
@@ -1070,8 +1104,9 @@ func (cc *ChannelsChooser) Load() {
 	for match := range newMatch {
 		newMatchList = append(newMatchList, match)
 	}
+	sort.Strings(newMatchList)
 
-	// 更新ChannelsChooser
+	// 更新GatewayRouteIndex
 	cc.Lock()
 	cc.Rule = newGroup
 	cc.Channels = newChannels

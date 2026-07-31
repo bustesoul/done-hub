@@ -1,18 +1,26 @@
 package task
 
 import (
+	"context"
 	"done-hub/common"
 	"done-hub/common/config"
 	"done-hub/common/logger"
-	"done-hub/common/utils"
+	"done-hub/internal/gateway/billing"
+	"done-hub/internal/gateway/domain"
+	"done-hub/internal/gateway/execution"
+	"done-hub/internal/gateway/requeststate"
+	gatewayretry "done-hub/internal/gateway/retry"
+	gatewaystream "done-hub/internal/gateway/stream"
 	"done-hub/metrics"
 	"done-hub/model"
 	"done-hub/relay/relay_util"
 	"done-hub/relay/task/base"
 	"done-hub/types"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -21,7 +29,7 @@ import (
 func buildTaskChannelFilters(c *gin.Context) []model.ChannelsFilterFunc {
 	var filters []model.ChannelsFilterFunc
 
-	if skipChannelIds, ok := utils.GetGinValue[[]int](c, "skip_channel_ids"); ok {
+	if skipChannelIds := taskRequestState(c).SkippedEndpointIDs(); len(skipChannelIds) > 0 {
 		filters = append(filters, model.FilterChannelId(skipChannelIds))
 	}
 
@@ -34,150 +42,253 @@ func buildTaskChannelFilters(c *gin.Context) []model.ChannelsFilterFunc {
 	return filters
 }
 
+func taskRequestState(c *gin.Context) *requeststate.State {
+	request, state := requeststate.Ensure(c.Request)
+	c.Request = request
+	return state
+}
+
 func RelayTaskSubmit(c *gin.Context) {
-	var taskErr *base.TaskError
+	taskRequestState(c)
 	taskAdaptor, err := GetTaskAdaptor(GetRelayMode(c), c)
 	if err != nil {
-		taskErr = base.StringTaskError(http.StatusBadRequest, "adaptor_not_found", "adaptor not found", true)
+		taskErr := base.StringTaskError(http.StatusBadRequest, "adaptor_not_found", "adaptor not found", true)
 		c.JSON(http.StatusBadRequest, taskErr)
 		return
 	}
 
-	taskErr = taskAdaptor.Init()
-	if taskErr != nil {
+	if taskErr := taskAdaptor.Init(); taskErr != nil {
 		taskAdaptor.HandleError(taskErr)
 		return
 	}
 
-	taskErr = taskAdaptor.SetProvider()
-	if taskErr != nil {
-		taskAdaptor.HandleError(taskErr)
-		return
+	plan := domain.RoutePlan{
+		Request: domain.RequestContext{
+			RequestID:      c.GetString(logger.RequestIdKey),
+			UserID:         c.GetInt("id"),
+			TokenID:        c.GetInt("token_id"),
+			Group:          c.GetString("token_group"),
+			RequestedModel: taskAdaptor.GetModelName(),
+			Capability:     domain.CapabilityTask,
+			Protocol:       domain.ProtocolNative,
+			StartedAt:      c.GetTime("requestStartTime"),
+		},
+		Model: domain.ModelRoute{
+			PublicModel: taskAdaptor.GetModelName(),
+			Capability:  domain.CapabilityTask,
+			Protocol:    domain.ProtocolNative,
+		},
+	}
+	selector := &taskGatewaySelector{context: c, adaptor: taskAdaptor}
+	runner := &taskGatewayRunner{context: c, adaptor: taskAdaptor}
+	coordinator := execution.NewGatewayEngine(gatewayretry.DefaultPolicy())
+	coordinator.Selector = selector
+	coordinator.Cooldowns = &taskCooldownStore{context: c}
+	coordinator.Observer = &taskAttemptObserver{context: c}
+	coordinator.MaxAttempts = config.RetryTimes + 1
+	if coordinator.MaxAttempts < 1 {
+		coordinator.MaxAttempts = 1
+	}
+	if config.RetryTimeOut > 0 {
+		coordinator.Deadline = time.Duration(config.RetryTimeOut) * time.Second
 	}
 
-	quotaInstance := relay_util.NewQuota(c, taskAdaptor.GetModelName(), 1000)
-	if errWithOA := quotaInstance.PreQuotaConsumption(); errWithOA != nil {
-		taskAdaptor.HandleError(base.OpenAIErrToTaskErr(errWithOA))
-		return
-	}
-
-	taskErr = taskAdaptor.Relay()
-	if taskErr == nil {
-		CompletedTask(quotaInstance, taskAdaptor, relay_util.NewConsumeSnapshot(c))
-		// 返回结果
+	result := coordinator.Run(c.Request.Context(), plan, runner)
+	taskRequestState(c).SetAttemptCount(len(result.Attempts))
+	if result.Err == nil {
+		CompletedTask(runner.gatewayBilling, taskAdaptor)
 		taskAdaptor.GinResponse()
-		metrics.RecordProvider(c, 200)
+		metrics.RecordProvider(c, http.StatusOK)
 		return
 	}
-
-	quotaInstance.Undo(c)
-
-	retryTimes := config.RetryTimes
-
-	// 在重试开始前计算并缓存总渠道数，避免重试过程中动态变化
-	groupName := c.GetString("token_group")
-	if groupName == "" {
-		groupName = c.GetString("group")
-	}
-	modelName := taskAdaptor.GetModelName()
-	totalChannelsAtStart := model.ChannelGroup.CountAvailableChannels(groupName, modelName)
-
-	channel := taskAdaptor.GetProvider().GetChannel()
-
-	if !taskAdaptor.ShouldRetry(c, taskErr) {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("retry_skip model=%s channel_id=%d status_code=%d should_retry=false total_channels=%d error=\"%s\"",
-			modelName, channel.Id, taskErr.StatusCode, totalChannelsAtStart, taskErr.Message))
-		retryTimes = 0
-	}
-
-	// 实际重试次数 = min(配置的重试数, 可用渠道数)
-	actualRetryTimes := retryTimes
-	if totalChannelsAtStart < retryTimes {
-		actualRetryTimes = totalChannelsAtStart
-	}
-
-	c.Set("total_channels_at_start", totalChannelsAtStart)
-	c.Set("actual_retry_times", actualRetryTimes)
-	c.Set("attempt_count", 1) // 初始化尝试计数
-
-	// 记录初始失败 - 使用统一的结构化日志格式
-	logger.LogError(c.Request.Context(), fmt.Sprintf("retry_start model=%s channel_id=%d total_channels=%d config_max_retries=%d actual_max_retries=%d status_code=%d error=\"%s\"",
-		modelName, channel.Id, totalChannelsAtStart, retryTimes, actualRetryTimes, taskErr.StatusCode, taskErr.Message))
-	for i := actualRetryTimes; i > 0; i-- {
-		model.ChannelGroup.SetCooldowns(channel.Id, taskAdaptor.GetModelName())
-		taskErr = taskAdaptor.SetProvider()
-		if taskErr != nil {
-			continue
+	if runner.gatewayBilling != nil {
+		if billingErr := runner.gatewayBilling.RefundIfReserved(c.Request.Context(), "task_attempts_failed"); billingErr != nil {
+			logger.LogError(c.Request.Context(), "gateway billing refund: "+billingErr.Error())
 		}
-
-		channel = taskAdaptor.GetProvider().GetChannel()
-
-		// 计算渠道信息用于日志显示
-		groupName := c.GetString("token_group")
-		if groupName == "" {
-			groupName = c.GetString("group")
-		}
-		modelName := taskAdaptor.GetModelName()
-
-		// 更新尝试计数
-		attemptCount := c.GetInt("attempt_count")
-		c.Set("attempt_count", attemptCount+1)
-
-		// 计算剩余可重试的渠道数（不包括当前渠道，因为当前渠道正在使用）
-		filters := buildTaskChannelFilters(c)
-		skipChannelIds, _ := utils.GetGinValue[[]int](c, "skip_channel_ids")
-		tempFilters := append(filters, model.FilterChannelId(skipChannelIds))
-		remainChannels := model.ChannelGroup.CountAvailableChannels(groupName, modelName, tempFilters...)
-
-		// 获取实际重试次数
-		actualRetryTimes := c.GetInt("actual_retry_times")
-
-		// 记录重试尝试 - 使用统一的结构化日志格式
-		logger.LogWarn(c.Request.Context(), fmt.Sprintf("retry_attempt model=%s channel_id=%d attempt=%d/%d remaining_channels=%d total_channels=%d",
-			modelName, channel.Id, attemptCount, actualRetryTimes, remainChannels, c.GetInt("total_channels_at_start")))
-
-		taskErr = taskAdaptor.Relay()
-		if taskErr == nil {
-			// 重试成功
-			logger.LogInfo(c.Request.Context(), fmt.Sprintf("retry_success model=%s channel_id=%d attempt=%d/%d total_channels=%d",
-				modelName, channel.Id, attemptCount, actualRetryTimes, c.GetInt("total_channels_at_start")))
-			// 在 spawn TrackedGoroutine 之前先 snapshot，闭包持有值，避免 c-pool 复用竞态
-			snap := relay_util.NewConsumeSnapshot(c)
-			common.TrackedGoroutine(func() {
-				CompletedTask(quotaInstance, taskAdaptor, snap)
-			})
-			return
-		}
-
-		// 记录重试失败
-		logger.LogError(c.Request.Context(), fmt.Sprintf("retry_failed model=%s channel_id=%d attempt=%d/%d status_code=%d error=\"%s\"",
-			modelName, channel.Id, attemptCount, actualRetryTimes, taskErr.StatusCode, taskErr.Message))
-
-		quotaInstance.Undo(c)
-		if !taskAdaptor.ShouldRetry(c, taskErr) {
-			logger.LogError(c.Request.Context(), fmt.Sprintf("retry_stop_condition model=%s channel_id=%d attempt=%d/%d should_retry=false",
-				modelName, channel.Id, attemptCount, actualRetryTimes))
-			break
-		}
-
 	}
-
-	// 记录最终失败
-	if taskErr != nil {
-		finalAttempt := c.GetInt("attempt_count")
-		actualRetryTimes := c.GetInt("actual_retry_times")
-		logger.LogError(c.Request.Context(), fmt.Sprintf("retry_exhausted model=%s channel_id=%d total_attempts=%d total_channels=%d config_max_retries=%d actual_max_retries=%d status_code=%d error=\"%s\"",
-			modelName, channel.Id, finalAttempt, c.GetInt("total_channels_at_start"), retryTimes, actualRetryTimes, taskErr.StatusCode, taskErr.Message))
-		taskAdaptor.HandleError(taskErr)
+	if runner.lastError != nil {
+		taskAdaptor.HandleError(runner.lastError)
+		return
 	}
-
+	if selector.lastError != nil {
+		taskAdaptor.HandleError(selector.lastError)
+		return
+	}
+	taskAdaptor.HandleError(base.StringTaskError(http.StatusServiceUnavailable, "gateway_unavailable", result.Err.Error(), false))
 }
 
-func CompletedTask(quotaInstance *relay_util.Quota, taskAdaptor base.TaskInterface, snap relay_util.ConsumeSnapshot) {
-	quotaInstance.ConsumeWithSnapshot(snap, &types.Usage{CompletionTokens: 0, PromptTokens: 1, TotalTokens: 1}, false)
+type taskGatewaySelector struct {
+	context   *gin.Context
+	adaptor   base.TaskInterface
+	lastError *base.TaskError
+}
+
+func (s *taskGatewaySelector) Next(
+	_ context.Context,
+	_ domain.RoutePlan,
+	_ execution.SelectionState,
+) (domain.Endpoint, error) {
+	if taskErr := s.adaptor.SetProvider(); taskErr != nil {
+		s.lastError = taskErr
+		return domain.Endpoint{}, errors.New(taskErr.Message)
+	}
+	provider := s.adaptor.GetProvider()
+	if provider == nil || provider.GetChannel() == nil {
+		s.lastError = base.StringTaskError(http.StatusServiceUnavailable, "gateway_unavailable", "provider is unavailable", false)
+		return domain.Endpoint{}, errors.New(s.lastError.Message)
+	}
+	channel := provider.GetChannel()
+	weight := 0
+	if channel.Weight != nil {
+		weight = int(*channel.Weight)
+	}
+	priority := 0
+	if channel.Priority != nil {
+		priority = int(*channel.Priority)
+	}
+	return domain.Endpoint{
+		ID:                channel.Id,
+		ProviderID:        domain.ProviderID(channel.Type),
+		Name:              channel.Name,
+		BaseURL:           channel.GetBaseURL(),
+		Group:             channel.Group,
+		Weight:            weight,
+		Priority:          priority,
+		Enabled:           channel.Status == config.ChannelStatusEnabled,
+		ProtocolProfileID: domain.ProtocolProfileID(channel.ProtocolProfileID),
+	}, nil
+}
+
+type taskGatewayRunner struct {
+	context        *gin.Context
+	adaptor        base.TaskInterface
+	gatewayBilling *relay_util.GatewayBilling
+	billedUsage    *types.Usage
+	lastError      *base.TaskError
+}
+
+func (r *taskGatewayRunner) Run(
+	_ context.Context,
+	attempt domain.Attempt,
+	session *gatewaystream.Session,
+) (domain.AttemptResult, *gatewayretry.UpstreamError) {
+	if r.gatewayBilling == nil {
+		r.billedUsage = &types.Usage{PromptTokens: 1, TotalTokens: 1}
+		r.gatewayBilling = relay_util.NewGatewayBilling(
+			r.context,
+			r.adaptor.GetModelName(),
+			1000,
+			r.billedUsage,
+			false,
+			nil,
+		)
+		if billingErr := r.gatewayBilling.Precharge(r.context.Request.Context(), billing.Estimate{
+			Model:        r.adaptor.GetModelName(),
+			PromptTokens: 1000,
+		}); billingErr != nil {
+			errWithOA, ok := billingErr.(*types.OpenAIErrorWithStatusCode)
+			if !ok {
+				errWithOA = common.ErrorWrapperLocal(billingErr, "pre_consume_token_quota_failed", http.StatusForbidden)
+			}
+			r.lastError = base.OpenAIErrToTaskErr(errWithOA)
+			return domain.AttemptResult{Attempt: attempt}, &gatewayretry.UpstreamError{
+				Class:       gatewayretry.ErrorClassLocalValidation,
+				StatusCode:  errWithOA.StatusCode,
+				Local:       true,
+				Description: errWithOA.OpenAIError.Message,
+			}
+		}
+	}
+
+	taskErr := r.adaptor.Relay()
+	if taskErr == nil {
+		_ = session.MarkAccepted()
+		r.lastError = nil
+		return domain.AttemptResult{
+			Attempt:          attempt,
+			UpstreamAccepted: true,
+		}, nil
+	}
+	r.lastError = taskErr
+	upstreamErr := classifyTaskError(taskErr)
+	if !r.adaptor.ShouldRetry(r.context, taskErr) ||
+		(r.context.GetInt("specific_channel_id") > 0 && !r.context.GetBool("specific_channel_id_ignore")) {
+		upstreamErr.Class = gatewayretry.ErrorClassProtocol
+	}
+	return domain.AttemptResult{Attempt: attempt}, upstreamErr
+}
+
+func classifyTaskError(taskErr *base.TaskError) *gatewayretry.UpstreamError {
+	upstreamErr := gatewayretry.ClassifyHTTP(taskErr.StatusCode, errors.New(taskErr.Message))
+	if taskErr.LocalError {
+		upstreamErr.Class = gatewayretry.ErrorClassLocalValidation
+		upstreamErr.Local = true
+	}
+	if taskErr.StatusCode == http.StatusTemporaryRedirect {
+		upstreamErr.Class = gatewayretry.ErrorClassTransient
+	}
+	return upstreamErr
+}
+
+type taskCooldownStore struct {
+	context *gin.Context
+}
+
+func (s *taskCooldownStore) Cooldown(
+	_ context.Context,
+	endpoint domain.Endpoint,
+	modelName string,
+	upstreamErr *gatewayretry.UpstreamError,
+	decision gatewayretry.Decision,
+) error {
+	duration := decision.Delay
+	if upstreamErr != nil {
+		if seconds, configured := config.GetRetryCooldownForStatus(upstreamErr.StatusCode); configured {
+			duration = time.Duration(seconds) * time.Second
+		} else if upstreamErr.StatusCode == http.StatusTooManyRequests && upstreamErr.RetryAfter <= 0 {
+			duration = time.Duration(config.RetryCooldownSeconds) * time.Second
+		}
+	}
+	if duration > 0 {
+		seconds := int64((duration + time.Second - 1) / time.Second)
+		model.GatewayRoutes.SetCooldownsWithDuration(endpoint.ID, modelName, seconds)
+	}
+	taskRequestState(s.context).Skip(endpoint.ID)
+	return nil
+}
+
+type taskAttemptObserver struct {
+	context *gin.Context
+}
+
+func (o *taskAttemptObserver) AttemptFinished(
+	result domain.AttemptResult,
+	upstreamErr *gatewayretry.UpstreamError,
+	decision gatewayretry.Decision,
+) {
+	if upstreamErr == nil {
+		logger.LogInfo(o.context.Request.Context(), fmt.Sprintf(
+			"gateway_task_attempt_finished request_id=%s attempt=%d endpoint_id=%d outcome=success duration_ms=%d accepted=%t",
+			result.Attempt.RequestID, result.Attempt.Number, result.Attempt.Endpoint.ID,
+			result.CompletedAt.Sub(result.Attempt.StartedAt).Milliseconds(), result.UpstreamAccepted,
+		))
+		return
+	}
+	logger.LogWarn(o.context.Request.Context(), fmt.Sprintf(
+		"gateway_task_attempt_finished request_id=%s attempt=%d endpoint_id=%d outcome=failed status_code=%d class=%s retry=%t cooldown=%t duration_ms=%d",
+		result.Attempt.RequestID, result.Attempt.Number, result.Attempt.Endpoint.ID, upstreamErr.StatusCode,
+		upstreamErr.Class, decision.Retry, decision.Cooldown,
+		result.CompletedAt.Sub(result.Attempt.StartedAt).Milliseconds(),
+	))
+}
+
+func CompletedTask(gatewayBilling *relay_util.GatewayBilling, taskAdaptor base.TaskInterface) {
+	if err := gatewayBilling.Settle(context.Background(), domain.OutcomeSucceeded); err != nil {
+		logger.SysError("gateway billing settle: " + err.Error())
+	}
 
 	task := taskAdaptor.GetTask()
-	task.Quota = common.QuotaFromFloat(quotaInstance.GetInputRatio() * 1000)
+	task.Quota = common.QuotaFromFloat(gatewayBilling.Quota().GetInputRatio() * 1000)
 
 	err := task.Insert()
 	if err != nil {

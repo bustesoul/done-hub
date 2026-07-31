@@ -14,7 +14,7 @@ import (
 type ClaudeProviderFactory struct{}
 
 // 创建 ClaudeProvider
-func (f ClaudeProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f ClaudeProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	return &ClaudeProvider{
 		BaseProvider: base.BaseProvider{
 			Config:    getConfig(),

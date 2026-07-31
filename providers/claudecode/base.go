@@ -29,7 +29,7 @@ const (
 type ClaudeCodeProviderFactory struct{}
 
 // 创建 ClaudeCodeProvider
-func (f ClaudeCodeProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f ClaudeCodeProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	provider := &ClaudeCodeProvider{
 		ClaudeProvider: claude.ClaudeProvider{
 			BaseProvider: base.BaseProvider{

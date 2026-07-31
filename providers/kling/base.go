@@ -18,7 +18,7 @@ import (
 type KlingProviderFactory struct{}
 
 // 创建 KlingProvider
-func (f KlingProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f KlingProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	return &KlingProvider{
 		BaseProvider: base.BaseProvider{
 			Config:    getConfig(),

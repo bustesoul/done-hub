@@ -117,7 +117,7 @@ var copilotHTTPClient = &http.Client{
 
 type CopilotProviderFactory struct{}
 
-func (f CopilotProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f CopilotProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	provider := &CopilotProvider{
 		OpenAIProvider: openai.OpenAIProvider{
 			BaseProvider: base.BaseProvider{
@@ -191,7 +191,7 @@ func (p *CopilotProvider) GetCopilotToken() (string, error) {
 
 // ─── Request headers ──────────────────────────────────────────────────────────
 
-// GetRequestHeaders builds Copilot-specific request headers (satisfies ProviderInterface).
+// GetRequestHeaders builds Copilot-specific request headers (satisfies ProviderRuntime).
 func (p *CopilotProvider) GetRequestHeaders() map[string]string {
 	headers, _ := p.buildCopilotHeaders("user")
 	if headers == nil {

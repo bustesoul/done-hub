@@ -14,7 +14,7 @@ import (
 type CozeProviderFactory struct{}
 
 // 创建 CozeProvider
-func (f CozeProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f CozeProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	return &CozeProvider{
 		BaseProvider: base.BaseProvider{
 			Config:    getConfig(),

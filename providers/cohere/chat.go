@@ -12,14 +12,12 @@ import (
 	"io"
 	"net/http"
 	"strings"
-
-	"github.com/gin-gonic/gin"
 )
 
 type CohereStreamHandler struct {
 	Usage    *types.Usage
 	Request  *types.ChatCompletionRequest
-	Context  *gin.Context
+	Context  *base.RequestContext
 	msgID    string
 	startMsg bool
 }
@@ -115,7 +113,7 @@ func ConvertFromChatOpenai(request *types.ChatCompletionRequest) (*V2ChatRequest
 	return &cohereRequest, nil
 }
 
-func ConvertToChatOpenai(provider base.ProviderInterface, response *ChatResponse, request *types.ChatCompletionRequest) (openaiResponse *types.ChatCompletionResponse, errWithCode *types.OpenAIErrorWithStatusCode) {
+func ConvertToChatOpenai(provider base.ProviderRuntime, response *ChatResponse, request *types.ChatCompletionRequest) (openaiResponse *types.ChatCompletionResponse, errWithCode *types.OpenAIErrorWithStatusCode) {
 	choice := types.ChatCompletionChoice{
 		Index:        0,
 		Message:      *response.Message.ToChatCompletionMessage(),

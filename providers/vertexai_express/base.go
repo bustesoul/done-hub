@@ -15,7 +15,7 @@ import (
 type VertexAIExpressProviderFactory struct{}
 
 // 创建 VertexAIExpressProvider
-func (f VertexAIExpressProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f VertexAIExpressProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	config := getConfig()
 	// 从 Other 字段解析 Region 和 ProjectID
 	region, projectID := parseOtherConfig(channel.Other)

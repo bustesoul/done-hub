@@ -18,7 +18,7 @@ import (
 type AzureDatabricksProviderFactory struct{}
 
 // Create returns an AzureDatabricksProvider
-func (f AzureDatabricksProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f AzureDatabricksProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	return &AzureDatabricksProvider{
 		BaseProvider: base.BaseProvider{
 			Channel:   channel,

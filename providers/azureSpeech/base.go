@@ -12,7 +12,7 @@ import (
 type AzureSpeechProviderFactory struct{}
 
 // 创建 AzureSpeechProvider
-func (f AzureSpeechProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f AzureSpeechProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	return &AzureSpeechProvider{
 		BaseProvider: base.BaseProvider{
 			Config: base.ProviderConfig{

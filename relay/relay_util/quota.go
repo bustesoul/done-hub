@@ -5,6 +5,7 @@ import (
 	"done-hub/common"
 	"done-hub/common/config"
 	"done-hub/common/logger"
+	"done-hub/internal/gateway/requeststate"
 	"done-hub/model"
 	"done-hub/types"
 	"errors"
@@ -67,12 +68,16 @@ func ServiceTierRatio(serviceTier string) float64 {
 func NewQuota(c *gin.Context, modelName string, promptTokens int) *Quota {
 	isBackupGroup := c.GetBool("is_backupGroup")
 	serviceTier := NormalizeServiceTier(c.GetString("service_tier"))
+	channelID := 0
+	if state := requeststate.From(c.Request.Context()); state != nil {
+		channelID = state.Selection().ChannelID
+	}
 
 	quota := &Quota{
 		modelName:        modelName,
 		promptTokens:     promptTokens,
 		userId:           c.GetInt("id"),
-		channelId:        c.GetInt("channel_id"),
+		channelId:        channelID,
 		tokenId:          c.GetInt("token_id"),
 		unlimitedQuota:   c.GetBool("token_unlimited_quota"),
 		HandelStatus:     false,
@@ -100,7 +105,7 @@ func NewQuota(c *gin.Context, modelName string, promptTokens int) *Quota {
 
 	// 成本倍率：仅用于成本/利润统计，不参与用户扣费。未配置或取不到渠道时为 0（不计成本）。
 	quota.costRatio = 0
-	if channel := model.ChannelGroup.GetChannel(quota.channelId); channel != nil {
+	if channel := model.GatewayRoutes.GetChannel(quota.channelId); channel != nil {
 		quota.costRatio = channel.GetCostRatio()
 	}
 
@@ -230,17 +235,30 @@ func (q *Quota) completedQuotaConsumption(usage *types.Usage, tokenName string, 
 }
 
 func (q *Quota) Undo(c *gin.Context) {
+	q.UndoWithContext(c.Request.Context())
+}
+
+func (q *Quota) UndoWithContext(ctx context.Context) {
 	if !q.HandelStatus {
 		return
 	}
 	// Undo 所有调用方都在 gin handler 同步路径上，panic 由 gin.Recovery 兜底（带 stack）。
 	// 不再加本地 recover：之前的"defense-in-depth"在已有 gin.Recovery 时是 anti-pattern：
 	// 截胡 panic 让上层拿不到信号、日志失去堆栈、可调试性反而下降。
-	ctx := c.Request.Context()
 	if err := model.PostConsumeTokenQuotaWithInfo(q.tokenId, q.userId, q.unlimitedQuota, -q.preConsumedQuota); err != nil {
 		logger.LogError(ctx, "error return pre-consumed quota: "+err.Error())
 	}
 	_ = model.CacheUpdateUserQuota(q.userId)
+}
+
+func (q *Quota) TransferReservationTo(next *Quota) {
+	if next == nil || q == next {
+		return
+	}
+	next.preConsumedQuota = q.preConsumedQuota
+	next.HandelStatus = q.HandelStatus
+	q.preConsumedQuota = 0
+	q.HandelStatus = false
 }
 
 func (q *Quota) Consume(c *gin.Context, usage *types.Usage, isStream bool) {
@@ -288,17 +306,20 @@ func NewConsumeSnapshot(c *gin.Context) ConsumeSnapshot {
 //
 // 这是反压换一致性的有意取舍：异步会让 handler 早返 200 但扣费 goroutine 在 DB 池满时堆积，
 // 正是"上游已计费、本地未记账"的真凶。
-func (q *Quota) ConsumeWithSnapshot(snap ConsumeSnapshot, usage *types.Usage, isStream bool) {
+func (q *Quota) ConsumeWithSnapshot(snap ConsumeSnapshot, usage *types.Usage, isStream bool) (consumeErr error) {
 	q.startTime = snap.StartTime
 	ctx := snap.Ctx
 	defer func() {
 		if r := recover(); r != nil {
 			logger.LogError(ctx, fmt.Sprintf("panic in Quota.ConsumeWithSnapshot: %v, stack: %s", r, string(debug.Stack())))
+			consumeErr = fmt.Errorf("panic in quota consumption: %v", r)
 		}
 	}()
 	if err := q.completedQuotaConsumption(usage, snap.TokenName, isStream, snap.SourceIP, ctx); err != nil {
 		logger.LogError(ctx, err.Error())
+		return err
 	}
+	return nil
 }
 
 func (q *Quota) GetInputRatio() float64 {

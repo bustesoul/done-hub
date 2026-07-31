@@ -1,6 +1,5 @@
 import PropTypes from 'prop-types';
 import { useEffect, useRef, useState } from 'react';
-import { CHANNEL_OPTIONS } from 'constants/ChannelConstants';
 import { useTheme } from '@mui/material/styles';
 import { API } from 'utils/api';
 import { copy, showError, showSuccess, trims } from 'utils/common';
@@ -42,39 +41,54 @@ import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank';
 import CheckBoxIcon from '@mui/icons-material/CheckBox';
 import { useTranslation } from 'react-i18next';
 import useCustomizeT from 'hooks/useCustomizeT';
-import { PreCostType } from '../type/other';
-import MapInput from './MapInput';
-import ListInput from './ListInput';
 import { formatGroupLabel } from './batchHelpers';
 import ModelSelectorModal from './ModelSelectorModal';
+import ConnectionProfilePicker from './ConnectionProfilePicker';
+import CredentialRotation from './CredentialRotation';
+import OAuthCredentialFlow from './OAuthCredentialFlow';
+import ChannelAdvancedSection from './ChannelAdvancedSection';
+import ChannelBillingSection from './ChannelBillingSection';
 import CollapsibleSection from './CollapsibleSection';
 import ConfirmDialog from 'ui-component/confirm-dialog';
 import RatioBadge from 'ui-component/RatioBadge';
 import GroupRatioLabel from 'ui-component/GroupRatioLabel';
 import pluginList from '../type/Plugin.json';
 import { Icon } from '@iconify/react';
-import Editor from '@monaco-editor/react';
 
 const icon = <CheckBoxOutlineBlankIcon fontSize="small" />;
 const checkedIcon = <CheckBoxIcon fontSize="small" />;
 
 const filter = createFilterOptions();
-const getValidationSchema = (t) =>
+const normalizeDraftValue = (value) => (typeof value === 'string' ? value.trim() : value);
+const draftProbePayload = (values) => ({
+  name: normalizeDraftValue(values.name),
+  type: values.type,
+  protocol_profile_id: normalizeDraftValue(values.protocol_profile_id),
+  key: normalizeDraftValue(values.key),
+  base_url: normalizeDraftValue(values.base_url),
+  proxy: normalizeDraftValue(values.proxy),
+  other: normalizeDraftValue(values.other),
+  test_model: normalizeDraftValue(values.test_model)
+});
+const draftProbeFingerprint = (values) => JSON.stringify(draftProbePayload(values));
+const getValidationSchema = (t, providerDefinitions) =>
   Yup.object().shape({
     is_edit: Yup.boolean(),
     // is_tag: Yup.boolean(),
     name: Yup.string().required(t('channel_edit.requiredName')),
     type: Yup.number().required(t('channel_edit.requiredChannel')),
-    key: Yup.string().when('is_edit', { is: false, then: Yup.string().required(t('channel_edit.requiredKey')) }),
+    protocol_profile_id: Yup.string().nullable(),
+    // Keyless providers (Ollama / local self-hosted) are validated by the
+    // server-side provider definition and probe flow.
+    key: Yup.string(),
     other: Yup.string(),
     proxy: Yup.string(),
     test_model: Yup.string(),
     models: Yup.array().min(1, t('channel_edit.requiredModels')),
     groups: Yup.array().min(1, t('channel_edit.requiredGroup')),
-    base_url: Yup.string().when('type', {
-      is: (value) => [3, 8].includes(value),
-      then: Yup.string().required(t('channel_edit.requiredBaseUrl')), // base_url 是必需的
-      otherwise: Yup.string() // 在其他情况下，base_url 可以是任意字符串
+    base_url: Yup.string().test('base-url-policy', t('channel_edit.requiredBaseUrl'), function (value) {
+      const definition = providerDefinitions.find((provider) => provider.channel_type === this.parent.type);
+      return definition?.base_url_policy !== 'required' || Boolean(value?.trim());
     }),
     model_mapping: Yup.array(),
     model_headers: Yup.array(),
@@ -108,52 +122,17 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
   const [tempFormikValues, setTempFormikValues] = useState(null);
   const [tempSetFieldValue, setTempSetFieldValue] = useState(null);
+  const [providerDefinitions, setProviderDefinitions] = useState([]);
+  const [connectionProfiles, setConnectionProfiles] = useState([]);
+  const [providerCatalogError, setProviderCatalogError] = useState('');
+  const [draftProbeSignature, setDraftProbeSignature] = useState('');
+  const [draftValidationToken, setDraftValidationToken] = useState('');
+  const [draftProbeWorking, setDraftProbeWorking] = useState(false);
 
   // 用于追踪模型的原始名称映射关系 { displayName: originalName }
   const [modelOriginalMapping, setModelOriginalMapping] = useState({});
 
-  // GeminiCli OAuth 相关状态
-  const [oauthLoading, setOauthLoading] = useState(false);
-  const [oauthWindow, setOauthWindow] = useState(null);
-  const [oauthState, setOauthState] = useState(null);
-  const [oauthURL, setOauthURL] = useState('');
-  const oauthHandledRef = useRef(false); // 用于防止重复处理
-  const pollingIntervalRef = useRef(null); // 使用 ref 存储 interval ID
-
-  // ClaudeCode OAuth 相关状态
-  const [claudeCodeOAuthVisible, setClaudeCodeOAuthVisible] = useState(false);
-  const [claudeCodeAuthURL, setClaudeCodeAuthURL] = useState('');
-  const [claudeCodeSessionId, setClaudeCodeSessionId] = useState('');
-  const [claudeCodeAuthCode, setClaudeCodeAuthCode] = useState('');
-  const [claudeCodeSubmitting, setClaudeCodeSubmitting] = useState(false);
-
-  // Codex OAuth 相关状态
-  const [codexOAuthVisible, setCodexOAuthVisible] = useState(false);
-  const [codexAuthURL, setCodexAuthURL] = useState('');
-  const [codexSessionId, setCodexSessionId] = useState('');
-  const [codexAuthCode, setCodexAuthCode] = useState('');
-  const [codexSubmitting, setCodexSubmitting] = useState(false);
-
-  // 清理 OAuth 相关资源
-  const cleanupOAuth = () => {
-    if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current);
-      pollingIntervalRef.current = null;
-    }
-    if (oauthWindow && !oauthWindow.closed) {
-      oauthWindow.close();
-    }
-    setOauthWindow(null);
-    setOauthLoading(false);
-    setOauthState(null);
-    oauthHandledRef.current = false;
-  };
-
-  // 包装 onCancel，添加清理逻辑
-  const handleCancel = () => {
-    cleanupOAuth();
-    onCancel();
-  };
+  const handleCancel = () => onCancel();
 
   const initChannel = (typeValue) => {
     if (typeConfig[typeValue]?.inputLabel) {
@@ -169,6 +148,56 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
     }
 
     return typeConfig[typeValue]?.input;
+  };
+
+  const loadProviderCatalog = async () => {
+    try {
+      const [definitionsResponse, profilesResponse] = await Promise.all([
+        API.get('/api/admin/provider-definitions'),
+        API.get('/api/admin/connection-profiles')
+      ]);
+      if (
+        definitionsResponse.data?.success &&
+        Array.isArray(definitionsResponse.data.data) &&
+        profilesResponse.data?.success &&
+        Array.isArray(profilesResponse.data.data)
+      ) {
+        setProviderDefinitions(definitionsResponse.data.data);
+        setConnectionProfiles(profilesResponse.data.data);
+        setProviderCatalogError('');
+        return;
+      }
+      throw new Error('Provider catalog response is invalid');
+    } catch (error) {
+      setProviderDefinitions([]);
+      setConnectionProfiles([]);
+      setProviderCatalogError('接入方法定义加载失败，请刷新后重试。为避免保存错误配置，当前禁止提交。');
+    }
+  };
+
+  const probeDraftConnection = async (values) => {
+    setDraftProbeWorking(true);
+    try {
+      const payload = draftProbePayload(values);
+      if (!payload.key && !providerDefinitions.find((item) => item.channel_type === payload.type)?.auth_modes?.includes('none')) {
+        throw new Error('请先填写凭据');
+      }
+      const response = await API.post('/api/admin/provider-connections/probe', payload);
+      if (!response.data?.success) {
+        throw new Error(response.data?.message || '连接探测失败');
+      }
+      setDraftProbeSignature(draftProbeFingerprint(values));
+      setDraftValidationToken(response.data.data?.validation_token || '');
+      showSuccess(
+        `${response.data.data?.tested_connections || 1} 条连接探测全部通过（最慢 ${response.data.data?.latency_ms ?? '-'} ms）`
+      );
+    } catch (error) {
+      setDraftProbeSignature('');
+      setDraftValidationToken('');
+      showError(error.response?.data?.error?.message || error.response?.data?.message || error.message);
+    } finally {
+      setDraftProbeWorking(false);
+    }
   };
 
   // 解析模型映射配置的工具函数
@@ -298,392 +327,6 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
     }
   };
 
-  // 轮询 OAuth 状态
-  const pollOAuthStatus = async (state, setFieldValue, messageHandlerRef, channelType = 57) => {
-    try {
-      // 最早检查：如果已经处理过，立即返回，不做任何操作
-      if (oauthHandledRef.current) {
-        return true;
-      }
-
-      // 根据渠道类型选择 API 端点
-      const apiEndpoint = channelType === 60 ? 'antigravity' : 'geminicli';
-      const res = await API.get(`/api/${apiEndpoint}/oauth/status/${state}`);
-
-      if (!res.data.success) {
-        return false;
-      }
-
-      if (res.data.status === 'completed') {
-        // 再次检查，防止竞态条件
-        if (oauthHandledRef.current) {
-          return true;
-        }
-
-        // 立即设置标志，防止其他路径重复处理
-        oauthHandledRef.current = true;
-
-        // 立即停止轮询
-        if (pollingIntervalRef.current) {
-          clearInterval(pollingIntervalRef.current);
-          pollingIntervalRef.current = null;
-        }
-
-        // 移除 message 监听器
-        if (messageHandlerRef && messageHandlerRef.current) {
-          window.removeEventListener('message', messageHandlerRef.current);
-          messageHandlerRef.current = null;
-        }
-
-        // 更新状态
-        setOauthLoading(false);
-        setOauthState(null);
-
-        // 处理结果
-        if (res.data.result && res.data.credentials) {
-          setFieldValue('key', res.data.credentials);
-          showSuccess('OAuth 授权成功！凭证已自动填充');
-        } else {
-          showError(res.data.message || 'OAuth 授权失败');
-        }
-
-        // 关闭弹窗
-        if (oauthWindow && !oauthWindow.closed) {
-          oauthWindow.close();
-        }
-        setOauthWindow(null);
-
-        return true; // 已完成
-      }
-
-      return false; // 未完成
-    } catch (error) {
-      return false;
-    }
-  };
-
-  // 复制 OAuth 授权链接
-  const handleCopyOAuthURL = () => {
-    if (!oauthURL) {
-      showError('请先点击授权按钮生成授权链接');
-      return;
-    }
-    navigator.clipboard
-      .writeText(oauthURL)
-      .then(() => {
-        showSuccess('授权链接已复制到剪贴板');
-      })
-      .catch(() => {
-        showError('复制失败，请手动复制');
-      });
-  };
-
-  // GeminiCli/Antigravity OAuth 授权处理
-  const handleGeminiCliOAuth = async (projectId, proxy, setFieldValue, channelType = 57) => {
-    // 允许 projectId 为空，支持自动检测
-    const trimmedProjectId = projectId ? projectId.trim() : '';
-    const trimmedProxy = proxy ? proxy.trim() : '';
-
-    // 根据渠道类型选择 API 端点和名称
-    const apiEndpoint = channelType === 60 ? 'antigravity' : 'geminicli';
-    const channelName = channelType === 60 ? 'Antigravity' : 'GeminiCli';
-
-    try {
-      setOauthLoading(true);
-      oauthHandledRef.current = false; // 重置处理标志
-
-      // 调用后端 API 生成授权 URL（传递代理配置）
-      const res = await API.post(`/api/${apiEndpoint}/oauth/start`, {
-        channel_id: channelId || 0,
-        project_id: trimmedProjectId,
-        proxy: trimmedProxy
-      });
-
-      if (!res.data.success) {
-        showError(res.data.message || 'OAuth 授权失败');
-        setOauthLoading(false);
-        return;
-      }
-
-      const authURL = res.data.auth_url;
-      const state = res.data.state;
-
-      setOauthState(state);
-      setOauthURL(authURL);
-
-      // 打开新窗口进行授权（使用新标签页）
-      const popup = window.open(authURL, '_blank');
-
-      setOauthWindow(popup);
-
-      // 用于存储 message handler 的引用
-      const messageHandlerRef = { current: null };
-
-      // 监听来自 OAuth 窗口的消息（作为快速路径）
-      const handleMessage = (event) => {
-        // 安全检查：确保消息来自我们的域（支持 geminicli 和 antigravity）
-        const expectedType = channelType === 60 ? 'antigravity_oauth_result' : 'geminicli_oauth_result';
-        if (event.data && event.data.type === expectedType) {
-          // 如果已经处理过，直接返回
-          if (oauthHandledRef.current) {
-            return;
-          }
-
-          // 立即设置标志
-          oauthHandledRef.current = true;
-
-          // 立即停止轮询
-          if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current);
-            pollingIntervalRef.current = null;
-          }
-
-          // 移除自己
-          window.removeEventListener('message', handleMessage);
-          messageHandlerRef.current = null;
-
-          // 处理结果
-          if (event.data.success && event.data.credentials) {
-            setFieldValue('key', event.data.credentials);
-            showSuccess('OAuth 授权成功！凭证已自动填充');
-          } else {
-            showError('OAuth 授权失败');
-          }
-
-          // 更新状态
-          setOauthLoading(false);
-          setOauthState(null);
-          setOauthWindow(null);
-
-          // 关闭弹窗
-          if (popup && !popup.closed) {
-            popup.close();
-          }
-        }
-      };
-
-      messageHandlerRef.current = handleMessage;
-      window.addEventListener('message', handleMessage);
-
-      // 开始轮询状态（每 2 秒查询一次）
-      const interval = setInterval(async () => {
-        const completed = await pollOAuthStatus(state, setFieldValue, messageHandlerRef, channelType);
-        if (completed) {
-          clearInterval(interval);
-          pollingIntervalRef.current = null;
-        }
-      }, 2000);
-
-      pollingIntervalRef.current = interval;
-
-      // 检测弹窗是否被关闭
-      const checkClosed = setInterval(() => {
-        if (popup && popup.closed) {
-          clearInterval(checkClosed);
-          // 不立即停止轮询，因为用户可能在其他浏览器完成授权
-          if (messageHandlerRef.current) {
-            window.removeEventListener('message', messageHandlerRef.current);
-            messageHandlerRef.current = null;
-          }
-        }
-      }, 500);
-
-      // 10 分钟后超时
-      setTimeout(
-        () => {
-          // 检查是否已经处理过
-          if (oauthHandledRef.current) {
-            return;
-          }
-
-          if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current);
-            pollingIntervalRef.current = null;
-          }
-          if (messageHandlerRef.current) {
-            window.removeEventListener('message', messageHandlerRef.current);
-            messageHandlerRef.current = null;
-          }
-          if (oauthLoading) {
-            setOauthLoading(false);
-            setOauthState(null);
-            showError('OAuth 授权超时，请重试');
-          }
-        },
-        10 * 60 * 1000
-      );
-    } catch (error) {
-      showError('OAuth 授权失败: ' + (error.message || error));
-      setOauthLoading(false);
-    }
-  };
-
-  // ClaudeCode OAuth 授权处理 - 步骤1: 获取授权链接
-  const handleClaudeCodeOAuth = async (proxy) => {
-    const trimmedProxy = proxy ? proxy.trim() : '';
-
-    try {
-      setClaudeCodeSubmitting(true);
-
-      // 调用后端 API 生成授权 URL（传递代理配置）
-      const res = await API.post('/api/claudecode/oauth/start', {
-        channel_id: channelId || 0,
-        proxy: trimmedProxy
-      });
-
-      if (!res.data.success) {
-        showError(res.data.message || '获取授权链接失败');
-        setClaudeCodeSubmitting(false);
-        return;
-      }
-
-      const authURL = res.data.data.auth_url;
-      const sessionId = res.data.data.session_id;
-
-      setClaudeCodeAuthURL(authURL);
-      setClaudeCodeSessionId(sessionId);
-      setClaudeCodeOAuthVisible(true);
-      setClaudeCodeSubmitting(false);
-
-      // 自动打开授权页面
-      window.open(authURL, '_blank');
-    } catch (error) {
-      showError('获取授权链接失败: ' + (error.message || error));
-      setClaudeCodeSubmitting(false);
-    }
-  };
-
-  // ClaudeCode OAuth 授权处理 - 步骤2: 提交授权码
-  const handleClaudeCodeSubmitCode = async (setFieldValue) => {
-    if (!claudeCodeAuthCode || claudeCodeAuthCode.trim() === '') {
-      showError('请输入授权码或回调 URL');
-      return;
-    }
-
-    try {
-      setClaudeCodeSubmitting(true);
-
-      // 提交授权码到后端
-      const res = await API.post('/api/claudecode/oauth/exchange-code', {
-        session_id: claudeCodeSessionId,
-        callback_url: claudeCodeAuthCode.trim()
-      });
-
-      if (!res.data.success) {
-        showError(res.data.message || '授权码交换失败');
-        setClaudeCodeSubmitting(false);
-        return;
-      }
-
-      // 获取凭证并填充
-      const credentials = res.data.data.credentials;
-      setFieldValue('key', credentials);
-      showSuccess('OAuth 授权成功！凭证已自动填充');
-
-      // 关闭对话框并重置状态
-      setClaudeCodeOAuthVisible(false);
-      setClaudeCodeAuthURL('');
-      setClaudeCodeSessionId('');
-      setClaudeCodeAuthCode('');
-      setClaudeCodeSubmitting(false);
-    } catch (error) {
-      showError('授权码交换失败: ' + (error.message || error));
-      setClaudeCodeSubmitting(false);
-    }
-  };
-
-  // 取消 ClaudeCode OAuth
-  const handleClaudeCodeCancelOAuth = () => {
-    setClaudeCodeOAuthVisible(false);
-    setClaudeCodeAuthURL('');
-    setClaudeCodeSessionId('');
-    setClaudeCodeAuthCode('');
-    setClaudeCodeSubmitting(false);
-  };
-
-  // Codex OAuth 授权处理 - 步骤1: 获取授权链接
-  const handleCodexOAuth = async (proxy) => {
-    const trimmedProxy = proxy ? proxy.trim() : '';
-
-    try {
-      setCodexSubmitting(true);
-
-      // 调用后端 API 生成授权 URL（传递代理配置）
-      const res = await API.post('/api/codex/oauth/start', {
-        channel_id: channelId || 0,
-        proxy: trimmedProxy
-      });
-
-      if (!res.data.success) {
-        showError(res.data.message || '获取授权链接失败');
-        setCodexSubmitting(false);
-        return;
-      }
-
-      const authURL = res.data.data.auth_url;
-      const sessionId = res.data.data.session_id;
-
-      setCodexAuthURL(authURL);
-      setCodexSessionId(sessionId);
-      setCodexOAuthVisible(true);
-      setCodexSubmitting(false);
-
-      // 自动打开授权页面
-      window.open(authURL, '_blank');
-    } catch (error) {
-      showError('获取授权链接失败: ' + (error.message || error));
-      setCodexSubmitting(false);
-    }
-  };
-
-  // Codex OAuth 授权处理 - 步骤2: 提交授权码
-  const handleCodexSubmitCode = async (setFieldValue) => {
-    if (!codexAuthCode || codexAuthCode.trim() === '') {
-      showError('请输入授权码或回调 URL');
-      return;
-    }
-
-    try {
-      setCodexSubmitting(true);
-
-      // 提交授权码到后端
-      const res = await API.post('/api/codex/oauth/exchange-code', {
-        session_id: codexSessionId,
-        callback_url: codexAuthCode.trim()
-      });
-
-      if (!res.data.success) {
-        showError(res.data.message || '授权码交换失败');
-        setCodexSubmitting(false);
-        return;
-      }
-
-      // 获取凭证并填充
-      const credentials = res.data.data.credentials;
-      setFieldValue('key', credentials);
-      showSuccess('OAuth 授权成功！凭证已自动填充');
-
-      // 关闭对话框并重置状态
-      setCodexOAuthVisible(false);
-      setCodexAuthURL('');
-      setCodexSessionId('');
-      setCodexAuthCode('');
-      setCodexSubmitting(false);
-    } catch (error) {
-      showError('授权码交换失败: ' + (error.message || error));
-      setCodexSubmitting(false);
-    }
-  };
-
-  // 取消 Codex OAuth
-  const handleCodexCancelOAuth = () => {
-    setCodexOAuthVisible(false);
-    setCodexAuthURL('');
-    setCodexSessionId('');
-    setCodexAuthCode('');
-    setCodexSubmitting(false);
-  };
-
   const handleTypeChange = (setFieldValue, typeValue, values) => {
     // 处理插件事务
     if (pluginList[typeValue]) {
@@ -702,6 +345,7 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
     }
 
     const newInput = initChannel(typeValue);
+    const providerDefaults = providerDefinitions.find((provider) => provider.channel_type === typeValue)?.defaults || {};
 
     if (newInput) {
       Object.keys(newInput).forEach((key) => {
@@ -719,6 +363,11 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
         setFieldValue(key, newInput[key]);
       });
     }
+    Object.entries(providerDefaults).forEach(([field, value]) => {
+      if (values[field] === '' || values[field] === null || values[field] === undefined) {
+        setFieldValue(field, value);
+      }
+    });
   };
 
   const basicModels = (channelType) => {
@@ -765,15 +414,29 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
   const doSubmit = async (values, { setErrors, setStatus, setSubmitting }) => {
     setSubmitting(true);
     values = trims(values);
+    if (!channelId && !isTag && draftProbeSignature !== draftProbeFingerprint(values)) {
+      const message = '连接配置尚未通过探测，或探测后关键字段已变化，请重新执行“连接探测”。';
+      setSubmitting(false);
+      setStatus({ success: false });
+      setErrors({ submit: message });
+      showError(message);
+      return;
+    }
+    if (channelId && !isTag && values.key) {
+      const message = '新凭据尚未进入轮换流程，请先点击“建立候选”，完成测试和激活后再保存其他配置。';
+      setSubmitting(false);
+      setStatus({ success: false });
+      setErrors({ submit: message });
+      showError(message);
+      return;
+    }
     if (values.base_url && values.base_url.endsWith('/')) {
       values.base_url = values.base_url.slice(0, values.base_url.length - 1);
     }
-    if (values.type === 3 && values.other === '') {
-      values.other = '2024-05-01-preview';
-    }
-    if (values.type === 18 && values.other === '') {
-      values.other = 'v2.1';
-    }
+    const providerDefaults = providerDefinitions.find((provider) => provider.channel_type === values.type)?.defaults || {};
+    Object.entries(providerDefaults).forEach(([field, value]) => {
+      if (values[field] === '' || values[field] === null || values[field] === undefined) values[field] = value;
+    });
     let res;
 
     let modelMappingModel = [];
@@ -873,7 +536,7 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
       values.cost_ratio = 0;
     }
 
-    let baseApiUrl = '/api/channel/';
+    let baseApiUrl = '/api/admin/provider-connections';
 
     if (isTag) {
       baseApiUrl = '/api/channel_tag/' + encodeURIComponent(channelId);
@@ -881,9 +544,15 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
 
     try {
       if (channelId) {
-        res = await API.put(baseApiUrl, { ...values, id: parseInt(channelId), models: modelsStr });
+        res = isTag
+          ? await API.put(baseApiUrl, { ...values, id: parseInt(channelId), models: modelsStr })
+          : await API.patch(`${baseApiUrl}/${channelId}`, { ...values, id: parseInt(channelId), models: modelsStr });
       } else {
-        res = await API.post(baseApiUrl, { ...values, models: modelsStr });
+        res = await API.post(baseApiUrl, {
+          ...values,
+          models: modelsStr,
+          validation_token: draftValidationToken
+        });
       }
       const { success, message } = res.data;
       if (success) {
@@ -928,7 +597,7 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
 
   const loadChannel = async () => {
     try {
-      let baseApiUrl = `/api/channel/${channelId}`;
+      let baseApiUrl = `/api/admin/provider-connections/${channelId}`;
 
       if (isTag) {
         baseApiUrl = '/api/channel_tag/' + encodeURIComponent(channelId);
@@ -1033,18 +702,18 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
 
   useEffect(() => {
     if (open) {
+      loadProviderCatalog();
       setBatchAdd(isTag);
       if (channelId) {
         loadChannel().then();
       } else {
         initChannel(1);
         setInitialInput({ ...defaultConfig.input, is_edit: false });
+        setDraftProbeSignature('');
+        setDraftValidationToken('');
         // 重置模型原始映射关系
         setModelOriginalMapping({});
       }
-    } else {
-      // 关闭对话框时清理 OAuth 窗口和轮询
-      cleanupOAuth();
     }
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1057,7 +726,12 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
       </DialogTitle>
       <Divider />
       <DialogContent>
-        <Formik initialValues={initialInput} enableReinitialize validationSchema={getValidationSchema(t)} onSubmit={submit}>
+        <Formik
+          initialValues={initialInput}
+          enableReinitialize
+          validationSchema={getValidationSchema(t, providerDefinitions)}
+          onSubmit={submit}
+        >
           {({ errors, handleBlur, handleChange, handleSubmit, isSubmitting, touched, values, setFieldValue }) => {
             // 保存当前Formik状态，以便在模型选择器中使用
             const openModelSelector = () => {
@@ -1076,42 +750,30 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
                 )}
                 <CollapsibleSection title={t('channel_edit.sectionBasic')} defaultExpanded>
                   {!isTag && (
-                    <FormControl fullWidth error={Boolean(touched.type && errors.type)} sx={{ ...theme.typography.otherInput }}>
-                      <InputLabel htmlFor="channel-type-label">{customizeT(inputLabel.type)}</InputLabel>
-                      <Select
-                        id="channel-type-label"
-                        label={customizeT(inputLabel.type)}
-                        value={values.type}
-                        name="type"
-                        onBlur={handleBlur}
-                        onChange={(e) => {
-                          handleChange(e);
-                          handleTypeChange(setFieldValue, e.target.value, values);
-                        }}
-                        MenuProps={{
-                          PaperProps: {
-                            style: {
-                              maxHeight: 200
-                            }
+                    <>
+                      <ConnectionProfilePicker
+                        profiles={connectionProfiles}
+                        providers={providerDefinitions}
+                        profileId={values.protocol_profile_id || ''}
+                        channelType={values.type}
+                        error={providerCatalogError}
+                        disabled={Boolean(channelId)}
+                        onChange={(profileId, channelType, variant, profile) => {
+                          setFieldValue('protocol_profile_id', profileId);
+                          setFieldValue('type', channelType);
+                          handleTypeChange(setFieldValue, channelType, values);
+                          if (!values.base_url && variant?.default_base_url) {
+                            setFieldValue('base_url', variant.default_base_url);
+                          }
+                          if (!values.name && profile?.display_name) {
+                            setFieldValue('name', `${profile.display_name} · ${variant?.display_name || ''}`.replace(/ · $/, ''));
                           }
                         }}
-                      >
-                        {Object.values(CHANNEL_OPTIONS).map((option) => {
-                          return (
-                            <MenuItem key={option.value} value={option.value}>
-                              {option.text}
-                            </MenuItem>
-                          );
-                        })}
-                      </Select>
-                      {touched.type && errors.type ? (
-                        <FormHelperText error id="helper-tex-channel-type-label">
-                          {errors.type}
-                        </FormHelperText>
-                      ) : (
-                        <FormHelperText id="helper-tex-channel-type-label"> {customizeT(inputPrompt.type)} </FormHelperText>
+                      />
+                      {touched.protocol_profile_id && errors.protocol_profile_id && (
+                        <FormHelperText error>{errors.protocol_profile_id}</FormHelperText>
                       )}
-                    </FormControl>
+                    </>
                   )}
 
                   {!isTag && (
@@ -1528,6 +1190,13 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
                         </Typography>
                       </Box>
                     </Box>
+                  ) : channelId ? (
+                    <CredentialRotation
+                      channelId={channelId}
+                      testModel={values.test_model}
+                      secret={values.key}
+                      onSecretChange={(secret) => setFieldValue('key', secret)}
+                    />
                   ) : (
                     <FormControl fullWidth error={Boolean(touched.key && errors.key)} sx={{ ...theme.typography.otherInput }}>
                       {!batchAdd ? (
@@ -1581,600 +1250,52 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
                     </FormControl>
                   )}
 
-                  {/* GeminiCli/Antigravity OAuth 授权按钮 */}
-                  {(values.type === 57 || values.type === 60) && !batchAdd && (
-                    <Box sx={{ mt: 2, mb: 2 }}>
-                      <Box sx={{ display: 'flex', gap: 1 }}>
-                        <Button
-                          variant="outlined"
-                          color="primary"
-                          fullWidth
-                          disabled={oauthLoading}
-                          onClick={() => handleGeminiCliOAuth(values.other, values.proxy, setFieldValue, values.type)}
-                          startIcon={oauthLoading ? null : <Icon icon="mdi:google" />}
-                        >
-                          {oauthLoading ? '授权中，请完成授权...' : 'OAuth 授权'}
-                        </Button>
-                        <Button
-                          variant="outlined"
-                          color="secondary"
-                          disabled={!oauthURL}
-                          onClick={handleCopyOAuthURL}
-                          startIcon={<Icon icon="mdi:content-copy" />}
-                          sx={{ minWidth: '120px' }}
-                        >
-                          复制链接
-                        </Button>
-                      </Box>
-                      <Alert severity="info" sx={{ mt: 1 }}>
-                        {values.other ? (
-                          <>授权后会跳转到 localhost:8080，请在浏览器地址栏中将 localhost:8080 改为当前服务的域名后刷新访问完成授权</>
-                        ) : (
-                          <>
-                            <strong>Project ID 未填写，将自动检测可用项目。</strong>
-                            <br />
-                            授权后会跳转到 localhost:8080，请在浏览器地址栏中将 localhost:8080 改为当前服务的域名后刷新访问完成授权
-                          </>
-                        )}
-                      </Alert>
-                    </Box>
-                  )}
-
-                  {/* ClaudeCode OAuth 授权按钮 */}
-                  {values.type === 58 && !batchAdd && (
-                    <Box sx={{ mt: 2, mb: 2 }}>
-                      <Button
-                        variant="outlined"
-                        color="primary"
-                        fullWidth
-                        disabled={claudeCodeSubmitting}
-                        onClick={() => handleClaudeCodeOAuth(values.proxy)}
-                        startIcon={claudeCodeSubmitting ? null : <Icon icon="simple-icons:anthropic" />}
-                      >
-                        {claudeCodeSubmitting ? '获取授权链接中...' : 'OAuth 授权'}
-                      </Button>
-                      <Alert severity="info" sx={{ mt: 1 }}>
-                        点击按钮后，将打开 Claude 授权页面。授权成功后，请复制浏览器地址栏中的完整 URL 并粘贴到弹出的输入框中。
-                      </Alert>
-
-                      {/* ClaudeCode OAuth 对话框 */}
-                      <Dialog open={claudeCodeOAuthVisible} onClose={handleClaudeCodeCancelOAuth} maxWidth="md" fullWidth>
-                        <DialogTitle>ClaudeCode OAuth 授权</DialogTitle>
-                        <DialogContent>
-                          <Box sx={{ mb: 2 }}>
-                            <Alert severity="info" sx={{ mb: 2 }}>
-                              <Typography variant="body2" component="div">
-                                <strong>授权步骤：</strong>
-                                <ol style={{ margin: '8px 0', paddingLeft: '20px' }}>
-                                  <li>点击下方"打开授权页面"按钮（或手动复制链接到浏览器）</li>
-                                  <li>在新打开的页面中登录 Claude 账户并同意授权</li>
-                                  <li>
-                                    授权成功后，复制浏览器地址栏中的<strong>完整 URL</strong>
-                                  </li>
-                                  <li>将完整 URL 粘贴到下方输入框中，点击"提交授权码"</li>
-                                </ol>
-                              </Typography>
-                            </Alert>
-
-                            <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
-                              <Button
-                                variant="contained"
-                                color="primary"
-                                fullWidth
-                                onClick={() => window.open(claudeCodeAuthURL, '_blank')}
-                                startIcon={<Icon icon="mdi:open-in-new" />}
-                              >
-                                打开授权页面
-                              </Button>
-                              <Button
-                                variant="outlined"
-                                color="secondary"
-                                onClick={() => {
-                                  copy(claudeCodeAuthURL)
-                                    .then(() => {
-                                      showSuccess('授权链接已复制到剪贴板');
-                                    })
-                                    .catch(() => {
-                                      showError('复制失败，请手动复制');
-                                    });
-                                }}
-                                startIcon={<Icon icon="mdi:content-copy" />}
-                                sx={{ minWidth: '120px' }}
-                              >
-                                复制链接
-                              </Button>
-                            </Box>
-
-                            <TextField
-                              fullWidth
-                              label="授权回调 URL 或授权码"
-                              placeholder="粘贴完整的回调 URL，例如：https://console.anthropic.com/oauth/code/callback?code=xxx&state=xxx"
-                              value={claudeCodeAuthCode}
-                              onChange={(e) => setClaudeCodeAuthCode(e.target.value)}
-                              multiline
-                              rows={3}
-                              variant="outlined"
-                            />
-                          </Box>
-                        </DialogContent>
-                        <DialogActions>
-                          <Button onClick={handleClaudeCodeCancelOAuth} disabled={claudeCodeSubmitting}>
-                            取消
-                          </Button>
-                          <Button
-                            onClick={() => handleClaudeCodeSubmitCode(setFieldValue)}
-                            variant="contained"
-                            color="primary"
-                            disabled={claudeCodeSubmitting || !claudeCodeAuthCode}
-                          >
-                            {claudeCodeSubmitting ? '提交中...' : '提交授权码'}
-                          </Button>
-                        </DialogActions>
-                      </Dialog>
-                    </Box>
-                  )}
-
-                  {/* Codex OAuth 授权按钮 */}
-                  {values.type === 59 && !batchAdd && (
-                    <Box sx={{ mt: 2, mb: 2 }}>
-                      <Button
-                        variant="outlined"
-                        color="primary"
-                        fullWidth
-                        disabled={codexSubmitting}
-                        onClick={() => handleCodexOAuth(values.proxy)}
-                        startIcon={codexSubmitting ? null : <Icon icon="simple-icons:openai" />}
-                      >
-                        {codexSubmitting ? '获取授权链接中...' : 'OAuth 授权'}
-                      </Button>
-                      <Alert severity="info" sx={{ mt: 1 }}>
-                        点击按钮后，将打开 OpenAI 授权页面。授权成功后，请复制浏览器地址栏中的完整 URL 并粘贴到弹出的输入框中。
-                      </Alert>
-
-                      {/* Codex OAuth 对话框 */}
-                      <Dialog open={codexOAuthVisible} onClose={handleCodexCancelOAuth} maxWidth="md" fullWidth>
-                        <DialogTitle>Codex OAuth 授权</DialogTitle>
-                        <DialogContent>
-                          <Box sx={{ mb: 2 }}>
-                            <Alert severity="info" sx={{ mb: 2 }}>
-                              <Typography variant="body2" component="div">
-                                <strong>授权步骤：</strong>
-                                <ol style={{ margin: '8px 0', paddingLeft: '20px' }}>
-                                  <li>点击下方"打开授权页面"按钮（或手动复制链接到浏览器）</li>
-                                  <li>在新打开的页面中登录 OpenAI 账户并同意授权</li>
-                                  <li>
-                                    授权成功后，复制浏览器地址栏中的<strong>完整 URL</strong>
-                                  </li>
-                                  <li>将完整 URL 粘贴到下方输入框中，点击"提交授权码"</li>
-                                </ol>
-                              </Typography>
-                            </Alert>
-
-                            <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
-                              <Button
-                                variant="contained"
-                                color="primary"
-                                fullWidth
-                                onClick={() => window.open(codexAuthURL, '_blank')}
-                                startIcon={<Icon icon="mdi:open-in-new" />}
-                              >
-                                打开授权页面
-                              </Button>
-                              <Button
-                                variant="outlined"
-                                color="secondary"
-                                onClick={() => {
-                                  copy(codexAuthURL)
-                                    .then(() => {
-                                      showSuccess('授权链接已复制到剪贴板');
-                                    })
-                                    .catch(() => {
-                                      showError('复制失败，请手动复制');
-                                    });
-                                }}
-                                startIcon={<Icon icon="mdi:content-copy" />}
-                                sx={{ minWidth: '120px' }}
-                              >
-                                复制链接
-                              </Button>
-                            </Box>
-
-                            <TextField
-                              fullWidth
-                              label="授权回调 URL 或授权码"
-                              placeholder="粘贴完整的回调 URL，例如：http://localhost:1455/auth/callback?code=xxx&state=xxx"
-                              value={codexAuthCode}
-                              onChange={(e) => setCodexAuthCode(e.target.value)}
-                              multiline
-                              rows={3}
-                              variant="outlined"
-                            />
-                          </Box>
-                        </DialogContent>
-                        <DialogActions>
-                          <Button onClick={handleCodexCancelOAuth} disabled={codexSubmitting}>
-                            取消
-                          </Button>
-                          <Button
-                            onClick={() => handleCodexSubmitCode(setFieldValue)}
-                            variant="contained"
-                            color="primary"
-                            disabled={codexSubmitting || !codexAuthCode}
-                          >
-                            {codexSubmitting ? '提交中...' : '提交授权码'}
-                          </Button>
-                        </DialogActions>
-                      </Dialog>
-                    </Box>
-                  )}
+                  <OAuthCredentialFlow
+                    definition={providerDefinitions.find((provider) => provider.channel_type === values.type)}
+                    channelId={channelId}
+                    projectId={values.other}
+                    proxy={values.proxy}
+                    disabled={batchAdd}
+                    active={open}
+                    onCredential={(credential, result) => {
+                      setFieldValue('key', credential);
+                      if (result?.project_id) setFieldValue('other', result.project_id);
+                    }}
+                  />
                 </CollapsibleSection>
 
-                <CollapsibleSection title={t('channel_edit.sectionAdvanced')}>
-                  {inputPrompt.model_mapping && (
-                    <FormControl
-                      fullWidth
-                      error={Boolean(touched.model_mapping && errors.model_mapping)}
-                      sx={{ ...theme.typography.otherInput }}
-                    >
-                      <MapInput
-                        mapValue={values.model_mapping}
-                        onChange={(newValue) => {
-                          setFieldValue('model_mapping', newValue);
-                          // 实时同步模型重定向到模型配置
-                          syncModelMappingToModels(newValue, values.models, setFieldValue);
-                        }}
-                        error={Boolean(touched.model_mapping && errors.model_mapping)}
-                        label={{
-                          keyName: customizeT(inputLabel.model_mapping),
-                          valueName: customizeT(inputPrompt.model_mapping),
-                          name: customizeT(inputLabel.model_mapping)
-                        }}
-                      />
-                      {touched.model_mapping && errors.model_mapping ? (
-                        <FormHelperText error id="helper-tex-channel-model_mapping-label">
-                          {errors.model_mapping}
-                        </FormHelperText>
-                      ) : (
-                        <FormHelperText id="helper-tex-channel-model_mapping-label">{customizeT(inputPrompt.model_mapping)}</FormHelperText>
-                      )}
-                    </FormControl>
-                  )}
+                <ChannelAdvancedSection
+                  title={t('channel_edit.sectionAdvanced')}
+                  inputPrompt={inputPrompt}
+                  inputLabel={inputLabel}
+                  customizeT={customizeT}
+                  touched={touched}
+                  errors={errors}
+                  theme={theme}
+                  values={values}
+                  setFieldValue={setFieldValue}
+                  handleBlur={handleBlur}
+                  handleChange={handleChange}
+                  isTag={isTag}
+                  syncModelMappingToModels={syncModelMappingToModels}
+                />
 
-                  <FormControl fullWidth error={Boolean(touched.proxy && errors.proxy)} sx={{ ...theme.typography.otherInput }}>
-                    <InputLabel htmlFor="channel-proxy-label">{customizeT(inputLabel.proxy)}</InputLabel>
-                    <OutlinedInput
-                      id="channel-proxy-label"
-                      label={customizeT(inputLabel.proxy)}
-                      type="text"
-                      value={values.proxy}
-                      name="proxy"
-                      onBlur={handleBlur}
-                      onChange={handleChange}
-                      inputProps={{}}
-                      aria-describedby="helper-text-channel-proxy-label"
-                    />
-                    {touched.proxy && errors.proxy ? (
-                      <FormHelperText error id="helper-tex-channel-proxy-label">
-                        {errors.proxy}
-                      </FormHelperText>
-                    ) : (
-                      <FormHelperText id="helper-tex-channel-proxy-label"> {customizeT(inputPrompt.proxy)} </FormHelperText>
-                    )}
-                  </FormControl>
-                  {inputPrompt.test_model && (
-                    <FormControl fullWidth error={Boolean(touched.test_model && errors.test_model)} sx={{ ...theme.typography.otherInput }}>
-                      <InputLabel htmlFor="channel-test_model-label">{customizeT(inputLabel.test_model)}</InputLabel>
-                      <OutlinedInput
-                        id="channel-test_model-label"
-                        label={customizeT(inputLabel.test_model)}
-                        type="text"
-                        value={values.test_model}
-                        name="test_model"
-                        onBlur={handleBlur}
-                        onChange={handleChange}
-                        inputProps={{}}
-                        aria-describedby="helper-text-channel-test_model-label"
-                      />
-                      {touched.test_model && errors.test_model ? (
-                        <FormHelperText error id="helper-tex-channel-test_model-label">
-                          {errors.test_model}
-                        </FormHelperText>
-                      ) : (
-                        <FormHelperText id="helper-tex-channel-test_model-label"> {customizeT(inputPrompt.test_model)} </FormHelperText>
-                      )}
-                    </FormControl>
-                  )}
-                  {inputPrompt.model_headers && (
-                    <FormControl
-                      fullWidth
-                      error={Boolean(touched.model_headers && errors.model_headers)}
-                      sx={{ ...theme.typography.otherInput }}
-                    >
-                      <MapInput
-                        mapValue={values.model_headers}
-                        onChange={(newValue) => {
-                          setFieldValue('model_headers', newValue);
-                        }}
-                        enableSkip
-                        error={Boolean(touched.model_headers && errors.model_headers)}
-                        label={{
-                          keyName: customizeT(inputLabel.model_headers),
-                          valueName: customizeT(inputPrompt.model_headers),
-                          name: customizeT(inputLabel.model_headers)
-                        }}
-                      />
-                      {touched.model_headers && errors.model_headers ? (
-                        <FormHelperText error id="helper-tex-channel-model_headers-label">
-                          {errors.model_headers}
-                        </FormHelperText>
-                      ) : (
-                        <FormHelperText id="helper-tex-channel-model_headers-label">{customizeT(inputPrompt.model_headers)}</FormHelperText>
-                      )}
-                    </FormControl>
-                  )}
-                  {inputPrompt.header_override && (
-                    <FormControl
-                      fullWidth
-                      error={Boolean(touched.header_override && errors.header_override)}
-                      sx={{ ...theme.typography.otherInput }}
-                    >
-                      <MapInput
-                        mapValue={values.header_override}
-                        onChange={(newValue) => {
-                          setFieldValue('header_override', newValue);
-                        }}
-                        error={Boolean(touched.header_override && errors.header_override)}
-                        label={{
-                          keyName: customizeT(inputLabel.header_override),
-                          valueName: customizeT(inputPrompt.header_override),
-                          name: customizeT(inputLabel.header_override)
-                        }}
-                      />
-                      {touched.header_override && errors.header_override ? (
-                        <FormHelperText error id="helper-tex-channel-header_override-label">
-                          {errors.header_override}
-                        </FormHelperText>
-                      ) : (
-                        <FormHelperText id="helper-tex-channel-header_override-label">
-                          {customizeT(inputPrompt.header_override)}
-                        </FormHelperText>
-                      )}
-                    </FormControl>
-                  )}
-                  {inputPrompt.custom_parameter && (
-                    <FormControl
-                      fullWidth
-                      error={Boolean(touched.custom_parameter && errors.custom_parameter)}
-                      sx={{ ...theme.typography.otherInput }}
-                    >
-                      <InputLabel shrink htmlFor="channel-custom_parameter-label">
-                        {customizeT(inputLabel.custom_parameter)}
-                      </InputLabel>
-                      <Box
-                        sx={{
-                          border: '1px solid',
-                          borderColor: touched.custom_parameter && errors.custom_parameter ? 'error.main' : 'divider',
-                          borderRadius: 1,
-                          overflow: 'hidden',
-                          marginTop: 2, // Add some margin for the label
-                          resize: 'vertical',
-                          height: '200px',
-                          minHeight: '100px',
-                          '&:hover': {
-                            borderColor: 'primary.main'
-                          },
-                          '&:focus-within': {
-                            borderColor: 'primary.main',
-                            borderWidth: 2
-                          }
-                        }}
-                      >
-                        <Editor
-                          height="100%"
-                          language="json"
-                          theme={theme.palette.mode === 'dark' ? 'vs-dark' : 'light'}
-                          value={values.custom_parameter}
-                          options={{
-                            minimap: { enabled: false },
-                            scrollBeyondLastLine: false,
-                            automaticLayout: true,
-                            fontSize: 14,
-                            lineNumbers: 'on',
-                            folding: true,
-                            formatOnPaste: true,
-                            formatOnType: true
-                          }}
-                          onChange={(value) => {
-                            setFieldValue('custom_parameter', value);
-                          }}
-                        />
-                      </Box>
-                      {touched.custom_parameter && errors.custom_parameter ? (
-                        <FormHelperText error id="helper-tex-channel-custom_parameter-label">
-                          {errors.custom_parameter}
-                        </FormHelperText>
-                      ) : (
-                        <FormHelperText id="helper-tex-channel-custom_parameter-label">
-                          {customizeT(inputPrompt.custom_parameter)}
-                        </FormHelperText>
-                      )}
-                    </FormControl>
-                  )}
-                  {inputPrompt.need2response_models && (
-                    <FormControl
-                      fullWidth
-                      error={Boolean(touched.need2response_models && errors.need2response_models)}
-                      sx={{ ...theme.typography.otherInput }}
-                    >
-                      <TextField
-                        multiline
-                        minRows={6}
-                        id="channel-need2response_models-label"
-                        name="need2response_models"
-                        label={customizeT(inputLabel.need2response_models)}
-                        value={values.need2response_models || ''}
-                        onBlur={handleBlur}
-                        onChange={handleChange}
-                        disabled={isTag}
-                      />
-                      {touched.need2response_models && errors.need2response_models ? (
-                        <FormHelperText error id="helper-tex-channel-need2response_models-label">
-                          {errors.need2response_models}
-                        </FormHelperText>
-                      ) : (
-                        <FormHelperText id="helper-tex-channel-need2response_models-label">
-                          {customizeT(inputPrompt.need2response_models)}
-                        </FormHelperText>
-                      )}
-                    </FormControl>
-                  )}
-                  {inputPrompt.disabled_stream && (
-                    <FormControl
-                      fullWidth
-                      error={Boolean(touched.disabled_stream && errors.disabled_stream)}
-                      sx={{ ...theme.typography.otherInput }}
-                    >
-                      <ListInput
-                        listValue={values.disabled_stream}
-                        onChange={(newValue) => {
-                          setFieldValue('disabled_stream', newValue);
-                        }}
-                        error={Boolean(touched.disabled_stream && errors.disabled_stream)}
-                        label={{
-                          name: customizeT(inputLabel.disabled_stream),
-                          itemName: customizeT(inputPrompt.disabled_stream)
-                        }}
-                      />
-                    </FormControl>
-                  )}
-                </CollapsibleSection>
 
-                <CollapsibleSection title={t('channel_edit.sectionBilling')}>
-                  {inputPrompt.only_chat && (
-                    <FormControl fullWidth sx={{ ...theme.typography.otherInput }}>
-                      <FormControlLabel
-                        control={
-                          <Switch
-                            checked={Boolean(values.only_chat)}
-                            onChange={(event) => {
-                              setFieldValue('only_chat', event.target.checked);
-                            }}
-                          />
-                        }
-                        label={customizeT(inputLabel.only_chat)}
-                      />
-                      <FormHelperText id="helper-tex-only_chat_model-label"> {customizeT(inputPrompt.only_chat)} </FormHelperText>
-                    </FormControl>
-                  )}
-                  {inputPrompt.compatible_response && (
-                    <FormControl fullWidth sx={{ ...theme.typography.otherInput }}>
-                      <FormControlLabel
-                        control={
-                          <Switch
-                            checked={Boolean(values.compatible_response)}
-                            onChange={(event) => {
-                              setFieldValue('compatible_response', event.target.checked);
-                            }}
-                          />
-                        }
-                        label={customizeT(inputLabel.compatible_response)}
-                      />
-                      <FormHelperText id="helper-tex-compatible_response-label">
-                        {customizeT(inputPrompt.compatible_response)}
-                      </FormHelperText>
-                    </FormControl>
-                  )}
-                  {inputPrompt.allow_extra_body && (
-                    <FormControl fullWidth sx={{ ...theme.typography.otherInput }}>
-                      <FormControlLabel
-                        control={
-                          <Switch
-                            checked={Boolean(values.allow_extra_body)}
-                            onChange={(event) => {
-                              setFieldValue('allow_extra_body', event.target.checked);
-                            }}
-                          />
-                        }
-                        label={customizeT(inputLabel.allow_extra_body)}
-                      />
-                      <FormHelperText id="helper-tex-allow_extra_body-label">{customizeT(inputPrompt.allow_extra_body)}</FormHelperText>
-                    </FormControl>
-                  )}
-                  {inputPrompt.pass_through_body && (
-                    <FormControl fullWidth sx={{ ...theme.typography.otherInput }}>
-                      <FormControlLabel
-                        control={
-                          <Switch
-                            checked={Boolean(values.pass_through_body)}
-                            onChange={(event) => {
-                              setFieldValue('pass_through_body', event.target.checked);
-                            }}
-                          />
-                        }
-                        label={customizeT(inputLabel.pass_through_body)}
-                      />
-                      <FormHelperText id="helper-tex-pass_through_body-label">{customizeT(inputPrompt.pass_through_body)}</FormHelperText>
-                    </FormControl>
-                  )}
-                  {inputPrompt.pre_cost && (
-                    <FormControl fullWidth error={Boolean(touched.pre_cost && errors.pre_cost)} sx={{ ...theme.typography.otherInput }}>
-                      <InputLabel htmlFor="channel-pre_cost-label">{customizeT(inputLabel.pre_cost)}</InputLabel>
-                      <Select
-                        id="channel-pre_cost-label"
-                        label={customizeT(inputLabel.pre_cost)}
-                        value={values.pre_cost}
-                        name="pre_cost"
-                        onBlur={handleBlur}
-                        onChange={handleChange}
-                        MenuProps={{
-                          PaperProps: {
-                            style: {
-                              maxHeight: 200
-                            }
-                          }
-                        }}
-                      >
-                        {PreCostType.map((option) => {
-                          return (
-                            <MenuItem key={option.value} value={option.value}>
-                              {option.label}
-                            </MenuItem>
-                          );
-                        })}
-                      </Select>
-                      {touched.pre_cost && errors.pre_cost ? (
-                        <FormHelperText error id="helper-tex-channel-pre_cost-label">
-                          {errors.pre_cost}
-                        </FormHelperText>
-                      ) : (
-                        <FormHelperText id="helper-tex-channel-pre_cost-label"> {customizeT(inputPrompt.pre_cost)} </FormHelperText>
-                      )}
-                    </FormControl>
-                  )}
-                  {!isTag && inputPrompt.cost_ratio && (
-                    <FormControl fullWidth error={Boolean(touched.cost_ratio && errors.cost_ratio)} sx={{ ...theme.typography.otherInput }}>
-                      <InputLabel htmlFor="channel-cost_ratio-label">{customizeT(inputLabel.cost_ratio)}</InputLabel>
-                      <OutlinedInput
-                        id="channel-cost_ratio-label"
-                        label={customizeT(inputLabel.cost_ratio)}
-                        type="number"
-                        value={values.cost_ratio}
-                        name="cost_ratio"
-                        onBlur={handleBlur}
-                        onChange={handleChange}
-                        inputProps={{ step: 0.1, min: 0 }}
-                        aria-describedby="helper-text-channel-cost_ratio-label"
-                      />
-                      {touched.cost_ratio && errors.cost_ratio ? (
-                        <FormHelperText error id="helper-tex-channel-cost_ratio-label">
-                          {errors.cost_ratio}
-                        </FormHelperText>
-                      ) : (
-                        <FormHelperText id="helper-tex-channel-cost_ratio-label"> {customizeT(inputPrompt.cost_ratio)} </FormHelperText>
-                      )}
-                    </FormControl>
-                  )}
-                </CollapsibleSection>
+                <ChannelBillingSection
+                  title={t('channel_edit.sectionBilling')}
+                  inputPrompt={inputPrompt}
+                  inputLabel={inputLabel}
+                  customizeT={customizeT}
+                  touched={touched}
+                  errors={errors}
+                  theme={theme}
+                  values={values}
+                  setFieldValue={setFieldValue}
+                  handleBlur={handleBlur}
+                  handleChange={handleChange}
+                  isTag={isTag}
+                />
+
 
                 {pluginList[values.type] &&
                   Object.keys(pluginList[values.type]).map((pluginId) => {
@@ -2223,7 +1344,23 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
                   })}
                 <DialogActions>
                   <Button onClick={onCancel}>{t('common.cancel')}</Button>
-                  <Button disableElevation disabled={isSubmitting} type="submit" variant="contained" color="primary">
+                  {!channelId && !isTag && (
+                    <Button
+                      disabled={draftProbeWorking || Boolean(providerCatalogError)}
+                      onClick={() => probeDraftConnection(values)}
+                      variant="outlined"
+                      startIcon={draftProbeWorking ? <Icon icon="svg-spinners:ring-resize" /> : <Icon icon="mdi:connection" />}
+                    >
+                      连接探测
+                    </Button>
+                  )}
+                  <Button
+                    disableElevation
+                    disabled={isSubmitting || (!isTag && Boolean(providerCatalogError))}
+                    type="submit"
+                    variant="contained"
+                    color="primary"
+                  >
                     {t('common.submit')}
                   </Button>
                 </DialogActions>

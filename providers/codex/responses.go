@@ -10,14 +10,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
-
-	"github.com/gin-gonic/gin"
 )
 
 // CodexResponsesStreamHandler Codex Responses 流式响应处理器
 type CodexResponsesStreamHandler struct {
 	Usage       *types.Usage
-	Context     *gin.Context
+	Context     *base.RequestContext
 	eventBuffer strings.Builder
 	eventType   string
 }

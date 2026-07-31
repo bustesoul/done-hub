@@ -14,7 +14,7 @@ import (
 type StabilityAIProviderFactory struct{}
 
 // 创建 StabilityAIProvider
-func (f StabilityAIProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f StabilityAIProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	return &StabilityAIProvider{
 		BaseProvider: base.BaseProvider{
 			Config:    getConfig(),

@@ -16,10 +16,15 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func getChatProvider(url string, context *gin.Context) providers_base.ChatInterface {
+type chatProviderWithUsage interface {
+	providers_base.ChatInterface
+	providers_base.ProviderUsage
+}
+
+func getChatProvider(url string, context *gin.Context) chatProviderWithUsage {
 	channel := getAliChannel(url)
-	provider := providers.GetProvider(&channel, context)
-	chatProvider, _ := provider.(providers_base.ChatInterface)
+	provider := providers.GetProvider(&channel, providers_base.NewMemoryRequestContext(context.Request))
+	chatProvider, _ := provider.(chatProviderWithUsage)
 
 	return chatProvider
 }

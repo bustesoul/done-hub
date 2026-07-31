@@ -15,8 +15,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-
-	"github.com/gin-gonic/gin"
 )
 
 const (
@@ -30,8 +28,8 @@ type ClaudeStreamHandler struct {
 	Request     *types.ChatCompletionRequest
 	StreamTolls int
 	Prefix      string
-	Context     *gin.Context // 添加 Context 用于获取响应模型名称
-	StartUsage  *Usage       // 保留 message_start 的 usage，message_delta 合并时回填 cache_* 字段
+	Context     *base.RequestContext // 添加 Context 用于获取响应模型名称
+	StartUsage  *Usage               // 保留 message_start 的 usage，message_delta 合并时回填 cache_* 字段
 }
 
 func (p *ClaudeProvider) CreateChatCompletion(request *types.ChatCompletionRequest) (*types.ChatCompletionResponse, *types.OpenAIErrorWithStatusCode) {
@@ -356,7 +354,7 @@ func convertMessageContent(msg *types.ChatCompletionMessage) (*Message, error) {
 	return &message, nil
 }
 
-func ConvertToChatOpenai(provider base.ProviderInterface, response *ClaudeResponse, request *types.ChatCompletionRequest) (openaiResponse *types.ChatCompletionResponse, errWithCode *types.OpenAIErrorWithStatusCode) {
+func ConvertToChatOpenai(provider base.ProviderRuntime, response *ClaudeResponse, request *types.ChatCompletionRequest) (openaiResponse *types.ChatCompletionResponse, errWithCode *types.OpenAIErrorWithStatusCode) {
 	aiError := errorHandle(response.Error)
 	if aiError != nil {
 		errWithCode = &types.OpenAIErrorWithStatusCode{

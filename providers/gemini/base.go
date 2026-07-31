@@ -31,7 +31,7 @@ const geminiSAScope = "https://www.googleapis.com/auth/generative-language"
 type GeminiProviderFactory struct{}
 
 // 创建 GeminiProvider
-func (f GeminiProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f GeminiProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	useOpenaiAPI := false
 	useCodeExecution := false
 

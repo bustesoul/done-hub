@@ -2,6 +2,7 @@ package check_channel
 
 import (
 	"done-hub/common/config"
+	"done-hub/internal/gateway/requeststate"
 	"done-hub/model"
 	"done-hub/providers"
 	providers_base "done-hub/providers/base"
@@ -70,7 +71,9 @@ func CreateCheckChannel(channelId int, models string) (*CheckChannel, error) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = req
 
-	provider := providers.GetProvider(channel, c)
+	request, state := requeststate.Ensure(c.Request)
+	c.Request = request
+	provider := providers.GetProvider(channel, providers_base.NewRequestContext(request, state))
 	if provider == nil {
 		return nil, errors.New("channel not implemented")
 	}

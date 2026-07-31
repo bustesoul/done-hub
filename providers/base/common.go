@@ -17,7 +17,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -80,7 +79,7 @@ type BaseProvider struct {
 	OriginalModel   string
 	Usage           *types.Usage
 	Config          ProviderConfig
-	Context         *gin.Context
+	Context         *RequestContext
 	Channel         *model.Channel
 	Requester       *requester.HTTPRequester
 	OtherArg        string
@@ -365,7 +364,7 @@ func (p *BaseProvider) SetUsage(usage *types.Usage) {
 	p.Usage = usage
 }
 
-func (p *BaseProvider) SetContext(c *gin.Context) {
+func (p *BaseProvider) SetContext(c *RequestContext) {
 	p.Context = c
 	// 使用 WithoutCancel 创建一个不受客户端断开影响的 context
 	// 这样即使客户端断开，上游请求也会继续完成，确保计费和日志正常记录
@@ -374,12 +373,15 @@ func (p *BaseProvider) SetContext(c *gin.Context) {
 	}
 }
 
-func (p *BaseProvider) GetContext() *gin.Context {
+func (p *BaseProvider) GetContext() *RequestContext {
 	return p.Context
 }
 
 func (p *BaseProvider) SetOriginalModel(ModelName string) {
 	p.OriginalModel = ModelName
+	if p.Context != nil {
+		p.Context.SetOriginalModel(ModelName)
+	}
 }
 
 func (p *BaseProvider) GetOriginalModel() string {
@@ -396,22 +398,17 @@ func (p *BaseProvider) GetResponseModelName(requestModel string) string {
 // ok=false 表示无需替换（开关关闭 / 无 original_model / 与上游名一致）。
 // 仅在确实发生替换时记录一条日志，并用 context 标志位保证每个请求只记一次
 // （流式场景下替换函数会被每个 chunk 调用）。
-func resolveUnifiedModel(ctx *gin.Context, upstreamModel string) (originalModel string, ok bool) {
+func resolveUnifiedModel(ctx *RequestContext, upstreamModel string) (originalModel string, ok bool) {
 	if ctx == nil || !config.UnifiedRequestResponseModelEnabled {
 		return "", false
 	}
 
-	val, exists := ctx.Get("original_model")
-	if !exists {
-		return "", false
-	}
-	originalModelStr, isStr := val.(string)
-	if !isStr || originalModelStr == "" || originalModelStr == upstreamModel {
+	originalModelStr := ctx.OriginalModel()
+	if originalModelStr == "" || originalModelStr == upstreamModel {
 		return "", false
 	}
 
-	if !ctx.GetBool("unified_model_logged") {
-		ctx.Set("unified_model_logged", true)
+	if ctx.MarkUnifiedModelLogged() {
 		logger.LogInfo(ctx.Request.Context(), fmt.Sprintf(
 			"unified_response_model: 响应模型名由上游的 %s 替换为请求的 %s", upstreamModel, originalModelStr))
 	}
@@ -420,7 +417,7 @@ func resolveUnifiedModel(ctx *gin.Context, upstreamModel string) (originalModel 
 
 // GetResponseModelNameFromContext 从 Context 获取响应模型名称的静态函数
 // 用于流式响应等无法访问 BaseProvider 的场景
-func GetResponseModelNameFromContext(ctx *gin.Context, fallbackModel string) string {
+func GetResponseModelNameFromContext(ctx *RequestContext, fallbackModel string) string {
 	if originalModel, ok := resolveUnifiedModel(ctx, fallbackModel); ok {
 		return originalModel
 	}
@@ -433,7 +430,7 @@ func GetResponseModelNameFromContext(ctx *gin.Context, fallbackModel string) str
 // 只动 model 一个字段，其余字节（含字段顺序）原样保留。
 // modelPath 为 gjson/sjson 路径，如 claude 流式的 "message.model"、responses 的 "response.model"、
 // gemini 的 "modelVersion"。字段不存在或无需替换时返回原始字节、changed=false。
-func UnifyModelInJSONBytes(ctx *gin.Context, raw []byte, modelPath string) (out []byte, changed bool) {
+func UnifyModelInJSONBytes(ctx *RequestContext, raw []byte, modelPath string) (out []byte, changed bool) {
 	if ctx == nil || !config.UnifiedRequestResponseModelEnabled {
 		return raw, false
 	}
@@ -783,7 +780,7 @@ func (p *BaseProvider) ReadNativeRawBody(mustHave string) ([]byte, bool) {
 	if p.Context == nil {
 		return nil, false
 	}
-	rawBody, err := common.ReadBodyRaw(p.Context)
+	rawBody, err := p.Context.GetRawData()
 	if err != nil || len(rawBody) == 0 {
 		return nil, false
 	}

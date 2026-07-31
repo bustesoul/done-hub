@@ -14,7 +14,7 @@ import (
 type RecraftProviderFactory struct{}
 
 // 创建 RecraftProvider
-func (f RecraftProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f RecraftProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	return &RecraftProvider{
 		BaseProvider: base.BaseProvider{
 			Config:    getConfig(),

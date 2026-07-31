@@ -35,7 +35,7 @@ func GetPricesList(c *gin.Context) {
 
 func GetAllModelList(c *gin.Context) {
 	prices := model.PricingInstance.GetAllPrices()
-	channelModel := model.ChannelGroup.Rule
+	channelModel := model.GatewayRoutes.Rule
 
 	modelsMap := make(map[string]bool)
 	for modelName := range prices {

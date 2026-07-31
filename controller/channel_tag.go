@@ -4,6 +4,7 @@ import (
 	"done-hub/common"
 	"done-hub/common/config"
 	"done-hub/model"
+	"done-hub/providers"
 	"errors"
 	"net/http"
 
@@ -61,6 +62,11 @@ func GetChannelsTag(c *gin.Context) {
 		common.APIRespondWithError(c, http.StatusOK, err)
 		return
 	}
+	if channel.ProtocolProfileID == "" {
+		if profileID, profileErr := providers.DefaultProtocolProfile(channel.Type); profileErr == nil {
+			channel.ProtocolProfileID = string(profileID)
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -77,6 +83,10 @@ func UpdateChannelsTag(c *gin.Context) {
 	channel := model.Channel{}
 	err := c.ShouldBindJSON(&channel)
 	if err != nil {
+		common.APIRespondWithError(c, http.StatusOK, err)
+		return
+	}
+	if err = providers.ValidateChannelConfig(&channel, false); err != nil {
 		common.APIRespondWithError(c, http.StatusOK, err)
 		return
 	}

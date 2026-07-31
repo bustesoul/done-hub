@@ -50,7 +50,7 @@ export async function fetchChannelData(page, rowsPerPage, keyword, order, orderB
     if (orderBy) {
       orderBy = order === 'desc' ? '-' + orderBy : orderBy;
     }
-    const res = await API.get(`/api/channel/`, {
+    const res = await API.get(`/api/admin/provider-connections`, {
       params: {
         page: page + 1,
         size: rowsPerPage,
@@ -176,37 +176,28 @@ export default function ChannelList() {
     try {
       switch (action) {
         case 'copy': {
-          let oldRes = await API.get(`/api/channel/${id}`);
-          const { success, message, data } = oldRes.data;
-          if (!success) {
-            showError(message);
-            return { success: false, message };
-          }
-          // 删除 data.id
-          delete data.id;
-          delete data.test_time;
-          delete data.balance_updated_time;
-          delete data.used_quota;
-          delete data.response_time;
-          data.name = data.name + '_copy';
-          res = await API.post(`/api/channel/`, { ...data });
+          res = await API.post(`/api/admin/provider-connections/${id}/clone`);
           break;
         }
         case 'delete':
           if (tag) {
             res = await API.delete(url + encodeURIComponent(id));
           } else {
-            res = await API.delete(`${url}${id}`);
+            res = await API.delete(`/api/admin/provider-connections/${id}`);
           }
           break;
         case 'delete_tag':
           res = await API.delete(url + id + '/tag');
           break;
         case 'status':
-          res = await API.put(url, {
-            ...data,
-            status: value
-          });
+          res = tag
+            ? await API.put(url, {
+              ...data,
+              status: value
+            })
+            : await API.post(`/api/admin/provider-connections/${id}/status`, {
+              status: value
+            });
           break;
         case 'priority':
         case 'weight':
@@ -216,8 +207,7 @@ export default function ChannelList() {
           }
 
           if (!tag) {
-            res = await API.put(url, {
-              ...data,
+            res = await API.patch(`/api/admin/provider-connections/${id}/scheduling`, {
               [action]: Number(value)
             });
           } else {
@@ -229,12 +219,16 @@ export default function ChannelList() {
           }
           break;
         case 'test':
-          res = await API.get(url + `test/${id}`, {
-            params: { model: value }
-          });
+          res = tag
+            ? await API.get(url + `test/${id}`, {
+              params: { model: value }
+            })
+            : await API.post(`/api/admin/provider-connections/${id}/probe`, null, {
+              params: { model: value }
+            });
           break;
         case 'batch_delete':
-          res = await API.delete('/api/channel/batch', {
+          res = await API.delete('/api/admin/provider-connections', {
             data: {
               value: 'batch_delete',
               ids: value
@@ -264,7 +258,11 @@ export default function ChannelList() {
 
       return res.data;
     } catch (error) {
-      return { success: false, message: error.message };
+      const message = error.response?.data?.error?.message
+        || error.response?.data?.message
+        || error.message;
+      showError(message);
+      return { success: false, message };
     }
   };
 
@@ -771,6 +769,7 @@ export default function ChannelList() {
                 { id: 'group', label: t('channel_index.group'), disableSort: true },
                 { id: 'type', label: t('channel_index.type'), disableSort: false },
                 { id: 'status', label: t('channel_index.status'), disableSort: false },
+                { id: 'credential', label: '凭据', disableSort: true },
                 { id: 'subscription_quota', label: t('channel_index.subscriptionQuota'), disableSort: true },
                 { id: 'response_time', label: t('channel_index.responseTime'), disableSort: false },
                 // { id: 'balance', label: '余额', disableSort: false },

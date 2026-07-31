@@ -10,7 +10,7 @@ import (
 type GithubProviderFactory struct{}
 
 // 创建 GithubProvider
-func (f GithubProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f GithubProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	config := getGithubConfig()
 	return &GithubProvider{
 		OpenAIProvider: openai.OpenAIProvider{

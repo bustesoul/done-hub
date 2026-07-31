@@ -40,6 +40,6 @@ func GetCategory(modelName string) (*Category, error) {
 }
 
 type ChatCompletionConvert func(*types.ChatCompletionRequest) (any, *types.OpenAIErrorWithStatusCode)
-type ChatCompletionResponse func(base.ProviderInterface, *http.Response, *types.ChatCompletionRequest) (*types.ChatCompletionResponse, *types.OpenAIErrorWithStatusCode)
+type ChatCompletionResponse func(base.ProviderRuntime, *http.Response, *types.ChatCompletionRequest) (*types.ChatCompletionResponse, *types.OpenAIErrorWithStatusCode)
 
-type ChatCompletionStreamResponse func(base.ProviderInterface, *types.ChatCompletionRequest) requester.HandlerPrefix[string]
+type ChatCompletionStreamResponse func(base.ProviderRuntime, *types.ChatCompletionRequest) requester.HandlerPrefix[string]

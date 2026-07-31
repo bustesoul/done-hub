@@ -170,7 +170,8 @@ const ModelSelectorModal = ({ open, onClose, onConfirm, channelValues, prices })
       };
 
       if (isOpenAIMode) {
-        requestData.type = 1;
+        requestData.type = 8;
+        requestData.protocol_profile_id = 'openai-chat-completions';
         if (customBaseUrl) {
           requestData.base_url = customBaseUrl;
         }

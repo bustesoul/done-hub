@@ -23,7 +23,7 @@ var zhiPuCacheKey = "api_token:zhipu"
 type ZhipuProviderFactory struct{}
 
 // 创建 ZhipuProvider
-func (f ZhipuProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f ZhipuProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	return &ZhipuProvider{
 		BaseProvider: base.BaseProvider{
 			Config:    getConfig(),

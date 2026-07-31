@@ -11,8 +11,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
-
-	"github.com/gin-gonic/gin"
 )
 
 const (
@@ -24,7 +22,7 @@ type GeminiStreamHandler struct {
 	Request *types.ChatCompletionRequest
 
 	Key     string
-	Context *gin.Context // 添加 Context 用于获取响应模型名称
+	Context *base.RequestContext // 添加 Context 用于获取响应模型名称
 }
 
 type OpenAIStreamHandler struct {
@@ -740,7 +738,7 @@ func removeAdditionalPropertiesWithDepth(schema interface{}, depth int) interfac
 	return v
 }
 
-func ConvertToChatOpenai(provider base.ProviderInterface, response *GeminiChatResponse, request *types.ChatCompletionRequest) (openaiResponse *types.ChatCompletionResponse, errWithCode *types.OpenAIErrorWithStatusCode) {
+func ConvertToChatOpenai(provider base.ProviderRuntime, response *GeminiChatResponse, request *types.ChatCompletionRequest) (openaiResponse *types.ChatCompletionResponse, errWithCode *types.OpenAIErrorWithStatusCode) {
 	// 获取响应中应该使用的模型名称
 	responseModel := provider.GetResponseModelName(request.Model)
 

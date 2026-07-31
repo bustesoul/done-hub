@@ -5,11 +5,15 @@ import (
 	"done-hub/common/config"
 	"done-hub/common/logger"
 	"done-hub/common/utils"
-	"done-hub/metrics"
+	"done-hub/internal/gateway/billing"
+	"done-hub/internal/gateway/domain"
+	"done-hub/internal/gateway/requeststate"
+	gatewaystream "done-hub/internal/gateway/stream"
 	"done-hub/model"
 	"done-hub/relay/relay_util"
 	"done-hub/types"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -23,12 +27,14 @@ func Relay(c *gin.Context) {
 	// 在请求完成后清理缓存的请求体，防止内存泄漏
 	defer func() {
 		c.Set(config.GinRequestBodyKey, nil)
-		c.Set(config.GinProcessedBodyKey, nil)
-		c.Set(config.GinProcessedBodyIsVertexAI, nil)
-		c.Set(config.GinRawMapBodyKey, nil)
-		c.Set(config.GinProcessedBytesKey, nil)
-		c.Set(config.GinProcessedBytesIsVertexAI, nil)
+		state := gatewayRequestState(c)
+		state.Set(config.GinProcessedBodyKey, nil)
+		state.Set(config.GinProcessedBodyIsVertexAI, nil)
+		state.Set(config.GinRawMapBodyKey, nil)
+		state.Set(config.GinProcessedBytesKey, nil)
+		state.Set(config.GinProcessedBytesIsVertexAI, nil)
 	}()
+	gatewayRequestState(c)
 
 	relay := Path2Relay(c, c.Request.URL.Path)
 	if relay == nil {
@@ -49,196 +55,55 @@ func Relay(c *gin.Context) {
 	if serviceTier := relay_util.NormalizeServiceTier(relay.GetServiceTier()); serviceTier != "" {
 		c.Set("service_tier", serviceTier)
 	}
-	if err := relay.setProvider(relay.getOriginalModel()); err != nil {
-		// 配置错误 → 404 model_not_found（SDK 不重试）；运行时错误 → 503 collapse（SDK 重试）。
-		if IsModelNotFound(err) {
-			relay.HandleJsonError(common.ModelNotFoundError(relay.getOriginalModel()))
-		} else {
-			relay.HandleJsonError(common.UpstreamUnavailableError(err.Error()))
-		}
-		return
-	}
-
 	heartbeat := relay.SetHeartbeat(relay.IsStream())
 	if heartbeat != nil {
 		defer heartbeat.Close()
 	}
 
-	apiErr, done := RelayHandler(relay)
+	apiErr := executeRelayGateway(relay)
 	if apiErr == nil {
-		metrics.RecordProvider(c, 200)
 		return
 	}
 
-	channel := relay.getProvider().GetChannel()
-	notifyChannelRelayError(c.Request.Context(), c, channel, apiErr)
-
-	retryTimes := config.RetryTimes
-	// 在重试开始前计算并缓存总渠道数，避免重试过程中动态变化
-	groupName := c.GetString("token_group")
-	if groupName == "" {
-		groupName = c.GetString("group")
+	state := gatewayRequestState(c)
+	selection := state.Selection()
+	modelName := selection.UpstreamModel
+	if modelName == "" {
+		modelName = relay.getOriginalModel()
 	}
-	modelName := c.GetString("new_model")
-	totalChannelsAtStart := model.ChannelGroup.CountAvailableChannels(groupName, modelName)
-
-	if done || !shouldRetry(c, apiErr, channel.Type) {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("retry_skip model=%s channel_id=%d status_code=%d done=%t should_retry=%t total_channels=%d error=\"%s\"",
-			modelName, channel.Id, apiErr.StatusCode, done, shouldRetry(c, apiErr, channel.Type), totalChannelsAtStart, utils.TruncateBase64InMessage(apiErr.OpenAIError.Message)))
-		retryTimes = 0
-	}
-
 	startTime := c.GetTime("requestStartTime")
-	timeout := time.Duration(config.RetryTimeOut) * time.Second
-
-	// 实际重试次数 = min(配置的重试数, 可用渠道数)
-	actualRetryTimes := retryTimes
-	if totalChannelsAtStart < retryTimes {
-		actualRetryTimes = totalChannelsAtStart
+	finalAttempt := state.AttemptCount()
+	channelID := selection.ChannelID
+	errorSource := "upstream"
+	if apiErr.LocalError {
+		errorSource = "local"
 	}
-
-	c.Set("total_channels_at_start", totalChannelsAtStart)
-	c.Set("actual_retry_times", actualRetryTimes)
-	c.Set("attempt_count", 1) // 初始化尝试计数
-
-	// 记录初始失败 - 使用统一的结构化日志格式
-	logger.LogError(c.Request.Context(), fmt.Sprintf("retry_start model=%s channel_id=%d total_channels=%d config_max_retries=%d actual_max_retries=%d status_code=%d error=\"%s\"",
-		modelName, channel.Id, totalChannelsAtStart, retryTimes, actualRetryTimes, apiErr.StatusCode, utils.TruncateBase64InMessage(apiErr.OpenAIError.Message)))
-
-	// breakReason 区分循环退出原因，避免最终日志一律打成 retry_exhausted 而产生误导。
-	// 默认值 "exhausted" 表示循环自然跑完（真的把可用渠道用完了）。
-	// 注意：done==true 或 shouldRetry==false 触发的早跳过路径上方会把 retryTimes 置 0，
-	// 导致 actualRetryTimes=0，循环根本不进入；此时若不预置 "skipped"，最终会落到
-	// "retry_exhausted reason=exhausted actual_max_retries=0" 的自相矛盾日志。
-	breakReason := "exhausted"
-	if actualRetryTimes == 0 {
-		breakReason = "skipped"
+	errorMetadata := map[string]any{
+		"status_code":   apiErr.StatusCode,
+		"error_type":    apiErr.OpenAIError.Type,
+		"error_message": utils.TruncateBase64InMessage(apiErr.OpenAIError.Message),
+		"local_error":   apiErr.LocalError,
+		"error_source":  errorSource,
+		"attempt_count": finalAttempt,
+		"channel_type":  selection.ChannelType,
 	}
-
-	for i := actualRetryTimes; i > 0; i-- {
-		// 冻结通道并记录是否应用了冷却
-		cooldownApplied := shouldCooldowns(c, channel, apiErr)
-
-		if time.Since(startTime) > timeout {
-			logger.LogError(c.Request.Context(), fmt.Sprintf("retry_timeout model=%s channel_id=%d elapsed_time=%.2fs timeout=%.2fs",
-				modelName, channel.Id, time.Since(startTime).Seconds(), timeout.Seconds()))
-			// UpstreamUnavailableError 让 FilterOpenAIErr 坍缩为 503 + 统一文案，与"无可用渠道"出口对齐。
-			// 原 message 保留供 retry_aborted 日志诊断。
-			apiErr = common.UpstreamUnavailableError("重试超时，上游负载已饱和，请稍后再试")
-			breakReason = "timeout"
-			break
-		}
-
-		if err := relay.setProvider(relay.getOriginalModel()); err != nil {
-			logger.LogError(c.Request.Context(), fmt.Sprintf("retry_provider_error model=%s channel_id=%d error=\"%s\"",
-				modelName, channel.Id, err.Error()))
-			breakReason = "provider_error"
-			break
-		}
-
-		channel = relay.getProvider().GetChannel()
-
-		// 更新尝试计数
-		attemptCount := c.GetInt("attempt_count")
-		c.Set("attempt_count", attemptCount+1)
-
-		// 计算剩余渠道数
-		filters := buildChannelFilters(c, modelName)
-		skipChannelIds, _ := utils.GetGinValue[[]int](c, "skip_channel_ids")
-		tempFilters := append(filters, model.FilterChannelId(skipChannelIds))
-		remainChannels := model.ChannelGroup.CountAvailableChannels(groupName, modelName, tempFilters...)
-
-		// 获取实际重试次数
-		actualRetryTimes := c.GetInt("actual_retry_times")
-
-		// 记录重试尝试 - 使用统一的结构化日志格式
-		logger.LogWarn(c.Request.Context(), fmt.Sprintf("retry_attempt model=%s channel_id=%d attempt=%d/%d remaining_channels=%d total_channels=%d cooldown_applied=%t",
-			modelName, channel.Id, attemptCount, actualRetryTimes, remainChannels, c.GetInt("total_channels_at_start"), cooldownApplied))
-
-		apiErr, done = RelayHandler(relay)
-		if apiErr == nil {
-			// 重试成功
-			logger.LogInfo(c.Request.Context(), fmt.Sprintf("retry_success model=%s channel_id=%d attempt=%d/%d total_channels=%d",
-				modelName, channel.Id, attemptCount, actualRetryTimes, c.GetInt("total_channels_at_start")))
-			metrics.RecordProvider(c, 200)
-			return
-		}
-
-		// 记录重试失败
-		logger.LogError(c.Request.Context(), fmt.Sprintf("retry_failed model=%s channel_id=%d attempt=%d/%d status_code=%d error_type=\"%s\" error=\"%s\"",
-			modelName, channel.Id, attemptCount, actualRetryTimes, apiErr.StatusCode, apiErr.OpenAIError.Type, utils.TruncateBase64InMessage(apiErr.OpenAIError.Message)))
-
-		notifyChannelRelayError(c.Request.Context(), c, channel, apiErr)
-		if done || !shouldRetry(c, apiErr, channel.Type) {
-			logger.LogError(c.Request.Context(), fmt.Sprintf("retry_stop_condition model=%s channel_id=%d attempt=%d/%d done=%t should_retry=%t",
-				modelName, channel.Id, attemptCount, actualRetryTimes, done, shouldRetry(c, apiErr, channel.Type)))
-			breakReason = "stop_condition"
-			break
-		}
+	model.RecordErrorLog(
+		c.Request.Context(),
+		c.GetInt("id"),
+		channelID,
+		modelName,
+		c.GetString("token_name"),
+		fmt.Sprintf("[%d] %s", apiErr.StatusCode, apiErr.OpenAIError.Type),
+		int(time.Since(startTime).Seconds()),
+		relay.IsStream(),
+		errorMetadata,
+		c.ClientIP(),
+	)
+	if heartbeat != nil && heartbeat.IsSafeWriteStream() {
+		relay.HandleStreamError(apiErr)
+		return
 	}
-
-	// 记录最终失败：循环自然跑完用 retry_exhausted，中途 break 用 retry_aborted + reason
-	finalAttempt := c.GetInt("attempt_count")
-	actualRetryTimes = c.GetInt("actual_retry_times")
-	finalLogTag := "retry_exhausted"
-	if breakReason != "exhausted" {
-		finalLogTag = "retry_aborted"
-	}
-	logger.LogError(c.Request.Context(), fmt.Sprintf("%s reason=%s model=%s channel_id=%d total_attempts=%d total_channels=%d config_max_retries=%d actual_max_retries=%d status_code=%d error=\"%s\"",
-		finalLogTag, breakReason, modelName, channel.Id, finalAttempt, c.GetInt("total_channels_at_start"), retryTimes, actualRetryTimes, apiErr.StatusCode, utils.TruncateBase64InMessage(apiErr.OpenAIError.Message)))
-
-	if apiErr != nil {
-		// 确保 channel_type 存在，用于 FilterOpenAIErr 正确过滤错误
-		// 如果 channel_type 为 0（可能在重试失败后被清空），使用最后一个渠道的类型
-		if c.GetInt("channel_type") == 0 && channel != nil {
-			c.Set("channel_type", channel.Type)
-		}
-
-		// 记录错误请求日志（LogTypeError），用于在日志页排查失败请求。
-		// 仅最终失败才记一条；无输出的失败请求已通过 quota.Undo 退预扣，这里 quota 为 0，纯诊断。
-		// error_source 把错误来源二分为 local（到达本站即被拒绝/本站判定不可用）
-		// 与 upstream（已转发上游、上游返回错误），便于在日志页一眼区分。
-		// 与 local_error 同源，重命名为更直观的维度。
-		errorSource := "upstream"
-		if apiErr.LocalError {
-			errorSource = "local"
-		}
-		errorMetadata := map[string]any{
-			"status_code":    apiErr.StatusCode,
-			"error_type":     apiErr.OpenAIError.Type,
-			"error_message":  utils.TruncateBase64InMessage(apiErr.OpenAIError.Message),
-			"local_error":    apiErr.LocalError,
-			"error_source":   errorSource,
-			"retry_count":    actualRetryTimes,
-			"attempt_count":  finalAttempt,
-			"break_reason":   breakReason,
-			"channel_type":   c.GetInt("channel_type"),
-			"total_channels": c.GetInt("total_channels_at_start"),
-		}
-		if serviceTier := relay_util.NormalizeServiceTier(c.GetString("service_tier")); serviceTier != "" {
-			errorMetadata["service_tier"] = serviceTier
-			errorMetadata["service_tier_ratio"] = relay_util.ServiceTierRatio(serviceTier)
-		}
-		model.RecordErrorLog(
-			c.Request.Context(),
-			c.GetInt("id"),
-			channel.Id,
-			modelName,
-			c.GetString("token_name"),
-			fmt.Sprintf("[%d] %s", apiErr.StatusCode, apiErr.OpenAIError.Type),
-			int(time.Since(startTime).Seconds()),
-			relay.IsStream(),
-			errorMetadata,
-			c.ClientIP(),
-		)
-
-		if heartbeat != nil && heartbeat.IsSafeWriteStream() {
-			relay.HandleStreamError(apiErr)
-			return
-		}
-
-		relay.HandleJsonError(apiErr)
-	}
+	relay.HandleJsonError(apiErr)
 }
 
 // promptTokenForcer 由能在忽略 PreCost 开关的前提下强制计算输入 token 的 relay 实现。
@@ -295,6 +160,17 @@ func checkPromptTokenLimit(relay RelayBaseInterface, promptTokens int) *types.Op
 }
 
 func RelayHandler(relay RelayBaseInterface) (err *types.OpenAIErrorWithStatusCode, done bool) {
+	err, done, _ = relayHandlerWithSession(relay, beginGatewayAttempt(relay.getContext()), nil)
+	return err, done
+}
+
+func relayHandlerWithSession(
+	relay RelayBaseInterface,
+	streamSession *gatewaystream.Session,
+	billingSession *relay_util.GatewayBilling,
+) (err *types.OpenAIErrorWithStatusCode, done bool, session *relay_util.GatewayBilling) {
+	session = billingSession
+	setGatewayStreamSession(relay.getContext(), streamSession)
 	promptTokens, tonkeErr := relay.getPromptTokens()
 	if tonkeErr != nil {
 		err = common.ErrorWrapperLocal(tonkeErr, "token_error", http.StatusBadRequest)
@@ -315,10 +191,36 @@ func RelayHandler(relay RelayBaseInterface) (err *types.OpenAIErrorWithStatusCod
 
 	relay.getProvider().SetUsage(usage)
 
-	quota := relay_util.NewQuota(relay.getContext(), relay.getModelName(), promptTokens)
-	if err = quota.PreQuotaConsumption(); err != nil {
-		done = true
-		return
+	if billingSession == nil {
+		billingSession = relay_util.NewGatewayBilling(
+			relay.getContext(),
+			relay.getModelName(),
+			promptTokens,
+			usage,
+			relay.IsStream(),
+			relay.GetFirstResponseTime,
+		)
+		session = billingSession
+		if billingErr := billingSession.Precharge(relay.getContext().Request.Context(), billing.Estimate{
+			Model:        relay.getModelName(),
+			PromptTokens: promptTokens,
+			ServiceTier:  relay.GetServiceTier(),
+		}); billingErr != nil {
+			if !errors.As(billingErr, &err) {
+				err = common.ErrorWrapperLocal(billingErr, "pre_consume_token_quota_failed", http.StatusForbidden)
+			}
+			done = true
+			return
+		}
+	} else {
+		billingSession.BeginAttempt(
+			relay.getContext(),
+			relay.getModelName(),
+			promptTokens,
+			usage,
+			relay.IsStream(),
+			relay.GetFirstResponseTime,
+		)
 	}
 
 	err, done = relay.send()
@@ -328,87 +230,38 @@ func RelayHandler(relay RelayBaseInterface) (err *types.OpenAIErrorWithStatusCod
 		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 	}
 
+	if !streamSession.CanFailover() {
+		done = true
+	}
+
+	// A provider-reported usage record proves that the upstream accepted the
+	// attempt even if no client bytes were emitted (for example a prompt-only
+	// failure). Such an attempt is terminal: retrying would duplicate work and
+	// BeginAttempt would otherwise replace its Usage pointer.
+	if err != nil && relay_util.HasReportedUsage(usage) {
+		_ = streamSession.MarkAccepted()
+		done = true
+	}
+	_ = streamSession.AddUsage(relay_util.DomainUsage(usage))
+
 	// 即使出错，只要有实际输出就记录计费，避免上游已计费但本地无记录。
 	// CompletionTokens 来自上游返回的 usage（image_*.go 在 ErrorHandle 前也会落 usage），
 	// 是"上游真的处理了请求"的可靠信号；PromptTokens 不行，它在 send 之前就被本地 tokenize 填了。
 	if err != nil {
-		if usage.CompletionTokens > 0 {
-			quota.SetFirstResponseTime(relay.GetFirstResponseTime())
-			quota.Consume(relay.getContext(), usage, relay.IsStream())
-		} else {
-			quota.Undo(relay.getContext())
+		if !streamSession.CanFailover() {
+			done = true
+			if billingErr := billingSession.Settle(relay.getContext().Request.Context(), domain.OutcomeFailed); billingErr != nil {
+				logger.LogError(relay.getContext().Request.Context(), "gateway billing settle: "+billingErr.Error())
+			}
 		}
 		return
 	}
 
-	quota.SetFirstResponseTime(relay.GetFirstResponseTime())
-
-	quota.Consume(relay.getContext(), usage, relay.IsStream())
-
-	return
-}
-
-func shouldCooldowns(c *gin.Context, channel *model.Channel, apiErr *types.OpenAIErrorWithStatusCode) bool {
-	modelName := c.GetString("new_model")
-	channelId := channel.Id
-	statusCode := apiErr.StatusCode
-
-	// 决定冻结时长（秒）。优先级：
-	//   1. 上游返回的精确恢复时间（RateLimitResetAt，如 Gemini retryDelay / anthropic-ratelimit-unified-reset）
-	//   2. 管理员配置的按状态码冻结时长（RetryCooldownPerStatus）
-	//   3. 全局兜底 RetryCooldownSeconds，仅对 429 启用以保持向后兼容
-	//
-	// 任何一步算出 duration <= 0 都视为"不冻结"，直接跳过 channel 而不冻它。
-	//
-	// 注意：RateLimitResetAt 是对任何状态码生效的——provider 只应在拿到上游精确的
-	// Retry-After 信号时设置此字段，详见 types/common.go 上的字段注释。
-	var duration int64
-	var reason string
-
-	if apiErr.RateLimitResetAt > 0 {
-		nowTime := time.Now().Unix()
-		duration = apiErr.RateLimitResetAt - nowTime
-		if duration > 0 {
-			reason = "upstream_retry_after"
-		} else {
-			// 上游告诉的时间已过，落到下一级配置
-			duration = 0
-		}
+	if billingErr := billingSession.Settle(relay.getContext().Request.Context(), domain.OutcomeSucceeded); billingErr != nil {
+		logger.LogError(relay.getContext().Request.Context(), "gateway billing settle: "+billingErr.Error())
 	}
 
-	if duration <= 0 {
-		if secs, ok := config.GetRetryCooldownForStatus(statusCode); ok {
-			duration = int64(secs)
-			reason = fmt.Sprintf("per_status_%d", statusCode)
-		} else if statusCode == http.StatusTooManyRequests {
-			duration = int64(config.RetryCooldownSeconds)
-			reason = "rate_limit"
-		}
-	}
-
-	if duration > 0 {
-		model.ChannelGroup.SetCooldownsWithDuration(channelId, modelName, duration)
-		extra := ""
-		if apiErr.RateLimitResetAt > 0 && reason == "upstream_retry_after" {
-			extra = fmt.Sprintf(" reset_at=%s", time.Unix(apiErr.RateLimitResetAt, 0).Format(time.RFC3339))
-		}
-		logger.LogWarn(c.Request.Context(), fmt.Sprintf("channel_cooldown channel_id=%d model=\"%s\" status_code=%d duration=%ds reason=\"%s\"%s",
-			channelId, modelName, statusCode, duration, reason, extra))
-	} else if reason != "" {
-		// 配置命中（如 per-status=0）但显式不冻结。打日志方便线上排查"为什么没冷却"。
-		logger.LogInfo(c.Request.Context(), fmt.Sprintf("channel_cooldown_skipped channel_id=%d model=\"%s\" status_code=%d reason=\"%s\"",
-			channelId, modelName, statusCode, reason))
-	}
-
-	skipChannelIds, ok := utils.GetGinValue[[]int](c, "skip_channel_ids")
-	if !ok {
-		skipChannelIds = make([]int, 0)
-	}
-
-	skipChannelIds = append(skipChannelIds, channelId)
-	c.Set("skip_channel_ids", skipChannelIds)
-
-	return duration > 0
+	return err, done, billingSession
 }
 
 // applies pre-mapping before setRequest to ensure modifications take effect
@@ -446,11 +299,7 @@ func applyPreMappingBeforeRequest(c *gin.Context) {
 		// 清除 GetProvider 设置的其他字段
 		c.Set("original_token_group", nil)
 		c.Set("is_backupGroup", nil)
-		c.Set("channel_id", nil)
-		c.Set("channel_type", nil)
-		c.Set("original_model", nil)
-		c.Set("new_model", nil)
-		c.Set("billing_original_model", nil)
+		gatewayRequestState(c).SetSelection(requeststate.Selection{})
 	}()
 
 	provider, _, err := GetProvider(c, modelName)

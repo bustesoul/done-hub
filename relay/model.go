@@ -77,7 +77,7 @@ func ListModelsByToken(c *gin.Context) {
 		return
 	}
 
-	models, err := model.ChannelGroup.GetGroupModels(groupName)
+	models, err := model.GatewayRoutes.GetGroupModels(groupName)
 	if err != nil {
 		c.JSON(200, gin.H{
 			"object": "list",
@@ -124,7 +124,7 @@ func ListGeminiModelsByToken(c *gin.Context) {
 		return
 	}
 
-	models, err := model.ChannelGroup.GetGroupModels(groupName)
+	models, err := model.GatewayRoutes.GetGroupModels(groupName)
 	if err != nil {
 		c.JSON(200, gemini.ModelListResponse{
 			Models: []gemini.ModelDetails{},
@@ -163,7 +163,7 @@ func ListClaudeModelsByToken(c *gin.Context) {
 		return
 	}
 
-	models, err := model.ChannelGroup.GetGroupModels(groupName)
+	models, err := model.GatewayRoutes.GetGroupModels(groupName)
 	if err != nil {
 		c.JSON(200, claude.ModelListResponse{
 			Data: []claude.Model{},
@@ -289,7 +289,7 @@ func GetAvailableModels(groupName string) map[string]*AvailableModelResponse {
 }
 
 func getAvailableModels(groupName string) map[string]*AvailableModelResponse {
-	publicModels := model.ChannelGroup.GetModelsGroups()
+	publicModels := model.GatewayRoutes.GetModelsGroups()
 	publicGroups := model.GlobalUserGroupRatio.GetPublicGroupList()
 	if groupName != "" && !utils.Contains(groupName, publicGroups) {
 		publicGroups = append(publicGroups, groupName)

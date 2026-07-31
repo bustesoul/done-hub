@@ -33,7 +33,7 @@ func GetChannelSubscriptionQuota(c *gin.Context) {
 		return
 	}
 
-	provider := providers.GetProvider(channel, c)
+	provider := providers.GetProvider(channel, providerRequestContext(c))
 
 	var windows interface{}
 

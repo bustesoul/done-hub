@@ -12,7 +12,7 @@ type LingyiProviderFactory struct{}
 
 // 创建 LingyiProvider
 // https://platform.lingyiwanwu.com/docs#-create-chat-completion
-func (f LingyiProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f LingyiProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	return &LingyiProvider{
 		OpenAIProvider: openai.OpenAIProvider{
 			BaseProvider: base.BaseProvider{

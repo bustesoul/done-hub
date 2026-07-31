@@ -14,7 +14,7 @@ import (
 type CohereProviderFactory struct{}
 
 // 创建 CohereProvider
-func (f CohereProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f CohereProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	return &CohereProvider{
 		BaseProvider: base.BaseProvider{
 			Config:    getConfig(),

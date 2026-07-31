@@ -18,7 +18,7 @@ type MistralProvider struct {
 }
 
 // 创建 MistralProvider
-func (f MistralProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f MistralProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	MistralProvider := CreateMistralProvider(channel, "https://api.mistral.ai")
 	return MistralProvider
 }

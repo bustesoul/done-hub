@@ -1,178 +1,158 @@
 package relay
 
 import (
+	"context"
 	"done-hub/common"
 	"done-hub/common/config"
 	"done-hub/common/logger"
-	"done-hub/common/utils"
+	"done-hub/internal/gateway/billing"
+	"done-hub/internal/gateway/domain"
+	"done-hub/internal/gateway/execution"
+	gatewayretry "done-hub/internal/gateway/retry"
+	gatewaystream "done-hub/internal/gateway/stream"
 	"done-hub/metrics"
-	modelPkg "done-hub/model"
 	"done-hub/providers/recraftAI"
 	"done-hub/relay/relay_util"
 	"done-hub/types"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
-// buildChannelFiltersForRecraftAI 为 RecraftAI 构建渠道过滤器列表
-func buildChannelFiltersForRecraftAI(c *gin.Context, modelName string) []modelPkg.ChannelsFilterFunc {
-	var filters []modelPkg.ChannelsFilterFunc
-
-	if skipOnlyChat := c.GetBool("skip_only_chat"); skipOnlyChat {
-		filters = append(filters, modelPkg.FilterOnlyChat())
+func RelayRecraftAI(c *gin.Context) {
+	gatewayRequestState(c)
+	modelName := Path2RecraftAIModel(c.Request.URL.Path)
+	operation := &recraftGatewayOperation{
+		context:    c,
+		modelName:  modelName,
+		requestURL: strings.Replace(c.Request.URL.Path, "/recraftAI", "", 1),
 	}
-
-	if skipChannelIds, ok := utils.GetGinValue[[]int](c, "skip_channel_ids"); ok {
-		filters = append(filters, modelPkg.FilterChannelId(skipChannelIds))
+	plan := domain.RoutePlan{
+		Request: domain.RequestContext{
+			RequestID:      c.GetString(logger.RequestIdKey),
+			UserID:         c.GetInt("id"),
+			TokenID:        c.GetInt("token_id"),
+			Group:          c.GetString("token_group"),
+			RequestedModel: modelName,
+			Capability:     domain.CapabilityPassthrough,
+			Protocol:       domain.ProtocolNative,
+			StartedAt:      c.GetTime("requestStartTime"),
+		},
+		Model: domain.ModelRoute{
+			PublicModel: modelName,
+			Capability:  domain.CapabilityPassthrough,
+			Protocol:    domain.ProtocolNative,
+		},
 	}
-
-	if types, exists := c.Get("allow_channel_type"); exists {
-		if allowTypes, ok := types.([]int); ok {
-			filters = append(filters, modelPkg.FilterChannelTypes(allowTypes))
+	engine := execution.NewGatewayEngine(gatewayretry.DefaultPolicy())
+	engine.Selector = operation
+	engine.Cooldowns = &relayCooldownStore{c: c}
+	engine.Observer = &relayAttemptObserver{c: c}
+	engine.MaxAttempts = config.RetryTimes + 1
+	if engine.MaxAttempts < 1 {
+		engine.MaxAttempts = 1
+	}
+	if config.RetryTimeOut > 0 {
+		engine.Deadline = time.Duration(config.RetryTimeOut) * time.Second
+	}
+	result := engine.Run(c.Request.Context(), plan, operation)
+	gatewayRequestState(c).SetAttemptCount(len(result.Attempts))
+	if result.Err == nil {
+		metrics.RecordProvider(c, http.StatusOK)
+		return
+	}
+	if operation.gatewayBilling != nil {
+		if err := operation.gatewayBilling.RefundIfReserved(c.Request.Context(), "recraft_attempts_failed"); err != nil {
+			logger.LogError(c.Request.Context(), "gateway billing refund: "+err.Error())
 		}
 	}
-
-	return filters
+	if operation.lastAPIError != nil {
+		filtered := FilterOpenAIErr(c, operation.lastAPIError)
+		relayResponseWithOpenAIErr(c, &filtered)
+		return
+	}
+	if operation.lastSelectError != nil && IsModelNotFound(operation.lastSelectError) {
+		filtered := FilterOpenAIErr(c, common.ModelNotFoundError(modelName))
+		relayResponseWithOpenAIErr(c, &filtered)
+		return
+	}
+	message := result.Err.Error()
+	if operation.lastSelectError != nil {
+		message = operation.lastSelectError.Error()
+	}
+	common.AbortWithMessage(c, http.StatusServiceUnavailable, message)
 }
 
-func RelayRecraftAI(c *gin.Context) {
-	model := Path2RecraftAIModel(c.Request.URL.Path)
+type recraftGatewayOperation struct {
+	context         *gin.Context
+	modelName       string
+	requestURL      string
+	provider        *recraftAI.RecraftProvider
+	gatewayBilling  *relay_util.GatewayBilling
+	lastAPIError    *types.OpenAIErrorWithStatusCode
+	lastSelectError error
+}
 
-	usage := &types.Usage{
-		PromptTokens: 1,
-	}
-
-	recraftProvider, err := getRecraftProvider(c, model)
+func (o *recraftGatewayOperation) Next(
+	_ context.Context,
+	_ domain.RoutePlan,
+	_ execution.SelectionState,
+) (domain.Endpoint, error) {
+	provider, err := getRecraftProvider(o.context, o.modelName)
 	if err != nil {
-		if IsModelNotFound(err) {
-			// 必须包成 {"error":...} 外层，否则 OpenAI SDK 读不到 code/type，model_not_found 语义失效。
-			errWithCode := FilterOpenAIErr(c, common.ModelNotFoundError(model))
-			relayResponseWithOpenAIErr(c, &errWithCode)
-		} else {
-			common.AbortWithMessage(c, http.StatusServiceUnavailable, err.Error())
-		}
-		return
+		o.lastSelectError = err
+		return domain.Endpoint{}, err
 	}
+	o.provider = provider
+	return endpointFromChannel(provider.GetChannel()), nil
+}
 
-	recraftProvider.SetUsage(usage)
-
-	quota := relay_util.NewQuota(c, model, 1)
-	if err := quota.PreQuotaConsumption(); err != nil {
-		common.AbortWithMessage(c, http.StatusServiceUnavailable, err.Error())
-		return
-	}
-
-	requestURL := strings.Replace(c.Request.URL.Path, "/recraftAI", "", 1)
-	response, apiErr := recraftProvider.CreateRelay(requestURL)
-	if apiErr == nil {
-		quota.Consume(c, usage, false)
-
-		metrics.RecordProvider(c, 200)
-		errWithCode := responseMultipart(c, response)
-		logger.LogError(c.Request.Context(), fmt.Sprintf("relay error happen %v, won't retry in this case", errWithCode))
-		return
-	}
-
-	channel := recraftProvider.GetChannel()
-	notifyChannelRelayError(c.Request.Context(), c, channel, apiErr)
-
-	retryTimes := config.RetryTimes
-	// 在重试开始前计算并缓存总渠道数，避免重试过程中动态变化
-	groupName := c.GetString("token_group")
-	if groupName == "" {
-		groupName = c.GetString("group")
-	}
-	modelName := c.GetString("new_model")
-	totalChannelsAtStart := modelPkg.ChannelGroup.CountAvailableChannels(groupName, modelName)
-
-	if !shouldRetry(c, apiErr, channel.Type) {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("retry_skip model=%s channel_id=%d status_code=%d should_retry=false total_channels=%d error=\"%s\"",
-			modelName, channel.Id, apiErr.StatusCode, totalChannelsAtStart, utils.TruncateBase64InMessage(apiErr.OpenAIError.Message)))
-		retryTimes = 0
-	}
-
-	// 实际重试次数 = min(配置的重试数, 可用渠道数)
-	actualRetryTimes := retryTimes
-	if totalChannelsAtStart < retryTimes {
-		actualRetryTimes = totalChannelsAtStart
-	}
-
-	c.Set("total_channels_at_start", totalChannelsAtStart)
-	c.Set("actual_retry_times", actualRetryTimes)
-	c.Set("attempt_count", 1) // 初始化尝试计数
-
-	// 记录初始失败 - 使用统一的结构化日志格式
-	logger.LogError(c.Request.Context(), fmt.Sprintf("retry_start model=%s channel_id=%d total_channels=%d config_max_retries=%d actual_max_retries=%d status_code=%d error=\"%s\"",
-		modelName, channel.Id, totalChannelsAtStart, retryTimes, actualRetryTimes, apiErr.StatusCode, utils.TruncateBase64InMessage(apiErr.OpenAIError.Message)))
-
-	for i := actualRetryTimes; i > 0; i-- {
-		cooldownApplied := shouldCooldowns(c, channel, apiErr)
-		if recraftProvider, err = getRecraftProvider(c, model); err != nil {
-			continue
-		}
-
-		channel = recraftProvider.GetChannel()
-
-		// 更新尝试计数
-		attemptCount := c.GetInt("attempt_count")
-		c.Set("attempt_count", attemptCount+1)
-
-		// 计算剩余可重试的渠道数（不包括当前渠道，因为当前渠道正在使用）
-		filters := buildChannelFiltersForRecraftAI(c, modelName)
-		skipChannelIds, _ := utils.GetGinValue[[]int](c, "skip_channel_ids")
-		tempFilters := append(filters, modelPkg.FilterChannelId(skipChannelIds))
-		remainChannels := modelPkg.ChannelGroup.CountAvailableChannels(groupName, modelName, tempFilters...)
-
-		// 获取实际重试次数
-		actualRetryTimes := c.GetInt("actual_retry_times")
-
-		// 记录重试尝试 - 使用统一的结构化日志格式
-		logger.LogWarn(c.Request.Context(), fmt.Sprintf("retry_attempt model=%s channel_id=%d attempt=%d/%d remaining_channels=%d total_channels=%d cooldown_applied=%t",
-			modelName, channel.Id, attemptCount, actualRetryTimes, remainChannels, c.GetInt("total_channels_at_start"), cooldownApplied))
-
-		response, apiErr := recraftProvider.CreateRelay(requestURL)
-		if apiErr == nil {
-			quota.Consume(c, usage, false)
-
-			metrics.RecordProvider(c, 200)
-			// 重试成功
-			logger.LogInfo(c.Request.Context(), fmt.Sprintf("retry_success model=%s channel_id=%d attempt=%d/%d total_channels=%d",
-				modelName, channel.Id, attemptCount, actualRetryTimes, c.GetInt("total_channels_at_start")))
-			errWithCode := responseMultipart(c, response)
-			if errWithCode != nil {
-				logger.LogError(c.Request.Context(), fmt.Sprintf("retry_response_error model=%s channel_id=%d error=\"%v\"",
-					modelName, channel.Id, errWithCode))
+func (o *recraftGatewayOperation) Run(
+	_ context.Context,
+	attempt domain.Attempt,
+	session *gatewaystream.Session,
+) (domain.AttemptResult, *gatewayretry.UpstreamError) {
+	setGatewayStreamSession(o.context, session)
+	usage := &types.Usage{PromptTokens: 1}
+	o.provider.SetUsage(usage)
+	if o.gatewayBilling == nil {
+		o.gatewayBilling = relay_util.NewGatewayBilling(o.context, o.modelName, 1, usage, false, nil)
+		if err := o.gatewayBilling.Precharge(o.context.Request.Context(), billing.Estimate{
+			Model:        o.modelName,
+			PromptTokens: 1,
+		}); err != nil {
+			apiErr, ok := err.(*types.OpenAIErrorWithStatusCode)
+			if !ok {
+				apiErr = common.ErrorWrapperLocal(err, "pre_consume_token_quota_failed", http.StatusForbidden)
 			}
-			return
+			o.lastAPIError = apiErr
+			return domain.AttemptResult{Attempt: attempt}, classifyRelayError(o.context, apiErr, int(attempt.Endpoint.ProviderID))
 		}
-
-		// 记录重试失败
-		logger.LogError(c.Request.Context(), fmt.Sprintf("retry_failed model=%s channel_id=%d attempt=%d/%d status_code=%d error_type=\"%s\" error=\"%s\"",
-			modelName, channel.Id, attemptCount, actualRetryTimes, apiErr.StatusCode, apiErr.OpenAIError.Type, utils.TruncateBase64InMessage(apiErr.OpenAIError.Message)))
-
-		notifyChannelRelayError(c.Request.Context(), c, channel, apiErr)
-		if !shouldRetry(c, apiErr, channel.Type) {
-			logger.LogError(c.Request.Context(), fmt.Sprintf("retry_stop_condition model=%s channel_id=%d attempt=%d/%d should_retry=false",
-				modelName, channel.Id, attemptCount, actualRetryTimes))
-			break
-		}
+	} else {
+		o.gatewayBilling.BeginAttempt(o.context, o.modelName, 1, usage, false, nil)
 	}
 
-	// 记录最终失败
-	finalAttempt := c.GetInt("attempt_count")
-	actualRetryTimes = c.GetInt("actual_retry_times")
-	logger.LogError(c.Request.Context(), fmt.Sprintf("retry_exhausted model=%s channel_id=%d total_attempts=%d total_channels=%d config_max_retries=%d actual_max_retries=%d status_code=%d error=\"%s\"",
-		modelName, channel.Id, finalAttempt, c.GetInt("total_channels_at_start"), retryTimes, actualRetryTimes, apiErr.StatusCode, utils.TruncateBase64InMessage(apiErr.OpenAIError.Message)))
-
-	quota.Undo(c)
-	newErrWithCode := FilterOpenAIErr(c, apiErr)
-	// 必须包成 {"error":...} 外层，与 main.go HandleJsonError 一致。
-	// 旧的 AbortWithErr(&OpenAIError) 让 gin 直接 marshal 结构体，OpenAI SDK 拿不到 error.code/type。
-	relayResponseWithOpenAIErr(c, &newErrWithCode)
+	response, apiErr := o.provider.CreateRelay(o.requestURL)
+	result := domain.AttemptResult{Attempt: attempt}
+	if apiErr != nil {
+		o.lastAPIError = apiErr
+		notifyChannelRelayError(o.context.Request.Context(), o.context, o.provider.GetChannel(), apiErr)
+		metrics.RecordProvider(o.context, apiErr.StatusCode)
+		return result, classifyRelayError(o.context, apiErr, int(attempt.Endpoint.ProviderID))
+	}
+	if writeErr := responseMultipart(o.context, response); writeErr != nil {
+		o.lastAPIError = writeErr
+		return result, classifyRelayError(o.context, writeErr, int(attempt.Endpoint.ProviderID))
+	}
+	_ = session.AddUsage(relay_util.DomainUsage(usage))
+	if err := o.gatewayBilling.Settle(o.context.Request.Context(), domain.OutcomeSucceeded); err != nil {
+		logger.LogError(o.context.Request.Context(), "gateway billing settle: "+err.Error())
+	}
+	o.lastAPIError = nil
+	return result, nil
 }
 
 func Path2RecraftAIModel(path string) string {

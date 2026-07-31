@@ -5,6 +5,7 @@ import (
 	"done-hub/common/config"
 	"done-hub/common/logger"
 	"done-hub/common/requester"
+	"done-hub/internal/gateway/domain"
 	providersBase "done-hub/providers/base"
 	"done-hub/relay/relay_util"
 	"done-hub/types"
@@ -92,7 +93,40 @@ func (r *relayResponses) send() (err *types.OpenAIErrorWithStatusCode, done bool
 
 	channel := r.provider.GetChannel()
 	responsesProvider, ok := r.provider.(providersBase.ResponsesInterface)
-	if !ok || channel.CompatibleResponse || !r.provider.GetSupportedResponse() || config.IsBuiltinNeed2ResponseModel(r.modelName) {
+	if channel != nil && channel.ProtocolProfileID != "" {
+		switch domain.ProtocolProfileID(channel.ProtocolProfileID) {
+		case domain.ProfileOpenAIResponses:
+			if !ok || !r.provider.GetSupportedResponse() {
+				err = common.StringErrorWrapperLocal(
+					"selected connection profile does not support OpenAI Responses",
+					"channel_error", http.StatusServiceUnavailable)
+				done = true
+				return
+			}
+		case domain.ProfileOpenAIChat:
+			chatProvider, chatOK := r.provider.(providersBase.ChatInterface)
+			if !chatOK {
+				err = common.StringErrorWrapperLocal("channel not implemented", "channel_error", http.StatusServiceUnavailable)
+				done = true
+				return
+			}
+			return r.compatibleSend(chatProvider)
+		case domain.ProfileAnthropicMessages, domain.ProfileGoogleGemini:
+			chatProvider, chatOK := r.provider.(providersBase.ChatInterface)
+			if !chatOK {
+				err = common.StringErrorWrapperLocal("channel protocol adapter not implemented", "channel_error", http.StatusServiceUnavailable)
+				done = true
+				return
+			}
+			return r.compatibleSend(chatProvider)
+		default:
+			err = common.StringErrorWrapperLocal(
+				"selected connection profile cannot serve OpenAI Responses",
+				"channel_error", http.StatusServiceUnavailable)
+			done = true
+			return
+		}
+	} else if !ok || channel.CompatibleResponse || !r.provider.GetSupportedResponse() || config.IsBuiltinNeed2ResponseModel(r.modelName) {
 		// 做一层Chat的兼容
 		chatProvider, ok := r.provider.(providersBase.ChatInterface)
 		if !ok {
@@ -106,7 +140,7 @@ func (r *relayResponses) send() (err *types.OpenAIErrorWithStatusCode, done bool
 
 	// 入口协议 == responses 且走 responses provider 原样直返，放行响应字节透传；
 	// 上方 chat 兼容路径（compatibleSend）已提前返回，不会走到这里。
-	r.c.Set(config.GinRawPassThroughAllowedKey, true)
+	gatewayRequestState(r.c).Set(config.GinRawPassThroughAllowedKey, true)
 
 	if r.responsesRequest.Stream {
 		var response requester.StreamReaderInterface[string]
@@ -145,6 +179,14 @@ func (r *relayResponses) send() (err *types.OpenAIErrorWithStatusCode, done bool
 // compact 不支持 chat 兼容路径（chat 渠道没有 compact 概念），
 // 不支持的渠道直接返回错误。
 func (r *relayResponses) sendCompact() (err *types.OpenAIErrorWithStatusCode, done bool) {
+	if channel := r.provider.GetChannel(); channel != nil && channel.ProtocolProfileID != "" &&
+		domain.ProtocolProfileID(channel.ProtocolProfileID) != domain.ProfileOpenAIResponses {
+		err = common.StringErrorWrapperLocal(
+			"selected connection profile does not support /v1/responses/compact",
+			"channel_error", http.StatusServiceUnavailable)
+		done = true
+		return
+	}
 	compactProvider, ok := r.provider.(providersBase.ResponsesCompactInterface)
 	if !ok || !r.provider.GetSupportedResponse() {
 		err = common.StringErrorWrapperLocal("channel does not support /v1/responses/compact", "channel_error", http.StatusServiceUnavailable)
@@ -153,7 +195,7 @@ func (r *relayResponses) sendCompact() (err *types.OpenAIErrorWithStatusCode, do
 	}
 
 	// compact 端点：responses 协议原样直返，放行响应字节透传。
-	r.c.Set(config.GinRawPassThroughAllowedKey, true)
+	gatewayRequestState(r.c).Set(config.GinRawPassThroughAllowedKey, true)
 
 	response, err := compactProvider.CreateResponsesCompaction(&r.responsesRequest)
 	if err != nil {
@@ -169,9 +211,13 @@ func (r *relayResponses) sendCompact() (err *types.OpenAIErrorWithStatusCode, do
 }
 
 func (r *relayResponses) compatibleSend(chatProvider providersBase.ChatInterface) (errWithCode *types.OpenAIErrorWithStatusCode, done bool) {
-	chatReq, err := r.responsesRequest.ToChatCompletionRequest()
+	convertedRequest, err := convertProtocolRequest(r.c, &r.responsesRequest)
 	if err != nil {
-		return common.ErrorWrapperLocal(err, "invalid_claude_config", http.StatusInternalServerError), true
+		return common.ErrorWrapperLocal(err, "protocol_conversion_failed", http.StatusInternalServerError), true
+	}
+	chatReq, ok := convertedRequest.(*types.ChatCompletionRequest)
+	if !ok {
+		return common.StringErrorWrapperLocal("protocol converter returned an invalid chat request", "protocol_conversion_failed", http.StatusInternalServerError), true
 	}
 
 	if r.responsesRequest.Stream {
@@ -179,6 +225,14 @@ func (r *relayResponses) compatibleSend(chatProvider providersBase.ChatInterface
 		response, errWithCode = chatProvider.CreateChatCompletionStream(chatReq)
 		if errWithCode != nil {
 			return
+		}
+		convertedStream, conversionErr := convertProtocolStream(r.c, response)
+		if conversionErr != nil {
+			return common.ErrorWrapperLocal(conversionErr, "protocol_conversion_failed", http.StatusInternalServerError), true
+		}
+		response, ok = convertedStream.(requester.StreamReaderInterface[string])
+		if !ok {
+			return common.StringErrorWrapperLocal("protocol converter returned an invalid stream", "protocol_conversion_failed", http.StatusInternalServerError), true
 		}
 		firstResponseTime := r.chatToResponseStreamClient(response)
 		r.SetFirstResponseTime(firstResponseTime)
@@ -189,7 +243,17 @@ func (r *relayResponses) compatibleSend(chatProvider providersBase.ChatInterface
 			return
 		}
 
-		responseResp := response.ToResponses(&r.responsesRequest)
+		convertedResponse, conversionErr := convertProtocolResponse(r.c, chatToResponsesResult{
+			Response: response,
+			Request:  &r.responsesRequest,
+		})
+		if conversionErr != nil {
+			return common.ErrorWrapperLocal(conversionErr, "protocol_conversion_failed", http.StatusInternalServerError), true
+		}
+		responseResp, ok := convertedResponse.(*types.OpenAIResponsesResponses)
+		if !ok {
+			return common.StringErrorWrapperLocal("protocol converter returned an invalid responses response", "protocol_conversion_failed", http.StatusInternalServerError), true
+		}
 		responseJsonClient(r.c, responseResp)
 	}
 

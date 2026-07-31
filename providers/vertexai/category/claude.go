@@ -58,7 +58,7 @@ func ConvertClaudeFromChatOpenai(request *types.ChatCompletionRequest) (any, *ty
 	return claudeRequest, nil
 }
 
-func ConvertClaudeToChatOpenai(provider base.ProviderInterface, response *http.Response, request *types.ChatCompletionRequest) (*types.ChatCompletionResponse, *types.OpenAIErrorWithStatusCode) {
+func ConvertClaudeToChatOpenai(provider base.ProviderRuntime, response *http.Response, request *types.ChatCompletionRequest) (*types.ChatCompletionResponse, *types.OpenAIErrorWithStatusCode) {
 	claudeResponse := &claude.ClaudeResponse{}
 	err := json.NewDecoder(response.Body).Decode(claudeResponse)
 	if err != nil {
@@ -68,7 +68,7 @@ func ConvertClaudeToChatOpenai(provider base.ProviderInterface, response *http.R
 	return claude.ConvertToChatOpenai(provider, claudeResponse, request)
 }
 
-func ClaudeChatCompleteStrem(provider base.ProviderInterface, request *types.ChatCompletionRequest) requester.HandlerPrefix[string] {
+func ClaudeChatCompleteStrem(provider base.ProviderRuntime, request *types.ChatCompletionRequest) requester.HandlerPrefix[string] {
 	chatHandler := &claude.ClaudeStreamHandler{
 		Usage:   provider.GetUsage(),
 		Request: request,

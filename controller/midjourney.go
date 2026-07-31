@@ -9,6 +9,10 @@ import (
 	"done-hub/common"
 	"done-hub/common/logger"
 	"done-hub/common/requester"
+	"done-hub/internal/gateway/domain"
+	"done-hub/internal/gateway/execution"
+	gatewayretry "done-hub/internal/gateway/retry"
+	gatewaystream "done-hub/internal/gateway/stream"
 	"done-hub/model"
 	provider "done-hub/providers/midjourney"
 	"encoding/json"
@@ -115,7 +119,7 @@ func UpdateMidjourneyTaskBulk() {
 			if len(taskIds) == 0 {
 				continue
 			}
-			midjourneyChannel := model.ChannelGroup.GetChannel(channelId)
+			midjourneyChannel := model.GatewayRoutes.GetChannel(channelId)
 			if midjourneyChannel == nil {
 				err := model.MjBulkUpdate(taskIds, map[string]any{
 					"fail_reason": fmt.Sprintf("获取渠道信息失败，请联系管理员，渠道ID：%d", channelId),
@@ -136,40 +140,13 @@ func UpdateMidjourneyTaskBulk() {
 }
 
 func MjTaskHandler(midjourneyChannel *model.Channel, taskIds []string, taskM map[string]*model.Midjourney) error {
-	requestUrl := fmt.Sprintf("%s/mj/task/list-by-condition", *midjourneyChannel.BaseURL)
-
+	logCtx := context.WithValue(context.Background(), logger.RequestIdKey, "MidjourneyTask")
 	body, _ := json.Marshal(map[string]any{
 		"ids": taskIds,
 	})
-	req, err := http.NewRequest("POST", requestUrl, bytes.NewBuffer(body))
+	responseItems, err := fetchMidjourneyTasksViaGateway(midjourneyChannel, body)
 	if err != nil {
-		return fmt.Errorf("get task error: %v", err)
-	}
-	// 设置超时时间
-	timeout := time.Second * 5
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	// 使用带有超时的 context 创建新的请求
-	req = req.WithContext(ctx)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("mj-api-secret", midjourneyChannel.Key)
-	resp, err := requester.HTTPClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("get task do req error: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("get task status code: %d", resp.StatusCode)
-	}
-	responseBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("get task parse body error: %v", err)
-	}
-	var responseItems []provider.MidjourneyDto
-	err = json.Unmarshal(responseBody, &responseItems)
-	if err != nil {
-		return fmt.Errorf("get task parse body error2: %v, body: %s", err, string(responseBody))
+		return err
 	}
 
 	for _, responseItem := range responseItems {
@@ -205,17 +182,17 @@ func MjTaskHandler(midjourneyChannel *model.Channel, taskIds []string, taskM map
 		}
 
 		if (task.Progress != "100%" && responseItem.FailReason != "") || (task.Progress == "100%" && task.Status == "FAILURE") {
-			logger.LogError(ctx, task.MjId+" 构建失败，"+task.FailReason)
+			logger.LogError(logCtx, task.MjId+" 构建失败，"+task.FailReason)
 			task.Progress = "100%"
 			err = model.CacheUpdateUserQuota(task.UserId)
 			if err != nil {
-				logger.LogError(ctx, "error update user quota cache: "+err.Error())
+				logger.LogError(logCtx, "error update user quota cache: "+err.Error())
 			} else {
 				quota := task.Quota
 				if quota != 0 {
 					err = model.IncreaseUserQuota(task.UserId, quota)
 					if err != nil {
-						logger.LogError(ctx, "fail to increase user quota: "+err.Error())
+						logger.LogError(logCtx, "fail to increase user quota: "+err.Error())
 					}
 					logContent := fmt.Sprintf("构图失败 %s，补偿 %s", task.MjId, common.LogQuota(quota))
 					model.RecordLog(task.UserId, model.LogTypeSystem, logContent)
@@ -224,11 +201,90 @@ func MjTaskHandler(midjourneyChannel *model.Channel, taskIds []string, taskM map
 		}
 		err = task.Update()
 		if err != nil {
-			logger.LogError(ctx, "UpdateMidjourneyTask task error: "+err.Error())
+			logger.LogError(logCtx, "UpdateMidjourneyTask task error: "+err.Error())
 		}
 	}
 
 	return nil
+}
+
+func fetchMidjourneyTasksViaGateway(channel *model.Channel, body []byte) ([]provider.MidjourneyDto, error) {
+	endpoint := domain.Endpoint{
+		ID:         channel.Id,
+		ProviderID: domain.ProviderID(channel.Type),
+		Name:       channel.Name,
+		BaseURL:    channel.GetBaseURL(),
+		Group:      channel.Group,
+		Enabled:    true,
+	}
+	plan := domain.RoutePlan{
+		Request: domain.RequestContext{
+			RequestID:  "MidjourneyTask",
+			Capability: domain.CapabilityTask,
+			Protocol:   domain.ProtocolNative,
+			StartedAt:  time.Now(),
+		},
+		Model: domain.ModelRoute{
+			Capability: domain.CapabilityTask,
+			Protocol:   domain.ProtocolNative,
+			EndpointID: channel.Id,
+		},
+		Endpoints: []domain.Endpoint{endpoint},
+	}
+	runner := &midjourneyPollRunner{channel: channel, body: body}
+	engine := execution.NewGatewayEngine(gatewayretry.DefaultPolicy())
+	engine.MaxAttempts = 1
+	engine.Deadline = 5 * time.Second
+	result := engine.Run(context.Background(), plan, runner)
+	if result.Err != nil {
+		if runner.err != nil {
+			return nil, runner.err
+		}
+		return nil, result.Err
+	}
+	return runner.items, nil
+}
+
+type midjourneyPollRunner struct {
+	channel *model.Channel
+	body    []byte
+	items   []provider.MidjourneyDto
+	err     error
+}
+
+func (r *midjourneyPollRunner) Run(
+	ctx context.Context,
+	attempt domain.Attempt,
+	_ *gatewaystream.Session,
+) (domain.AttemptResult, *gatewayretry.UpstreamError) {
+	requestURL := fmt.Sprintf("%s/mj/task/list-by-condition", r.channel.GetBaseURL())
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, requestURL, bytes.NewReader(r.body))
+	if err != nil {
+		r.err = fmt.Errorf("get task error: %w", err)
+		return domain.AttemptResult{Attempt: attempt}, gatewayretry.ClassifyHTTP(0, r.err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("mj-api-secret", r.channel.Key)
+	resp, err := requester.HTTPClient.Do(req)
+	if err != nil {
+		r.err = fmt.Errorf("get task do req error: %w", err)
+		return domain.AttemptResult{Attempt: attempt}, gatewayretry.ClassifyHTTP(0, r.err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		r.err = fmt.Errorf("get task status code: %d", resp.StatusCode)
+		return domain.AttemptResult{Attempt: attempt}, gatewayretry.ClassifyHTTP(resp.StatusCode, r.err)
+	}
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		r.err = fmt.Errorf("get task parse body error: %w", err)
+		return domain.AttemptResult{Attempt: attempt}, gatewayretry.ClassifyHTTP(resp.StatusCode, r.err)
+	}
+	if err := json.Unmarshal(responseBody, &r.items); err != nil {
+		r.err = fmt.Errorf("get task parse body error2: %w, body: %s", err, string(responseBody))
+		return domain.AttemptResult{Attempt: attempt}, gatewayretry.ClassifyHTTP(resp.StatusCode, r.err)
+	}
+	return domain.AttemptResult{Attempt: attempt}, nil
 }
 
 func checkMjTaskNeedUpdate(oldTask *model.Midjourney, newTask provider.MidjourneyDto) bool {

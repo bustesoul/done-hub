@@ -13,8 +13,6 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-
-	"github.com/gin-gonic/gin"
 )
 
 type OpenAIStreamHandler struct {
@@ -22,7 +20,7 @@ type OpenAIStreamHandler struct {
 	ModelName  string
 	isAzure    bool
 	EscapeJSON bool
-	Context    *gin.Context // 添加 Context 用于获取响应模型名称
+	Context    *base.RequestContext // 添加 Context 用于获取响应模型名称
 
 	ReasoningHandler bool
 	ExtraBilling     map[string]types.ExtraBilling `json:"-"`

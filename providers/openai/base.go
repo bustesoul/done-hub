@@ -39,7 +39,7 @@ type OpenAIProvider struct {
 }
 
 // 创建 OpenAIProvider
-func (f OpenAIProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f OpenAIProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	openAIProvider := CreateOpenAIProvider(channel, "https://api.openai.com")
 	openAIProvider.BalanceAction = true
 	return openAIProvider

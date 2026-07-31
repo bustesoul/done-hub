@@ -32,7 +32,7 @@ const (
 type GeminiCliProviderFactory struct{}
 
 // 创建 GeminiCliProvider
-func (f GeminiCliProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f GeminiCliProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	provider := &GeminiCliProvider{
 		GeminiProvider: gemini.GeminiProvider{
 			OpenAIProvider: openai.OpenAIProvider{

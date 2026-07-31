@@ -57,7 +57,7 @@ func updateChannelBalance(channel *model.Channel) (float64, error) {
 
 	req.Header.Set("Content-Type", "application/json")
 
-	provider := providers.GetProvider(channel, c)
+	provider := providers.GetProvider(channel, providerRequestContext(c))
 	if provider == nil {
 		return 0, errors.New("provider not found")
 	}

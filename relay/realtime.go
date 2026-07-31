@@ -1,15 +1,21 @@
 package relay
 
 import (
+	"context"
 	"done-hub/common"
 	"done-hub/common/config"
 	"done-hub/common/logger"
 	"done-hub/common/requester"
-	"done-hub/common/utils"
+	"done-hub/internal/gateway/billing"
+	"done-hub/internal/gateway/domain"
+	"done-hub/internal/gateway/execution"
+	gatewayretry "done-hub/internal/gateway/retry"
+	gatewaystream "done-hub/internal/gateway/stream"
 	"done-hub/metrics"
 	providersBase "done-hub/providers/base"
 	"done-hub/relay/relay_util"
 	"done-hub/types"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -23,8 +29,9 @@ type RelayModeChatRealtime struct {
 	userConn       *websocket.Conn
 	messageHandler requester.MessageHandler
 	providerConn   *websocket.Conn
-	quota          *relay_util.Quota
 	usage          *types.UsageEvent
+	billedUsage    *types.Usage
+	gatewayBilling *relay_util.GatewayBilling
 }
 
 var upgrader = websocket.Upgrader{
@@ -55,14 +62,17 @@ func ChatRealtime(c *gin.Context) {
 		userConn: userConn,
 	}
 	relay.setOriginalModel(modelName)
+	relay.usage = &types.UsageEvent{}
+	relay.billedUsage = &types.Usage{}
 
-	if !relay.getProvider() {
+	if !relay.connectProvider() {
+		if relay.gatewayBilling != nil {
+			if billingErr := relay.gatewayBilling.Refund(context.Background(), "realtime_provider_unavailable"); billingErr != nil {
+				logger.LogError(c.Request.Context(), "gateway billing refund: "+billingErr.Error())
+			}
+		}
 		return
 	}
-
-	relay.quota = relay_util.NewQuota(relay.getContext(), relay.getModelName(), 0)
-
-	relay.usage = &types.UsageEvent{}
 
 	wsProxy := requester.NewWSProxy(relay.userConn, relay.providerConn, time.Minute*2, relay.messageHandler, relay.usageHandler)
 
@@ -83,7 +93,14 @@ func ChatRealtime(c *gin.Context) {
 
 		logger.LogInfo(snap.Ctx, fmt.Sprintf("连接由%s关闭", closedBy))
 		wsProxy.Close()
-		relay.quota.ConsumeWithSnapshot(snap, relay.usage.ToChatUsage(), false)
+		*relay.billedUsage = *relay.usage.ToChatUsage()
+		outcome := domain.OutcomeSucceeded
+		if closedBy == "user" {
+			outcome = domain.OutcomeCanceled
+		}
+		if billingErr := relay.gatewayBilling.Settle(context.Background(), outcome); billingErr != nil {
+			logger.LogError(snap.Ctx, "gateway billing settle: "+billingErr.Error())
+		}
 	})
 
 	wsProxy.Wait()
@@ -96,88 +113,152 @@ func (r *RelayModeChatRealtime) abortWithMessage(message string) {
 	r.userConn.Close()
 }
 
-func (r *RelayModeChatRealtime) getProvider() bool {
-	retryTimes := config.RetryTimes
-	if retryTimes == 0 {
-		retryTimes = 1
+func (r *RelayModeChatRealtime) connectProvider() bool {
+	plan := domain.RoutePlan{
+		Request: domain.RequestContext{
+			RequestID:      r.c.GetString(logger.RequestIdKey),
+			UserID:         r.c.GetInt("id"),
+			TokenID:        r.c.GetInt("token_id"),
+			Group:          r.c.GetString("token_group"),
+			RequestedModel: r.getOriginalModel(),
+			Capability:     domain.CapabilityRealtime,
+			Protocol:       domain.ProtocolOpenAIChat,
+			Stream:         true,
+			StartedAt:      r.c.GetTime("requestStartTime"),
+		},
+		Model: domain.ModelRoute{
+			PublicModel: r.getOriginalModel(),
+			Capability:  domain.CapabilityRealtime,
+			Protocol:    domain.ProtocolOpenAIChat,
+		},
 	}
-
-	for i := retryTimes; i > 0; i-- {
-		// 找不到直接返回
-		if err := r.setProvider(r.getOriginalModel()); err != nil {
-			r.abortWithMessage(err.Error())
-			return false
-		}
-
-		realtimeProvider, ok := r.provider.(providersBase.RealtimeInterface)
-		if !ok {
-			r.abortWithMessage("channel not implemented")
-			return false
-		}
-		channel := r.provider.GetChannel()
-
-		providerConn, messageHandler, apiErr := realtimeProvider.CreateChatRealtime(r.modelName)
-		if apiErr != nil {
-			r.skipChannelIds(channel.Id)
-			logger.LogError(r.c.Request.Context(), fmt.Sprintf("using channel #%d(%s) Error: %s to retry (remain times %d)", channel.Id, channel.Name, apiErr.Error(), i))
-			metrics.RecordProvider(r.c, apiErr.StatusCode)
-
-			continue
-		}
-
-		r.messageHandler = messageHandler
-		r.providerConn = providerConn
-
-		if r.getRealtimeFirstMessage() {
-			metrics.RecordProvider(r.c, 200)
-			return true
-		}
-
-		r.skipChannelIds(channel.Id)
+	selector := &relayGatewaySelector{relay: r}
+	runner := &realtimeGatewayRunner{relay: r}
+	coordinator := execution.NewGatewayEngine(gatewayretry.DefaultPolicy())
+	coordinator.Selector = selector
+	coordinator.Cooldowns = &relayCooldownStore{c: r.c}
+	coordinator.Observer = &relayAttemptObserver{c: r.c}
+	coordinator.MaxAttempts = config.RetryTimes + 1
+	if coordinator.MaxAttempts < 1 {
+		coordinator.MaxAttempts = 1
 	}
-
-	r.abortWithMessage("get provider failed")
+	if config.RetryTimeOut > 0 {
+		coordinator.Deadline = time.Duration(config.RetryTimeOut) * time.Second
+	}
+	result := coordinator.Run(r.c.Request.Context(), plan, runner)
+	if result.Err == nil {
+		metrics.RecordProvider(r.c, http.StatusOK)
+		return true
+	}
+	message := result.Err.Error()
+	if runner.lastAPIError != nil {
+		message = runner.lastAPIError.OpenAIError.Message
+	} else if selector.lastError != nil {
+		message = selector.lastError.Error()
+	}
+	r.abortWithMessage(message)
 	return false
 }
 
-func (r *RelayModeChatRealtime) skipChannelIds(channelId int) {
-	skipChannelIds, ok := utils.GetGinValue[[]int](r.c, "skip_channel_ids")
-	if !ok {
-		skipChannelIds = make([]int, 0)
-	}
-
-	skipChannelIds = append(skipChannelIds, channelId)
-
-	r.c.Set("skip_channel_ids", skipChannelIds)
+type realtimeGatewayRunner struct {
+	relay        *RelayModeChatRealtime
+	lastAPIError *types.OpenAIErrorWithStatusCode
 }
 
-func (r *RelayModeChatRealtime) getRealtimeFirstMessage() bool {
+func (r *realtimeGatewayRunner) Run(
+	_ context.Context,
+	attempt domain.Attempt,
+	session *gatewaystream.Session,
+) (domain.AttemptResult, *gatewayretry.UpstreamError) {
+	setGatewayStreamSession(r.relay.c, session)
+	realtimeProvider, ok := r.relay.provider.(providersBase.RealtimeInterface)
+	if !ok {
+		apiErr := common.StringErrorWrapperLocal("channel not implemented", "channel_error", http.StatusServiceUnavailable)
+		r.lastAPIError = apiErr
+		return domain.AttemptResult{Attempt: attempt}, &gatewayretry.UpstreamError{
+			Class:       gatewayretry.ErrorClassProtocol,
+			StatusCode:  apiErr.StatusCode,
+			Local:       true,
+			Description: apiErr.OpenAIError.Message,
+		}
+	}
+	if r.relay.gatewayBilling == nil {
+		r.relay.gatewayBilling = relay_util.NewGatewayBilling(
+			r.relay.c,
+			r.relay.getModelName(),
+			0,
+			r.relay.billedUsage,
+			false,
+			nil,
+		)
+		if billingErr := r.relay.gatewayBilling.Precharge(r.relay.c.Request.Context(), billing.Estimate{
+			Model: r.relay.getModelName(),
+		}); billingErr != nil {
+			r.relay.gatewayBilling = nil
+			apiErr := common.ErrorWrapperLocal(billingErr, "pre_consume_token_quota_failed", http.StatusForbidden)
+			r.lastAPIError = apiErr
+			return domain.AttemptResult{Attempt: attempt}, classifyRelayError(r.relay.c, apiErr, int(attempt.Endpoint.ProviderID))
+		}
+	}
+
+	providerConn, messageHandler, apiErr := realtimeProvider.CreateChatRealtime(r.relay.modelName)
+	if apiErr != nil {
+		r.lastAPIError = apiErr
+		return domain.AttemptResult{Attempt: attempt}, classifyRelayError(r.relay.c, apiErr, int(attempt.Endpoint.ProviderID))
+	}
+	r.relay.messageHandler = messageHandler
+	r.relay.providerConn = providerConn
+	firstMessageOK, firstMessageErr := r.relay.getRealtimeFirstMessage()
+	if firstMessageOK {
+		r.lastAPIError = nil
+		return domain.AttemptResult{Attempt: attempt}, nil
+	}
+	_ = providerConn.Close()
+	apiErr = common.ErrorWrapper(firstMessageErr, "realtime_first_message_failed", http.StatusBadGateway)
+	r.lastAPIError = apiErr
+	return domain.AttemptResult{Attempt: attempt}, classifyRelayError(r.relay.c, apiErr, int(attempt.Endpoint.ProviderID))
+}
+
+func (r *RelayModeChatRealtime) getRealtimeFirstMessage() (bool, error) {
 	messageType, firstMessage, err := r.providerConn.ReadMessage()
 	if err != nil {
-		return false
+		return false, err
 	}
 
 	if messageType != websocket.TextMessage {
-		return false
+		return false, fmt.Errorf("unexpected realtime message type %d", messageType)
 	}
 
 	shouldContinue, _, newMessage, err := r.messageHandler(requester.SupplierMessage, messageType, firstMessage)
 
 	if !shouldContinue || err != nil {
-		return false
+		if err != nil {
+			return false, err
+		}
+		return false, errors.New("realtime message handler stopped before first output")
 	}
 
 	if newMessage != nil {
-		r.userConn.WriteMessage(websocket.TextMessage, newMessage)
+		err = r.userConn.WriteMessage(websocket.TextMessage, newMessage)
+		if err == nil {
+			recordGatewayOutput(r.c, len(newMessage))
+		}
 	} else {
-		r.userConn.WriteMessage(websocket.TextMessage, firstMessage)
+		err = r.userConn.WriteMessage(websocket.TextMessage, firstMessage)
+		if err == nil {
+			recordGatewayOutput(r.c, len(firstMessage))
+		}
+	}
+	if err != nil {
+		terminateGatewayOutput(r.c, err)
+		return false, err
 	}
 
-	return true
+	return true, nil
 }
 
 func (r *RelayModeChatRealtime) usageHandler(usage *types.UsageEvent) error {
-	err := r.quota.UpdateUserRealtimeQuota(r.usage, usage)
+	err := r.gatewayBilling.Quota().UpdateUserRealtimeQuota(r.usage, usage)
 	if err != nil {
 		return types.NewErrorEvent("", "system_error", "system_error", err.Error())
 	}

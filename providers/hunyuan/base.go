@@ -14,7 +14,7 @@ import (
 type HunyuanProviderFactory struct{}
 
 // 创建 HunyuanProvider
-func (f HunyuanProviderFactory) Create(channel *model.Channel) base.ProviderInterface {
+func (f HunyuanProviderFactory) CreateAdapter(channel *model.Channel) base.ProviderRuntime {
 	return &HunyuanProvider{
 		BaseProvider: base.BaseProvider{
 			Config:    getConfig(),

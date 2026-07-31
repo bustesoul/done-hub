@@ -145,7 +145,7 @@ func updateKlingTaskAll(ctx context.Context, channelId int, taskIds []string, ta
 		return nil
 	}
 
-	channel := model.ChannelGroup.GetChannel(channelId)
+	channel := model.GatewayRoutes.GetChannel(channelId)
 	if channel == nil {
 		err := model.TaskBulkUpdate(taskIds, map[string]any{
 			"fail_reason": fmt.Sprintf("获取渠道信息失败，请联系管理员，渠道ID：%d", channelId),
