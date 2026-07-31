@@ -130,7 +130,7 @@ func (p *VertexAIProvider) handleTokenError(err error) *types.OpenAIErrorWithSta
 }
 
 func (p *VertexAIProvider) GetToken() (string, error) {
-	cacheKey := fmt.Sprintf("%s:%s", TokenCacheKey, p.ProjectID)
+	cacheKey := fmt.Sprintf("%s:%d", TokenCacheKey, p.Channel.Id)
 	token, err := cache.GetCache[string](cacheKey)
 	if err != nil {
 		logger.SysError("Failed to get token from cache: " + err.Error())
@@ -147,8 +147,12 @@ func (p *VertexAIProvider) GetToken() (string, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	ctx = utils.SetProxy(p.Channel.GetProxy(), ctx)
-	ctx = context.WithValue(ctx, oauth2.HTTPClient, requester.HTTPClient)
+
+	httpClient, err := utils.NewProxyHTTPClient(p.Channel.GetProxy())
+	if err != nil {
+		return "", fmt.Errorf("failed to create proxy http client: %w", err)
+	}
+	ctx = context.WithValue(ctx, oauth2.HTTPClient, httpClient)
 
 	tok, err := config.TokenSource(ctx).Token()
 	if err != nil {

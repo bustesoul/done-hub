@@ -58,11 +58,19 @@ export default function QuotaWithDetailContent({ item, userGroup, userIsAdmin, t
   const serviceTier = item.metadata?.service_tier || '';
   const serviceTierRatio = item.metadata?.service_tier_ratio || 1;
   const finalRatio = groupRatio * serviceTierRatio;
+  const longContextInputRatio = item.metadata?.long_context_input_ratio;
+  const longContextOutputRatio = item.metadata?.long_context_output_ratio;
+  // 命中长上下文分档时，输入/输出单价需按分档倍率放大，才能与实际扣费一致。
   const inputPrice =
-    item.metadata?.input_price || (item.metadata?.input_ratio ? `$${calculatePrice(item.metadata.input_ratio, finalRatio, false)} ` : '$0');
+    item.metadata?.input_price ||
+    (item.metadata?.input_ratio
+      ? `$${calculatePrice(item.metadata.input_ratio * (longContextInputRatio || 1), finalRatio, false)} `
+      : '$0');
   const outputPrice =
     item.metadata?.output_price ||
-    (item.metadata?.output_ratio ? `$${calculatePrice(item.metadata.output_ratio, finalRatio, false)}` : '$0');
+    (item.metadata?.output_ratio
+      ? `$${calculatePrice(item.metadata.output_ratio * (longContextOutputRatio || 1), finalRatio, false)}`
+      : '$0');
 
   const inputPriceUnit = inputPrice + ' /M';
   const outputPriceUnit = outputPrice + ' /M';
@@ -177,6 +185,11 @@ export default function QuotaWithDetailContent({ item, userGroup, userIsAdmin, t
           {serviceTierRatio !== 1 && (
             <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, textAlign: 'left' }}>
               {t('logPage.quotaDetail.serviceTierRatioValue')}: {serviceTier || '-'} x {serviceTierRatio}
+            </Typography>
+          )}
+          {Boolean(longContextInputRatio || longContextOutputRatio) && (
+            <Typography sx={{ fontSize: 13, color: (theme) => theme.palette.text.secondary, textAlign: 'left' }}>
+              {t('logPage.quotaDetail.longContextRatio')}: {longContextInputRatio || 1}× / {longContextOutputRatio || 1}×
             </Typography>
           )}
         </Box>
@@ -317,7 +330,9 @@ QuotaWithDetailContent.propTypes = {
       original_quota: PropTypes.number,
       origin_quota: PropTypes.number,
       price_type: PropTypes.string,
-      extra_billing: PropTypes.object
+      extra_billing: PropTypes.object,
+      long_context_input_ratio: PropTypes.number,
+      long_context_output_ratio: PropTypes.number
     })
   }).isRequired,
   totalInputTokens: PropTypes.number.isRequired,

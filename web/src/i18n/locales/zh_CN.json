@@ -59,7 +59,9 @@
     "console": "控制台",
     "error": "错误",
     "unknownVersion": "未知版本",
-    "welcomeBack": "欢迎回来"
+    "welcomeBack": "欢迎回来",
+    "userAgreement": "用户协议",
+    "privacyPolicy": "隐私政策"
   },
   "sidebar": {
     "totalQuota": "总额度",
@@ -80,7 +82,17 @@
     "verificationInfo": "请稍后几秒重试，Turnstile 正在检查用户环境！",
     "restSendEmail": "重置邮件发送成功，请检查邮箱！",
     "registering": "注册中...",
-    "inviteCodeRequired": "邀请码是必填项"
+    "inviteCodeRequired": "邀请码是必填项",
+    "agreementRequired": "请先阅读并勾选同意相关协议",
+    "agreementPrefix": "我已阅读并同意",
+    "userAgreement": "用户协议",
+    "privacyPolicy": "隐私政策",
+    "agreementAnd": "和"
+  },
+  "legalConsentDialog": {
+    "title": "协议更新",
+    "description": "相关协议已更新，请阅读并同意后继续使用。",
+    "button": "同意并继续"
   },
   "registerPage": {
     "alreadyHaveAccount": "已经有帐号了?点击登录"
@@ -157,6 +169,7 @@
     "cpmDescription": "CPM",
     "ppmDescription": "PPM",
     "last60SecondsStats": "最近60秒统计",
+    "autoRefresh": "自动",
     "timeFilter": {
       "all": "全部",
       "year": "本年",
@@ -510,6 +523,7 @@
     "cachedWriteTokens": "缓存写入Tokens (* {{ ratio }})",
     "cachedWrite1hTokens": "缓存写入Tokens(1h) (* {{ ratio }})",
     "cachedReadTokens": "缓存读取Tokens (* {{ ratio }})",
+    "openaiCacheWriteTokens": "缓存写入Tokens(OpenAI) (* {{ ratio }})",
     "reasoningTokens": "推理Tokens (* {{ ratio }})",
     "inputImageTokens": "输入图像Tokens (* {{ ratio }})",
     "outputImageTokens": "输出图像Tokens (* {{ ratio }})",
@@ -555,6 +569,7 @@
       "groupRatio": "分组倍率",
       "groupRatioValue": "分组倍率",
       "serviceTierRatioValue": "服务等级倍率",
+      "longContextRatio": "长上下文倍率",
       "actualPrice": "实际价格",
       "input": "实际输入价格",
       "output": "实际输出价格",
@@ -724,6 +739,10 @@
     "inputUsernamePlaceholder": "请输入用户名",
     "inputPasswordPlaceholder": "请输入密码",
     "inputDisplayNamePlaceholder": "请输入显示名称",
+    "quotaRemindEnabled": "接收额度提醒邮件",
+    "quotaRemindThreshold": "额度提醒阈值",
+    "quotaRemindThresholdPlaceholder": "剩余额度低于此值时邮件提醒，填 0 表示仅在额度用尽时提醒",
+    "quotaRemindThresholdDefault": "留空使用系统默认：{{default}}",
     "submit": "提交",
     "accountBinding": "账号绑定",
     "bindWechatAccount": "绑定微信账号",
@@ -776,8 +795,9 @@
     "currencyInfo5": "例如",
     "currencyInfo6": "：gpt-4 输入： $0.03 / 1K tokens 完成：$0.06 / 1K tokens",
     "currencyInfo7": "0.03 / 0.002 = 15, 0.06 / 0.002 = 30，即输入倍率为 15，完成倍率为 30",
-    "noPriceModelWarning": "存在未配置价格的模型，请及时配置价格：",
-    "errPricesWarning": "存在供应商类型错误的模型，请及时配置：",
+    "noPriceModelWarning": "存在未配置价格的模型，请及时配置价格",
+    "errPricesWarning": "存在供应商类型错误的模型，请及时配置",
+    "modelCountLabel": "共 {{count}} 个",
     "newButton": "新建",
     "refreshButton": "刷新",
     "updatePricesButton": "更新价格",
@@ -818,6 +838,7 @@
     "cached_write_tokens": "缓存写入倍率",
     "cached_write_1h_tokens": "缓存写入(1h)倍率",
     "cached_read_tokens": "缓存读取倍率",
+    "openai_cache_write_tokens": "OpenAI缓存写入倍率",
     "reasoning_tokens": "推理倍率",
     "input_text_tokens": "输入文本倍率",
     "output_text_tokens": "输出文本倍率",
@@ -839,6 +860,10 @@
     "priceDetails": "价格明细",
     "priceNote": "不同分组,对应的价格也随之不同,渠道组需要在令牌管理中切换。",
     "otherInfo": "其他信息",
+    "longContext": "长上下文计费",
+    "shortContext": "短上下文",
+    "longContextLabel": "长上下文",
+    "longContextDesc": "输入超过 {{threshold}} tokens 时，整次请求按长上下文价格计费。",
     "totalModels": "共 {{count}} 个模型",
     "noModelsFound": "未找到匹配的模型",
     "noModelsFoundTip": "请尝试调整筛选条件或搜索关键词",
@@ -965,6 +990,12 @@
         "unifiedRequestResponseModelTooltip": "当存在模型映射时，响应中的model值为请求的model值，而非实际调用的模型名称",
         "modelNameCaseInsensitive": "模型名称大小写不敏感",
         "modelNameCaseInsensitiveTooltip": "开启后，模型匹配时将忽略大小写，例如 GPT-4、gpt-4、Gpt-4 都会匹配到同一个模型",
+        "subGroups": {
+          "linkAndBilling": "链接与计费",
+          "retry": "重试策略",
+          "upstreamError": "上游错误处理",
+          "displayOptions": "显示与计费选项"
+        },
         "saveButton": "保存通用设置"
       },
       "invoice": {
@@ -998,7 +1029,9 @@
           "label": "日志清理时间",
           "placeholder": "日志清理时间"
         },
-        "clearLogs": "清理历史日志"
+        "clearLogs": "清理历史日志",
+        "autoDelete": "启用消费日志自动清理",
+        "autoDeleteDays": "自动清理保留天数"
       },
       "monitoringSettings": {
         "title": "监控设置",
@@ -1013,6 +1046,7 @@
         "automaticDisableChannel": "失败时自动禁用通道",
         "automaticEnableChannel": "成功时自动启用通道",
         "automaticDisableChannelNotify": "自动禁用通道时发送通知",
+        "quotaRemindEnabled": "启用额度提醒邮件",
         "saveMonitoringSettings": "保存监控设置"
       },
       "quotaSettings": {
@@ -1145,7 +1179,9 @@
         "gitHubOldIdClose": "关闭 GitHub 老 ID 登录",
         "linuxDoOAuth": "允许通过 LINUX DO 账户登录 & 注册",
         "linuxDoOAuthTrustLevel": "启用 LINUX DO 信任等级限制",
-        "linuxDoOAuthDynamicTrustLevel": "LINUX DO 动态限制已注册用户（关闭后老用户不受新等级限制）"
+        "linuxDoOAuthDynamicTrustLevel": "LINUX DO 动态限制已注册用户（关闭后老用户不受新等级限制）",
+        "userAgreementEnabled": "启用用户协议",
+        "privacyPolicyEnabled": "启用隐私政策"
       },
       "configureEmailDomainWhitelist": {
         "title": "配置邮箱域名白名单",
@@ -1293,6 +1329,15 @@
         "newVersion": "新版本",
         "close": "关闭",
         "viewGitHub": "去GitHub查看"
+      },
+      "legalSettings": {
+        "title": "用户协议 / 隐私政策",
+        "userAgreementLabel": "用户协议内容",
+        "userAgreementPlaceholder": "在此输入用户协议内容，支持 HTML & Markdown",
+        "saveUserAgreement": "保存用户协议",
+        "privacyPolicyLabel": "隐私政策内容",
+        "privacyPolicyPlaceholder": "在此输入隐私政策内容，支持 HTML & Markdown",
+        "savePrivacyPolicy": "保存隐私政策"
       }
     }
   },
@@ -1349,6 +1394,16 @@
     "aboutDescription": "可在设置页面设置关于内容，支持 HTML & Markdown",
     "projectRepo": "项目仓库地址："
   },
+  "userAgreement": {
+    "title": "用户协议",
+    "emptyDescription": "管理员尚未配置用户协议内容。",
+    "loadingError": "加载用户协议内容失败..."
+  },
+  "privacyPolicy": {
+    "title": "隐私政策",
+    "emptyDescription": "管理员尚未配置隐私政策内容。",
+    "loadingError": "加载隐私政策内容失败..."
+  },
   "footer": {
     "developedBy": "由",
     "basedOn": "基于",
@@ -1359,6 +1414,7 @@
     "checkUpdates": "检查更新",
     "url": "URL",
     "fetchData": "获取数据",
+    "fetchFromModelsDev": "从 models.dev 获取",
     "noUpdates": "无更新",
     "newModels": "新增模型",
     "priceChangeModels": "价格变动模型(仅供参考)",
@@ -1381,6 +1437,12 @@
     "extraRatiosChanged": "扩展倍率变化",
     "extraRatiosChanges": "扩展倍率变动",
     "extraRatiosChangesTip": "扩展倍率变动：{{changes}}",
+    "longContextAdded": "新增长上下文分档",
+    "longContextRemoved": "删除长上下文分档",
+    "longContextChanged": "长上下文分档变化",
+    "longContextThreshold": "阈值",
+    "longContextInput": "输入倍率",
+    "longContextOutput": "输出倍率",
     "added": "新增",
     "removed": "删除",
     "modified": "修改"
@@ -1436,6 +1498,7 @@
     "actions": "操作",
     "total": "总数",
     "noDataAvailable": "没有数据可用",
+    "noSearchResults": "没有匹配的搜索结果",
     "loading": "加载中...",
     "quotaInput": {
       "equivalentTokens": "≈ {{tokens}} tokens",
@@ -1594,6 +1657,11 @@
     "promptRatio": "提示倍率",
     "completionRatio": "完成倍率",
     "noAvailableRatios": "没有可用的扩展倍率",
+    "longContext": "长上下文分档",
+    "longContextThreshold": "阈值(tokens)",
+    "longContextInputRatio": "输入倍率",
+    "longContextOutputRatio": "输出倍率",
+    "longContextHelp": "输入 token 超过阈值时，整次请求按上述倍率计费；阈值留空或为 0 表示不启用。",
     "delMultipleInfoTip": "确定删除所选的 {{count}} 个价格吗？"
   },
   "redemption_edit": {

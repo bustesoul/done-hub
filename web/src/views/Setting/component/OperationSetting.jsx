@@ -12,6 +12,7 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  Divider,
   FormControl,
   FormControlLabel,
   Grid,
@@ -50,6 +51,7 @@ const OperationSetting = () => {
     QuotaForInvitee: 0,
     InviterRewardType: 'fixed',
     InviterRewardValue: 0,
+    QuotaRemindEnabled: 'true',
     QuotaRemindThreshold: 0,
     PreConsumedQuota: 0,
     TopUpLink: '',
@@ -63,6 +65,8 @@ const OperationSetting = () => {
     ChannelDisableThreshold: 0,
     LogConsumeEnabled: 'true',
     LogErrorEnabled: 'true',
+    LogAutoDeleteEnabled: 'false',
+    LogAutoDeleteDays: 30,
     DisplayInCurrencyEnabled: 'false',
     DisplayTokenStatEnabled: 'false',
     ApproximateTokenEnabled: 'false',
@@ -532,8 +536,14 @@ const OperationSetting = () => {
   return (
     <Stack spacing={2}>
       <SubCard title={t('setting_index.operationSettings.generalSettings.title')}>
-        <Stack justifyContent="flex-start" alignItems="flex-start" spacing={2}>
-          <Stack direction={{ sm: 'column', md: 'row' }} spacing={{ xs: 3, sm: 2, md: 4 }}>
+        <Grid container spacing={{ xs: 3, sm: 2, md: 4 }}>
+          {/* 链接与计费 */}
+          <Grid item xs={12}>
+            <Typography variant="subtitle1" color="textSecondary" sx={{ mb: 1 }}>
+              {t('setting_index.operationSettings.generalSettings.subGroups.linkAndBilling')}
+            </Typography>
+          </Grid>
+          <Grid item xs={12} sm={6} md={4}>
             <FormControl fullWidth>
               <InputLabel htmlFor="TopUpLink">{t('setting_index.operationSettings.generalSettings.topUpLink.label')}</InputLabel>
               <OutlinedInput
@@ -546,6 +556,8 @@ const OperationSetting = () => {
                 disabled={loading}
               />
             </FormControl>
+          </Grid>
+          <Grid item xs={12} sm={6} md={4}>
             <FormControl fullWidth>
               <InputLabel htmlFor="ChatLink">{t('setting_index.operationSettings.generalSettings.chatLink.label')}</InputLabel>
               <OutlinedInput
@@ -558,6 +570,8 @@ const OperationSetting = () => {
                 disabled={loading}
               />
             </FormControl>
+          </Grid>
+          <Grid item xs={12} sm={6} md={4}>
             <FormControl fullWidth>
               <InputLabel htmlFor="QuotaPerUnit">{t('setting_index.operationSettings.generalSettings.quotaPerUnit.label')}</InputLabel>
               <OutlinedInput
@@ -570,6 +584,16 @@ const OperationSetting = () => {
                 disabled={loading}
               />
             </FormControl>
+          </Grid>
+
+          {/* 重试策略 */}
+          <Grid item xs={12}>
+            <Divider sx={{ my: 1 }} />
+            <Typography variant="subtitle1" color="textSecondary" sx={{ mb: 1, mt: 2 }}>
+              {t('setting_index.operationSettings.generalSettings.subGroups.retry')}
+            </Typography>
+          </Grid>
+          <Grid item xs={12} sm={6} md={4}>
             <FormControl fullWidth>
               <InputLabel htmlFor="RetryTimes">{t('setting_index.operationSettings.generalSettings.retryTimes.label')}</InputLabel>
               <OutlinedInput
@@ -582,6 +606,8 @@ const OperationSetting = () => {
                 disabled={loading}
               />
             </FormControl>
+          </Grid>
+          <Grid item xs={12} sm={6} md={4}>
             <FormControl fullWidth>
               <InputLabel htmlFor="RetryCooldownSeconds">
                 {t('setting_index.operationSettings.generalSettings.retryCooldownSeconds.label')}
@@ -621,6 +647,8 @@ const OperationSetting = () => {
                 }
               />
             </FormControl>
+          </Grid>
+          <Grid item xs={12} sm={6} md={4}>
             <FormControl fullWidth>
               <InputLabel htmlFor="RetryTimeOut">{t('setting_index.operationSettings.generalSettings.retryTimeOut.label')}</InputLabel>
               <OutlinedInput
@@ -633,8 +661,16 @@ const OperationSetting = () => {
                 disabled={loading}
               />
             </FormControl>
-          </Stack>
-          <Stack direction={{ sm: 'column', md: 'row' }} spacing={{ xs: 3, sm: 2, md: 4 }}>
+          </Grid>
+
+          {/* 上游错误处理 */}
+          <Grid item xs={12}>
+            <Divider sx={{ my: 1 }} />
+            <Typography variant="subtitle1" color="textSecondary" sx={{ mb: 1, mt: 2 }}>
+              {t('setting_index.operationSettings.generalSettings.subGroups.upstreamError')}
+            </Typography>
+          </Grid>
+          <Grid item xs={12} sm={12} md={4}>
             <Tooltip
               title={t('setting_index.operationSettings.generalSettings.channelFailErrorWrapEnabledTooltip')}
               placement="top"
@@ -654,6 +690,8 @@ const OperationSetting = () => {
                 }
               />
             </Tooltip>
+          </Grid>
+          <Grid item xs={12} md={8}>
             <FormControl fullWidth>
               <InputLabel htmlFor="ChannelFailErrorMessage">
                 {t('setting_index.operationSettings.generalSettings.channelFailErrorMessage.label')}
@@ -668,13 +706,16 @@ const OperationSetting = () => {
                 disabled={!dataLoaded || loading || inputs.ChannelFailErrorWrapEnabled !== 'true'}
               />
             </FormControl>
-          </Stack>
-          <Stack
-            direction={{ sm: 'column', md: 'row' }}
-            spacing={{ xs: 3, sm: 2, md: 4 }}
-            justifyContent="flex-start"
-            alignItems="flex-start"
-          >
+          </Grid>
+
+          {/* 显示与计费选项 */}
+          <Grid item xs={12}>
+            <Divider sx={{ my: 1 }} />
+            <Typography variant="subtitle1" color="textSecondary" sx={{ mb: 1, mt: 2 }}>
+              {t('setting_index.operationSettings.generalSettings.subGroups.displayOptions')}
+            </Typography>
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
             <FormControlLabel
               sx={{ marginLeft: '0px' }}
               label={t('setting_index.operationSettings.generalSettings.displayInCurrency')}
@@ -687,8 +728,10 @@ const OperationSetting = () => {
                 />
               }
             />
-
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
             <FormControlLabel
+              sx={{ marginLeft: '0px' }}
               label={t('setting_index.operationSettings.generalSettings.displayTokenStat')}
               control={
                 <Checkbox
@@ -699,8 +742,10 @@ const OperationSetting = () => {
                 />
               }
             />
-
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
             <FormControlLabel
+              sx={{ marginLeft: '0px' }}
               label={t('setting_index.operationSettings.generalSettings.approximateToken')}
               control={
                 <Checkbox
@@ -711,7 +756,10 @@ const OperationSetting = () => {
                 />
               }
             />
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
             <FormControlLabel
+              sx={{ marginLeft: '0px' }}
               label={t('setting_index.operationSettings.generalSettings.emptyResponseBilling')}
               control={
                 <Checkbox
@@ -722,6 +770,8 @@ const OperationSetting = () => {
                 />
               }
             />
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
             <Tooltip
               title={t('setting_index.operationSettings.generalSettings.unifiedRequestResponseModelTooltip')}
               placement="top"
@@ -729,6 +779,7 @@ const OperationSetting = () => {
               arrow
             >
               <FormControlLabel
+                sx={{ marginLeft: '0px' }}
                 label={t('setting_index.operationSettings.generalSettings.unifiedRequestResponseModel')}
                 control={
                   <Checkbox
@@ -740,6 +791,8 @@ const OperationSetting = () => {
                 }
               />
             </Tooltip>
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
             <Tooltip
               title={t('setting_index.operationSettings.generalSettings.modelNameCaseInsensitiveTooltip')}
               placement="top"
@@ -747,6 +800,7 @@ const OperationSetting = () => {
               arrow
             >
               <FormControlLabel
+                sx={{ marginLeft: '0px' }}
                 label={t('setting_index.operationSettings.generalSettings.modelNameCaseInsensitive')}
                 control={
                   <Checkbox
@@ -758,25 +812,23 @@ const OperationSetting = () => {
                 }
               />
             </Tooltip>
-          </Stack>
-          <Button
-            variant="contained"
-            onClick={() => {
-              submitConfig('general').then();
-            }}
-          >
-            {t('setting_index.operationSettings.generalSettings.saveButton')}
-          </Button>
-        </Stack>
+          </Grid>
+
+          <Grid item xs={12}>
+            <Button
+              variant="contained"
+              onClick={() => {
+                submitConfig('general').then();
+              }}
+            >
+              {t('setting_index.operationSettings.generalSettings.saveButton')}
+            </Button>
+          </Grid>
+        </Grid>
       </SubCard>
       <SubCard title={t('setting_index.operationSettings.otherSettings.title')}>
-        <Stack justifyContent="flex-start" alignItems="flex-start" spacing={2}>
-          <Stack
-            direction={{ sm: 'column', md: 'row' }}
-            spacing={{ xs: 3, sm: 2, md: 4 }}
-            justifyContent="flex-start"
-            alignItems="flex-start"
-          >
+        <Grid container spacing={{ xs: 3, sm: 2, md: 4 }}>
+          <Grid item xs={12} sm={6} md={3}>
             <FormControlLabel
               sx={{ marginLeft: '0px' }}
               label={t('setting_index.operationSettings.otherSettings.mjNotify')}
@@ -789,6 +841,8 @@ const OperationSetting = () => {
                 />
               }
             />
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
             <FormControlLabel
               sx={{ marginLeft: '0px' }}
               label={t('setting_index.operationSettings.otherSettings.claudeAPIEnabled')}
@@ -801,6 +855,8 @@ const OperationSetting = () => {
                 />
               }
             />
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
             <FormControlLabel
               sx={{ marginLeft: '0px' }}
               label={t('setting_index.operationSettings.otherSettings.geminiAPIEnabled')}
@@ -813,10 +869,13 @@ const OperationSetting = () => {
                 />
               }
             />
-          </Stack>
-          <Stack spacing={2}>
+          </Grid>
+
+          <Grid item xs={12}>
             <Alert severity="info">{t('setting_index.operationSettings.otherSettings.alert')}</Alert>
-            <FormControl>
+          </Grid>
+          <Grid item xs={12} sm={6} md={4}>
+            <FormControl fullWidth>
               <InputLabel htmlFor="ChatImageRequestProxy">
                 {t('setting_index.operationSettings.otherSettings.chatImageRequestProxy.label')}
               </InputLabel>
@@ -830,11 +889,13 @@ const OperationSetting = () => {
                 disabled={loading}
               />
             </FormControl>
-          </Stack>
+          </Grid>
 
-          <Stack spacing={2}>
+          <Grid item xs={12}>
             <Alert severity="info">{t('setting_index.operationSettings.otherSettings.CFWorkerImageUrl.alert')}</Alert>
-            <FormControl>
+          </Grid>
+          <Grid item xs={12} sm={6} md={6}>
+            <FormControl fullWidth>
               <InputLabel htmlFor="CFWorkerImageUrl">
                 {t('setting_index.operationSettings.otherSettings.CFWorkerImageUrl.label')}
               </InputLabel>
@@ -848,8 +909,9 @@ const OperationSetting = () => {
                 disabled={loading}
               />
             </FormControl>
-
-            <FormControl>
+          </Grid>
+          <Grid item xs={12} sm={6} md={6}>
+            <FormControl fullWidth>
               <InputLabel htmlFor="CFWorkerImageKey">{t('setting_index.operationSettings.otherSettings.CFWorkerImageUrl.key')}</InputLabel>
               <OutlinedInput
                 id="CFWorkerImageKey"
@@ -861,70 +923,122 @@ const OperationSetting = () => {
                 disabled={loading}
               />
             </FormControl>
-          </Stack>
-          <Button
-            variant="contained"
-            onClick={() => {
-              submitConfig('other').then();
-            }}
-          >
-            {t('setting_index.operationSettings.otherSettings.saveButton')}
-          </Button>
-        </Stack>
+          </Grid>
+
+          <Grid item xs={12}>
+            <Button
+              variant="contained"
+              onClick={() => {
+                submitConfig('other').then();
+              }}
+            >
+              {t('setting_index.operationSettings.otherSettings.saveButton')}
+            </Button>
+          </Grid>
+        </Grid>
       </SubCard>
       <SubCard title={t('setting_index.operationSettings.logSettings.title')}>
-        <Stack direction="column" justifyContent="flex-start" alignItems="flex-start" spacing={2}>
-          <FormControlLabel
-            label={t('setting_index.operationSettings.logSettings.logConsume')}
-            control={
-              <Checkbox
-                checked={dataLoaded ? inputs.LogConsumeEnabled === 'true' : false}
-                onChange={handleInputChange}
-                name="LogConsumeEnabled"
-                disabled={!dataLoaded || loading}
-              />
-            }
-          />
-          <FormControlLabel
-            label={t('setting_index.operationSettings.logSettings.logError')}
-            control={
-              <Checkbox
-                checked={dataLoaded ? inputs.LogErrorEnabled === 'true' : false}
-                onChange={handleInputChange}
-                name="LogErrorEnabled"
-                disabled={!dataLoaded || loading}
-              />
-            }
-          />
-          <FormControl>
-            <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale={'zh-cn'}>
-              <DateTimePicker
-                label={t('setting_index.operationSettings.logSettings.logCleanupTime.label')}
-                placeholder={t('setting_index.operationSettings.logSettings.logCleanupTime.placeholder')}
-                ampm={false}
-                name="historyTimestamp"
-                value={historyTimestamp === null ? null : dayjs.unix(historyTimestamp)}
-                disabled={loading}
-                onChange={(newValue) => {
-                  setHistoryTimestamp(newValue === null ? null : newValue.unix());
-                }}
-                slotProps={{
-                  actionBar: {
-                    actions: ['today', 'clear', 'accept']
+        <Grid container spacing={{ xs: 3, sm: 2, md: 4 }} alignItems="center">
+          <Grid item xs={12} sm={6} md={3}>
+            <FormControlLabel
+              sx={{ marginLeft: '0px' }}
+              label={t('setting_index.operationSettings.logSettings.logConsume')}
+              control={
+                <Checkbox
+                  checked={dataLoaded ? inputs.LogConsumeEnabled === 'true' : false}
+                  onChange={handleInputChange}
+                  name="LogConsumeEnabled"
+                  disabled={!dataLoaded || loading}
+                />
+              }
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <FormControlLabel
+              sx={{ marginLeft: '0px' }}
+              label={t('setting_index.operationSettings.logSettings.logError')}
+              control={
+                <Checkbox
+                  checked={dataLoaded ? inputs.LogErrorEnabled === 'true' : false}
+                  onChange={handleInputChange}
+                  name="LogErrorEnabled"
+                  disabled={!dataLoaded || loading}
+                />
+              }
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <FormControlLabel
+              sx={{ marginLeft: '0px' }}
+              label={t('setting_index.operationSettings.logSettings.autoDelete')}
+              control={
+                <Checkbox
+                  checked={dataLoaded ? inputs.LogAutoDeleteEnabled === 'true' : false}
+                  onChange={handleInputChange}
+                  name="LogAutoDeleteEnabled"
+                  disabled={!dataLoaded || loading}
+                />
+              }
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={4}>
+            <FormControl fullWidth>
+              <TextField
+                type="number"
+                label={t('setting_index.operationSettings.logSettings.autoDeleteDays')}
+                name="LogAutoDeleteDays"
+                value={inputs.LogAutoDeleteDays}
+                onChange={handleTextFieldChange}
+                onBlur={async () => {
+                  if (originInputs['LogAutoDeleteDays'] !== inputs.LogAutoDeleteDays) {
+                    try {
+                      await updateOption('LogAutoDeleteDays', inputs.LogAutoDeleteDays);
+                      showSuccess('设置成功！');
+                    } catch (error) {
+                      showError(error.message || '设置失败');
+                    }
                   }
                 }}
+                disabled={!dataLoaded || loading}
               />
-            </LocalizationProvider>
-          </FormControl>
-          <Button
-            variant="contained"
-            onClick={() => {
-              deleteHistoryLogs().then();
-            }}
-          >
-            {t('setting_index.operationSettings.logSettings.clearLogs')}
-          </Button>
-        </Stack>
+            </FormControl>
+          </Grid>
+
+          <Grid item xs={12} sm={6} md={4}>
+            <FormControl fullWidth>
+              <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale={'zh-cn'}>
+                <DateTimePicker
+                  label={t('setting_index.operationSettings.logSettings.logCleanupTime.label')}
+                  placeholder={t('setting_index.operationSettings.logSettings.logCleanupTime.placeholder')}
+                  ampm={false}
+                  name="historyTimestamp"
+                  value={historyTimestamp === null ? null : dayjs.unix(historyTimestamp)}
+                  disabled={loading}
+                  onChange={(newValue) => {
+                    setHistoryTimestamp(newValue === null ? null : newValue.unix());
+                  }}
+                  slotProps={{
+                    textField: { fullWidth: true },
+                    actionBar: {
+                      actions: ['today', 'clear', 'accept']
+                    }
+                  }}
+                />
+              </LocalizationProvider>
+            </FormControl>
+          </Grid>
+
+          <Grid item xs={12}>
+            <Button
+              variant="contained"
+              onClick={() => {
+                deleteHistoryLogs().then();
+              }}
+            >
+              {t('setting_index.operationSettings.logSettings.clearLogs')}
+            </Button>
+          </Grid>
+        </Grid>
       </SubCard>
 
       {siteInfo.UserInvoiceMonth && (
@@ -990,8 +1104,8 @@ const OperationSetting = () => {
       )}
 
       <SubCard title={t('setting_index.operationSettings.monitoringSettings.title')}>
-        <Stack justifyContent="flex-start" alignItems="flex-start" spacing={2}>
-          <Stack direction={{ sm: 'column', md: 'row' }} spacing={{ xs: 3, sm: 2, md: 4 }}>
+        <Grid container spacing={{ xs: 3, sm: 2, md: 4 }}>
+          <Grid item xs={12} sm={6} md={6}>
             <FormControl fullWidth>
               <InputLabel htmlFor="ChannelDisableThreshold">
                 {t('setting_index.operationSettings.monitoringSettings.channelDisableThreshold.label')}
@@ -1007,64 +1121,87 @@ const OperationSetting = () => {
                 disabled={loading}
               />
             </FormControl>
-            <FormControl fullWidth>
-              <InputLabel htmlFor="QuotaRemindThreshold">
-                {t('setting_index.operationSettings.monitoringSettings.quotaRemindThreshold.label')}
-              </InputLabel>
-              <OutlinedInput
-                id="QuotaRemindThreshold"
-                name="QuotaRemindThreshold"
-                type="number"
-                value={inputs.QuotaRemindThreshold}
-                onChange={handleInputChange}
-                label={t('setting_index.operationSettings.monitoringSettings.quotaRemindThreshold.label')}
-                placeholder={t('setting_index.operationSettings.monitoringSettings.quotaRemindThreshold.placeholder')}
-                disabled={loading}
-              />
-            </FormControl>
-          </Stack>
-          <FormControlLabel
-            label={t('setting_index.operationSettings.monitoringSettings.automaticDisableChannel')}
-            control={
-              <Checkbox
-                checked={dataLoaded ? inputs.AutomaticDisableChannelEnabled === 'true' : false}
-                onChange={handleInputChange}
-                name="AutomaticDisableChannelEnabled"
-                disabled={!dataLoaded || loading}
-              />
-            }
-          />
-          <FormControlLabel
-            label={t('setting_index.operationSettings.monitoringSettings.automaticEnableChannel')}
-            control={
-              <Checkbox
-                checked={dataLoaded ? inputs.AutomaticEnableChannelEnabled === 'true' : false}
-                onChange={handleInputChange}
-                name="AutomaticEnableChannelEnabled"
-                disabled={!dataLoaded || loading}
-              />
-            }
-          />
-          <FormControlLabel
-            label={t('setting_index.operationSettings.monitoringSettings.automaticDisableChannelNotify')}
-            control={
-              <Checkbox
-                checked={dataLoaded ? inputs.AutomaticDisableChannelNotifyEnabled === 'true' : false}
-                onChange={handleInputChange}
-                name="AutomaticDisableChannelNotifyEnabled"
-                disabled={!dataLoaded || loading}
-              />
-            }
-          />
-          <Button
-            variant="contained"
-            onClick={() => {
-              submitConfig('monitor').then();
-            }}
-          >
-            {t('setting_index.operationSettings.monitoringSettings.saveMonitoringSettings')}
-          </Button>
-        </Stack>
+          </Grid>
+          <Grid item xs={12} sm={6} md={6}>
+            <QuotaInput
+              id="QuotaRemindThreshold"
+              name="QuotaRemindThreshold"
+              label={t('setting_index.operationSettings.monitoringSettings.quotaRemindThreshold.label')}
+              placeholder={t('setting_index.operationSettings.monitoringSettings.quotaRemindThreshold.placeholder')}
+              value={inputs.QuotaRemindThreshold}
+              onChange={handleInputChange}
+              disabled={loading}
+            />
+          </Grid>
+
+          <Grid item xs={12} sm={6} md={3}>
+            <FormControlLabel
+              sx={{ marginLeft: '0px' }}
+              label={t('setting_index.operationSettings.monitoringSettings.automaticDisableChannel')}
+              control={
+                <Checkbox
+                  checked={dataLoaded ? inputs.AutomaticDisableChannelEnabled === 'true' : false}
+                  onChange={handleInputChange}
+                  name="AutomaticDisableChannelEnabled"
+                  disabled={!dataLoaded || loading}
+                />
+              }
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <FormControlLabel
+              sx={{ marginLeft: '0px' }}
+              label={t('setting_index.operationSettings.monitoringSettings.automaticEnableChannel')}
+              control={
+                <Checkbox
+                  checked={dataLoaded ? inputs.AutomaticEnableChannelEnabled === 'true' : false}
+                  onChange={handleInputChange}
+                  name="AutomaticEnableChannelEnabled"
+                  disabled={!dataLoaded || loading}
+                />
+              }
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <FormControlLabel
+              sx={{ marginLeft: '0px' }}
+              label={t('setting_index.operationSettings.monitoringSettings.automaticDisableChannelNotify')}
+              control={
+                <Checkbox
+                  checked={dataLoaded ? inputs.AutomaticDisableChannelNotifyEnabled === 'true' : false}
+                  onChange={handleInputChange}
+                  name="AutomaticDisableChannelNotifyEnabled"
+                  disabled={!dataLoaded || loading}
+                />
+              }
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <FormControlLabel
+              sx={{ marginLeft: '0px' }}
+              label={t('setting_index.operationSettings.monitoringSettings.quotaRemindEnabled')}
+              control={
+                <Checkbox
+                  checked={dataLoaded ? inputs.QuotaRemindEnabled === 'true' : false}
+                  onChange={handleInputChange}
+                  name="QuotaRemindEnabled"
+                  disabled={!dataLoaded || loading}
+                />
+              }
+            />
+          </Grid>
+
+          <Grid item xs={12}>
+            <Button
+              variant="contained"
+              onClick={() => {
+                submitConfig('monitor').then();
+              }}
+            >
+              {t('setting_index.operationSettings.monitoringSettings.saveMonitoringSettings')}
+            </Button>
+          </Grid>
+        </Grid>
       </SubCard>
       <SubCard title={t('setting_index.operationSettings.quotaSettings.title')}>
         <Stack justifyContent="flex-start" alignItems="flex-start" spacing={2}>

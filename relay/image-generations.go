@@ -2,6 +2,7 @@ package relay
 
 import (
 	"done-hub/common"
+	"done-hub/common/config"
 	providersBase "done-hub/providers/base"
 	"done-hub/types"
 	"errors"
@@ -14,6 +15,21 @@ import (
 type relayImageGenerations struct {
 	relayBase
 	request types.ImageRequest
+}
+
+// MaxImageN 单次请求允许的最大图片数量。用户可控的 n / sampleCount 作为
+// 计费与上游请求的乘数,必须有上界,防止超大值溢出或滥用(纵深防御)。
+const MaxImageN = 64
+
+// clampImageN 把图片数量钳制到 [1, MaxImageN]。
+func clampImageN(n int) int {
+	if n < 1 {
+		return 1
+	}
+	if n > MaxImageN {
+		return MaxImageN
+	}
+	return n
 }
 
 func newRelayImageGenerations(c *gin.Context) *relayImageGenerations {
@@ -41,6 +57,7 @@ func (r *relayImageGenerations) setRequest() error {
 	if r.request.N == 0 {
 		r.request.N = 1
 	}
+	r.request.N = clampImageN(r.request.N)
 
 	if strings.HasPrefix(r.request.Model, "dall-e") {
 		if r.request.Size == "" {
@@ -101,6 +118,13 @@ func (r *relayImageGenerations) setGeminiRequest() error {
 		switch key {
 		case "sampleCount":
 			if sampleCount, ok := value.(float64); ok {
+				// 先在 float 域钳到安全区间,避免超大 float 转 int 时结果
+				// 实现相关(Go 规范)而绕过下方 clampImageN。
+				if sampleCount < 1 {
+					sampleCount = 1
+				} else if sampleCount > float64(MaxImageN) {
+					sampleCount = float64(MaxImageN)
+				}
 				r.request.N = int(sampleCount)
 			}
 		case "aspectRatio":
@@ -116,6 +140,7 @@ func (r *relayImageGenerations) setGeminiRequest() error {
 	if r.request.N == 0 {
 		r.request.N = 1
 	}
+	r.request.N = clampImageN(r.request.N)
 
 	r.setOriginalModel(r.request.Model)
 
@@ -136,6 +161,10 @@ func (r *relayImageGenerations) send() (err *types.OpenAIErrorWithStatusCode, do
 	}
 
 	r.request.Model = r.modelName
+
+	// 入口协议 == images 且响应原样直返：放行 provider 字节透传，
+	// 保留上游 usage.output_tokens_details.image_tokens/text_tokens 等未知字段。
+	r.c.Set(config.GinRawPassThroughAllowedKey, true)
 
 	response, err := provider.CreateImageGenerations(&r.request)
 	if err != nil {

@@ -632,6 +632,16 @@ const typeConfig = {
       base_url: ''
     },
     modelGroup: 'OpenAI'
+  },
+  63: {
+    input: {
+      models: ['claude-opus-4-8', 'claude-sonnet-5', 'claude-opus-4-7', 'claude-haiku-4-5', 'claude-fable-5'],
+      test_model: 'claude-haiku-4-5'
+    },
+    prompt: {
+      key: '按照如下格式输入：Region|AccessKeyID|SecretAccessKey|SessionToken 其中SessionToken可不填空；或 Region|BearerToken'
+    },
+    modelGroup: 'Anthropic'
   }
 }
 

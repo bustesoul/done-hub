@@ -26,6 +26,7 @@
     "checkUpdates": "檢查更新",
     "dataFormatIncorrect": "數據格式不正確",
     "fetchData": "獲取數據",
+    "fetchFromModelsDev": "從 models.dev 獲取",
     "inputMultiplierChanged": "輸入倍率由",
     "newModels": "新增模型",
     "noNewModels": "沒有新增模型",
@@ -49,6 +50,12 @@
     "extraRatiosChanges": "擴展倍率變動",
     "extraRatiosChangesTip": "擴展倍率變動：{{changes}}",
     "extraRatiosRemoved": "刪除擴展倍率",
+    "longContextAdded": "新增長上下文分檔",
+    "longContextRemoved": "刪除長上下文分檔",
+    "longContextChanged": "長上下文分檔變化",
+    "longContextThreshold": "閾值",
+    "longContextInput": "輸入倍率",
+    "longContextOutput": "輸出倍率",
     "modified": "修改",
     "removed": "刪除"
   },
@@ -62,6 +69,16 @@
     "aboutTitle": "關於",
     "loadingError": "加載關於內容失敗...",
     "projectRepo": "項目倉庫地址："
+  },
+  "userAgreement": {
+    "title": "用戶協議",
+    "emptyDescription": "管理員尚未配置用戶協議內容。",
+    "loadingError": "加載用戶協議內容失敗..."
+  },
+  "privacyPolicy": {
+    "title": "隱私政策",
+    "emptyDescription": "管理員尚未配置隱私政策內容。",
+    "loadingError": "加載隱私政策內容失敗..."
   },
   "alloy 映射": "alloy 映射",
   "analytics": "分析",
@@ -99,7 +116,8 @@
     "tpmDescription": "TPM (Token/分鐘)",
     "cpmDescription": "CPM",
     "ppmDescription": "PPM",
-    "last60SecondsStats": "最近60秒統計"
+    "last60SecondsStats": "最近60秒統計",
+    "autoRefresh": "自動"
   },
   "auth": {
     "invalidLink": "無效的鏈接",
@@ -414,6 +432,7 @@
     "action": "操作",
     "actions": "操作",
     "noDataAvailable": "冇數據可用",
+    "noSearchResults": "冇符合嘅搜尋結果",
     "pageSize": "每頁條數",
     "search": "搜尋",
     "searchFilters": "搜尋條件",
@@ -662,6 +681,7 @@
       "groupRatio": "分組倍率",
       "groupRatioValue": "分組倍率",
       "serviceTierRatioValue": "服務等級倍率",
+      "longContextRatio": "長上下文倍率",
       "actualPrice": "實際價格",
       "input": "輸入",
       "output": "輸出",
@@ -676,7 +696,8 @@
     "cachedReadTokens": "緩存讀取Tokens (* {{ ratio }})",
     "reasoningTokens": "推理Tokens (* {{ ratio }})",
     "cachedWriteTokens": "緩存寫入 Tokens (* {{ ratio }})",
-    "cachedWrite1hTokens": "緩存寫入(1h) Tokens (* {{ ratio }})"
+    "cachedWrite1hTokens": "緩存寫入(1h) Tokens (* {{ ratio }})",
+    "openaiCacheWriteTokens": "緩存寫入 Tokens(OpenAI) (* {{ ratio }})"
   },
   "login": {
     "codeRequired": "驗證碼不能為空",
@@ -711,7 +732,9 @@
     "signout": "登出",
     "signup": "註冊",
     "unknownVersion": "未知版本",
-    "welcomeBack": "歡迎回來"
+    "welcomeBack": "歡迎回來",
+    "userAgreement": "用戶協議",
+    "privacyPolicy": "隱私政策"
   },
   "midjourneyPage": {
     "channel": "渠道",
@@ -759,6 +782,7 @@
     "cached_write_tokens": "快取寫入倍率",
     "cached_write_1h_tokens": "快取寫入(1h)倍率",
     "cached_read_tokens": "快取讀取倍率",
+    "openai_cache_write_tokens": "OpenAI快取寫入倍率",
     "reasoning_tokens": "推理倍率",
     "input_text_tokens": "輸入文本倍率",
     "output_text_tokens": "輸出文本倍率",
@@ -786,6 +810,10 @@
     "priceDetails": "價格明細",
     "priceNote": "不同分組,對應的價格也隨之不同,渠道組需要在令牌管理中切換。",
     "otherInfo": "其他資訊",
+    "longContext": "長上下文計費",
+    "shortContext": "短上下文",
+    "longContextLabel": "長上下文",
+    "longContextDesc": "輸入超過 {{threshold}} tokens 時，整次請求按長上下文價格計費。",
     "totalModels": "共 {{count}} 個模型",
     "noModelsFound": "未找到匹配的模型",
     "noModelsFoundTip": "請嘗試調整篩選條件或搜索關鍵詞",
@@ -894,10 +922,11 @@
     "currencyInfo5": "例如",
     "currencyInfo6": "：gpt-4 輸入： $0.03 / 1K tokens 完成：$0.06 / 1K tokens",
     "currencyInfo7": "0.03 / 0.002 = 15, 0.06 / 0.002 = 30，即輸入倍率為 15，完成倍率為 30",
-    "errPricesWarning": "存在供應商類型錯誤的模型，請及時配置：",
+    "errPricesWarning": "存在供應商類型錯誤的模型，請及時配置",
+    "modelCountLabel": "共 {{count}} 個",
     "multipleOperation": "合併操作",
     "newButton": "新建",
-    "noPriceModelWarning": "存在未配置價格的模型，請及時配置價格：",
+    "noPriceModelWarning": "存在未配置價格的模型，請及時配置價格",
     "refreshButton": "刷新",
     "singleOperation": "單條操作",
     "updatePricesButton": "更新價格",
@@ -933,10 +962,16 @@
     "lockedTip": "價格鎖定後無法通過價格更新伺服器和程序覆蓋。如果您所配置的價格希望隨程序或價格伺服器同步更新，請勿鎖定",
     "completionRatio": "完成倍率",
     "delMultipleInfoTip": "確定刪除所選的 {{count}} 個價格嗎？",
+    "extraRatios": "額外擴展倍率",
     "noAvailableRatios": "冇可用嘅擴展倍率",
     "noExtraRatios": "暫無額外擴展倍率，請從下拉框選擇添加",
     "promptRatio": "提示倍率",
-    "selectExtraRatio": "選擇擴展倍率"
+    "selectExtraRatio": "選擇擴展倍率",
+    "longContext": "長上下文分檔",
+    "longContextThreshold": "閾值(tokens)",
+    "longContextInputRatio": "輸入倍率",
+    "longContextOutputRatio": "輸出倍率",
+    "longContextHelp": "輸入 token 超過閾值時，整次請求按上述倍率計費；閾值留空或為 0 表示不啟用。"
   },
   "profile": "個人設定",
   "profilePage": {
@@ -949,6 +984,10 @@
     "displayName": "顯示名稱",
     "generateToken": "生成訪問令牌",
     "inputDisplayNamePlaceholder": "請輸入顯示名稱",
+    "quotaRemindEnabled": "接收額度提醒郵件",
+    "quotaRemindThreshold": "額度提醒閾值",
+    "quotaRemindThresholdPlaceholder": "剩餘額度低於此值時郵件提醒，填 0 表示僅在額度用盡時提醒",
+    "quotaRemindThresholdDefault": "留空使用系統預設：{{default}}",
     "inputPasswordPlaceholder": "請輸入密碼",
     "inputUsernamePlaceholder": "請輸入用戶名",
     "keepSafe": "請妥善保管。如有洩漏，請立即重置。",
@@ -1040,7 +1079,17 @@
     "usernameRequired": "用戶名是必填項",
     "validEmailRequired": "必須是有效的電郵地址",
     "verificationCodeRequired": "驗證碼是必填項",
-    "verificationInfo": "請稍後幾秒重試，Turnstile 正在檢查用戶環境！"
+    "verificationInfo": "請稍後幾秒重試，Turnstile 正在檢查用戶環境！",
+    "agreementRequired": "請先閱讀並勾選同意相關協議",
+    "agreementPrefix": "我已閱讀並同意",
+    "userAgreement": "用戶協議",
+    "privacyPolicy": "隱私政策",
+    "agreementAnd": "和"
+  },
+  "legalConsentDialog": {
+    "title": "協議更新",
+    "description": "相關協議已更新，請閱讀並同意後繼續使用。",
+    "button": "同意並繼續"
   },
   "registerPage": {
     "alreadyHaveAccount": "已經有帳號了? 點擊登入"
@@ -1144,6 +1193,7 @@
           "label": "額度提醒閾值",
           "placeholder": "低於此額度時將發送郵件提醒用戶"
         },
+        "quotaRemindEnabled": "啟用額度提醒郵件",
         "saveMonitoringSettings": "保存監控設置",
         "title": "監控設置"
       },
@@ -1297,6 +1347,15 @@
         "close": "關閉",
         "newVersion": "新版本",
         "viewGitHub": "去 GitHub 查看"
+      },
+      "legalSettings": {
+        "title": "用戶協議 / 隱私政策",
+        "userAgreementLabel": "用戶協議內容",
+        "userAgreementPlaceholder": "在此輸入用戶協議內容，支持 HTML & Markdown",
+        "saveUserAgreement": "保存用戶協議",
+        "privacyPolicyLabel": "隱私政策內容",
+        "privacyPolicyPlaceholder": "在此輸入隱私政策內容，支持 HTML & Markdown",
+        "savePrivacyPolicy": "保存隱私政策"
       }
     },
     "systemSettings": {
@@ -1357,7 +1416,9 @@
         "thirdPartyLogin": "第三方登錄",
         "turnstileCheck": "啟用 Turnstile 用戶校驗",
         "weChatAuth": "允許通過微信登錄 & 註冊",
-        "gitHubOldIdClose": "關閉 GitHub 老 ID 登錄"
+        "gitHubOldIdClose": "關閉 GitHub 老 ID 登錄",
+        "userAgreementEnabled": "啟用用戶協議",
+        "privacyPolicyEnabled": "啟用隱私政策"
       },
       "configureOIDCAuthorization": {
         "alert1": "首頁鏈接填",

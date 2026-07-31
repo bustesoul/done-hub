@@ -412,7 +412,60 @@ func unifyResponseModel(c *gin.Context, data interface{}) {
 	}
 }
 
+// applyPassThroughHeaders 把 provider 暂存的上游响应头（Bedrock 的 x-amzn-* /
+// Claude 的 anthropic-ratelimit-* 等）写入下游响应，并把上游 request-id 以
+// X-Upstream-Request-Id 回写。必须在 WriteHeader 之前调用；未暂存对应 key 的渠道无影响。
+func applyPassThroughHeaders(c *gin.Context) {
+	if v, ok := c.Get(config.GinPassThroughHeaders); ok {
+		if headers, ok := v.(http.Header); ok {
+			for name, values := range headers {
+				for _, value := range values {
+					c.Writer.Header().Add(name, value)
+				}
+			}
+		}
+	}
+	if v, ok := c.Get(config.GinUpstreamRequestIdKey); ok {
+		if requestID, ok := v.(string); ok && requestID != "" {
+			c.Writer.Header().Set("X-Upstream-Request-Id", requestID)
+		}
+	}
+}
+
+// writeRawResponseBodyIfPresent 若 provider 暂存了上游原始响应字节，则直接透传，
+// 保留上游的字段顺序 / 未知字段 / model 原名，避免结构体 re-marshal 洗掉指纹。
+// 两个 key 都会同时透传上游响应头（Bedrock x-amzn-* / Claude anthropic-* 等）。
+// 命中并写出时返回 true，调用方应据此提前返回。
+func writeRawResponseBodyIfPresent(c *gin.Context) bool {
+	rawKeys := []string{
+		config.GinBedrockRawResponseBodyKey,
+		config.GinRawResponseBodyKey,
+	}
+	for _, key := range rawKeys {
+		raw, ok := c.Get(key)
+		if !ok {
+			continue
+		}
+		rawBytes, ok := raw.([]byte)
+		if !ok || len(rawBytes) == 0 {
+			continue
+		}
+		applyPassThroughHeaders(c)
+		c.Writer.Header().Set("Content-Type", "application/json")
+		c.Writer.WriteHeader(http.StatusOK)
+		if _, err := c.Writer.Write(rawBytes); err != nil {
+			logger.LogError(c.Request.Context(), "write_response_body_failed:"+err.Error())
+		}
+		return true
+	}
+	return false
+}
+
 func responseJsonClient(c *gin.Context, data interface{}) *types.OpenAIErrorWithStatusCode {
+	if writeRawResponseBodyIfPresent(c) {
+		return nil
+	}
+
 	// 统一改写响应里的 model 字段为用户原始请求模型名（开关开启且存在映射时）
 	unifyResponseModel(c, data)
 
@@ -429,6 +482,8 @@ func responseJsonClient(c *gin.Context, data interface{}) *types.OpenAIErrorWith
 	// Encode 会在末尾添加换行符，需要去掉
 	responseBody := bytes.TrimSuffix(buf.Bytes(), []byte("\n"))
 
+	// 结构体改写分支（有模型映射，未走字节透传）同样透传上游响应头，必须在 WriteHeader 之前。
+	applyPassThroughHeaders(c)
 	c.Writer.Header().Set("Content-Type", "application/json")
 	c.Writer.WriteHeader(http.StatusOK)
 	_, err = c.Writer.Write(responseBody)
@@ -443,6 +498,8 @@ type StreamEndHandler func() string
 
 func responseStreamClient(c *gin.Context, stream requester.StreamReaderInterface[string], endHandler StreamEndHandler) (firstResponseTime time.Time, errWithOP *types.OpenAIErrorWithStatusCode) {
 	requester.SetEventStreamHeaders(c)
+	// 指纹保真：透传上游响应头（OpenAI x-ratelimit-* 等）。必须在首次写入前设置。
+	applyPassThroughHeaders(c)
 	dataChan, errChan := stream.Recv()
 
 	done := make(chan struct{})
@@ -510,6 +567,8 @@ func responseStreamClient(c *gin.Context, stream requester.StreamReaderInterface
 
 func responseGeneralStreamClient(c *gin.Context, stream requester.StreamReaderInterface[string], endHandler StreamEndHandler) (firstResponseTime time.Time) {
 	requester.SetEventStreamHeaders(c)
+	// 指纹保真：透传上游响应头（Bedrock x-amzn-* / Claude anthropic-* 等）。必须在首次写入前设置。
+	applyPassThroughHeaders(c)
 	dataChan, errChan := stream.Recv()
 
 	done := make(chan struct{})
@@ -647,7 +706,7 @@ func shouldRetry(c *gin.Context, apiErr *types.OpenAIErrorWithStatusCode, channe
 
 func shouldRetryBadRequest(c *gin.Context, channelType int, apiErr *types.OpenAIErrorWithStatusCode) bool {
 	switch channelType {
-	case config.ChannelTypeAnthropic:
+	case config.ChannelTypeAnthropic, config.ChannelTypeBedrockMessages:
 		return strings.Contains(apiErr.OpenAIError.Message, "Your credit balance is too low")
 	case config.ChannelTypeBedrock:
 		return strings.Contains(apiErr.OpenAIError.Message, "Operation not allowed")
@@ -666,26 +725,31 @@ func shouldRetryBadRequest(c *gin.Context, channelType int, apiErr *types.OpenAI
 				strings.Contains(msg, "api key expired") {
 				return true
 			}
-			// Gemini 3 thoughtSignature 跨 channel 校验失败：原 channel 签发的签名
-			// 在 retry 到新 channel/key 后无法识别 → 400 INVALID_ARGUMENT
-			// "Thought signature is not valid"。
-			//
-			// 首次撞到（thought_signature_retried 未置）：在此置标志位并返回 true，
-			// 进入 retry 循环，retry 前由 relayGeminiOnly.handleThoughtSignatureFailure
-			// 将请求里的 thoughtSignature 替换为官方哨兵 skip_thought_signature_validator。
-			// 已剥过哨兵还挂说明上游有别的问题，不再死磕。
-			//
-			// 标志位置位由 shouldRetryBadRequest 集中负责（而非 handleX），保证：
-			//   - "决定是否重试" 与 "改写 body" 的责任分离
-			//   - 即使没有 bytes 缓存（如不带签名的请求误命中），也不会因 handleX 走空路径
-			//     而漏置标志位、退化为无限重试
-			if strings.Contains(msg, gemini.ThoughtSignatureInvalidMsg) {
-				if c.GetBool("thought_signature_retried") {
-					return false
-				}
-				c.Set("thought_signature_retried", true)
-				return true
+		}
+		// Gemini 3 thoughtSignature 不可用：客户端 history 携带的签名在当前 channel/account
+		// 上无法校验，上游回 400。文案有多种变体（"Thought signature is not valid" /
+		// "Corrupted thought signature" / …），统一由 gemini.IsThoughtSignatureFailure 判定，
+		// 不再逐字符串硬编码。
+		//
+		// 这里刻意不再要求 Param == "INVALID_ARGUMENT"：不同文案对应的 errorInfo.status
+		// 不完全一致（如 corrupted 一类可能落在别的枚举），而补救手段都相同，因此只以
+		// 消息语义为准；无限重试由 thought_signature_retried 幂等标志兜底。
+		//
+		// 首次撞到（thought_signature_retried 未置）：在此置标志位并返回 true，进入 retry
+		// 循环，retry 前由 relayGeminiOnly.handleThoughtSignatureFailure 将请求里的
+		// thoughtSignature 替换为官方哨兵 skip_thought_signature_validator。已剥过哨兵还挂
+		// 说明上游有别的问题，不再死磕。
+		//
+		// 标志位置位由 shouldRetryBadRequest 集中负责（而非 handleX），保证：
+		//   - "决定是否重试" 与 "改写 body" 的责任分离
+		//   - 即使没有 bytes 缓存（如不带签名的请求误命中），也不会因 handleX 走空路径
+		//     而漏置标志位、退化为无限重试
+		if gemini.IsThoughtSignatureFailure(apiErr.OpenAIError.Message) {
+			if c.GetBool("thought_signature_retried") {
+				return false
 			}
+			c.Set("thought_signature_retried", true)
+			return true
 		}
 		return false
 	}

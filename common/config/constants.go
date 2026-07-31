@@ -49,6 +49,8 @@ var LarkAuthEnabled = false
 var TurnstileCheckEnabled = false
 var RegisterEnabled = true
 var InviteCodeRegisterEnabled = false
+var UserAgreementEnabled = false
+var PrivacyPolicyEnabled = false
 var OIDCAuthEnabled = false
 var LinuxDoOAuthEnabled = false
 var LinuxDoOAuthTrustLevelEnabled = false
@@ -157,6 +159,8 @@ var MemoryCacheEnabled = false
 var LogConsumeEnabled = true
 
 var LogErrorEnabled = true
+var LogAutoDeleteEnabled = false // 是否启用消费日志自动清理
+var LogAutoDeleteDays = 30       // 保留天数，默认30天
 
 var SMTPServer = ""
 var SMTPPort = 587
@@ -200,10 +204,19 @@ var ChannelDisableThreshold = 5.0
 var AutomaticDisableChannelEnabled = false
 var AutomaticEnableChannelEnabled = false
 var AutomaticDisableChannelNotifyEnabled = true
-var QuotaRemindThreshold = 1000
+var QuotaRemindEnabled = true
+var QuotaRemindThreshold = 500000
 var PreConsumedQuota = 500
 var ApproximateTokenEnabled = false
 var EmptyResponseBillingEnabled = true
+
+// MaxPromptTokens 输入 token 上限的粗粒度守卫（仅对 AWS/Bedrock 渠道生效）。
+// AWS 对超过模型上下文窗口（尤其 >1M）的请求既不快速报错也不拒绝，会一直挂起直到
+// 墙钟超时才被砍掉（表现为长时间等待后中断、计费 $0）。在发送上游前用本值预拦截，
+// 直接返回明确的 400。有效上限优先取 model_info.ContextLength(>0)，否则回落到本值。
+// 注意 ContextLength 是整个上下文窗口（含输出侧），这里直接当输入上限使用，不为输出
+// 预留 headroom——作为"防挂死"守卫偏宽松、不会误杀，足够。设为 0 可禁用该守卫。
+var MaxPromptTokens = 1000000
 var DisableTokenEncoders = false
 var RetryTimes = 0
 var RetryTimeOut = 10
@@ -236,6 +249,12 @@ func GetChannelFailErrorMessage() string {
 
 // 统一请求响应模型（响应中显示用户请求的原始模型名称）
 var UnifiedRequestResponseModelEnabled = false
+
+// FingerprintPassThroughEnabled 让中转响应尽量保留上游的响应指纹：Claude / Bedrock 的
+// 非流式原始字节透传、流式跳过 model 改写，以及上游响应头透传（Bedrock x-amzn-* /
+// Claude anthropic-ratelimit-* / OpenAI x-ratelimit-* 等）。
+// 默认开启；关闭后回退到与其它渠道一致的结构体序列化行为。
+var FingerprintPassThroughEnabled = true
 
 // 模型名称大小写不敏感匹配
 var ModelNameCaseInsensitiveEnabled = false
@@ -277,6 +296,10 @@ var CFWorkerImageKey = ""
 var RootUserEmail = ""
 
 var IsMasterNode = true
+
+// RelayOnly 纯 relay 网关模式：仅暴露转发接口(/v1、/claude、/gemini、/mj 等)与 /health，
+// 前端页面、/api 管理接口、dashboard 一律返回 404，避免从节点泄露主域名等信息。
+var RelayOnly = false
 
 var RequestInterval time.Duration
 
@@ -393,6 +416,9 @@ const (
 	ChannelTypeAntigravity     = 60
 	ChannelTypeVertexAIExpress = 61
 	ChannelTypeCopilot         = 62
+	// 62 已由本地 Copilot 渠道使用；为避免已有 Copilot 渠道被解释为
+	// Bedrock Messages，给新增渠道分配未占用的类型值。
+	ChannelTypeBedrockMessages = 63
 )
 
 const (

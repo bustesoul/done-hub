@@ -19,3 +19,5 @@ one-api
 _output
 .DS_Store
 example/
+.zcode/
+CLIProxyAPI/

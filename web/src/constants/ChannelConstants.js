@@ -313,6 +313,13 @@ export const CHANNEL_OPTIONS = {
     color: 'default',
     url: 'https://github.com/settings/copilot'
   },
+  63: {
+    key: 63,
+    text: 'Amazon Bedrock (Messages)',
+    value: 63,
+    color: 'orange',
+    url: 'https://console.aws.amazon.com/bedrock/home'
+  },
   8: {
     key: 8,
     text: '自定义渠道',

@@ -24,6 +24,7 @@
     "checkUpdates": "Check Updates",
     "dataFormatIncorrect": "Data format is incorrect",
     "fetchData": "Fetch Data",
+    "fetchFromModelsDev": "Fetch from models.dev",
     "inputMultiplierChanged": "Input multiplier changed from",
     "newModels": "New Models",
     "noNewModels": "No new models",
@@ -47,6 +48,12 @@
     "extraRatiosChanges": "Changes in magnification ratio",
     "extraRatiosChangesTip": "Changes in magnification: {{changes}}",
     "extraRatiosRemoved": "Remove magnification ratio",
+    "longContextAdded": "Add long context tier",
+    "longContextRemoved": "Remove long context tier",
+    "longContextChanged": "Long context tier changed",
+    "longContextThreshold": "Threshold",
+    "longContextInput": "Input ratio",
+    "longContextOutput": "Output ratio",
     "modified": "Edit",
     "removed": "Delete"
   },
@@ -60,7 +67,9 @@
     "console": "Console",
     "error": "Error",
     "unknownVersion": "Unknown Version",
-    "welcomeBack": "Welcome Back"
+    "welcomeBack": "Welcome Back",
+    "userAgreement": "User Agreement",
+    "privacyPolicy": "Privacy Policy"
   },
   "sidebar": {
     "totalQuota": "Total Quota",
@@ -72,6 +81,16 @@
     "aboutTitle": "About",
     "loadingError": "Failed to load about content...",
     "projectRepo": "Project repository:"
+  },
+  "userAgreement": {
+    "title": "User Agreement",
+    "emptyDescription": "The administrator has not configured the user agreement content yet.",
+    "loadingError": "Failed to load user agreement content..."
+  },
+  "privacyPolicy": {
+    "title": "Privacy Policy",
+    "emptyDescription": "The administrator has not configured the privacy policy content yet.",
+    "loadingError": "Failed to load privacy policy content..."
   },
   "alloy 映射": "alloy mapping",
   "analytics": "Analytics",
@@ -109,6 +128,7 @@
     "cpmDescription": "CPM",
     "ppmDescription": "PPM",
     "last60SecondsStats": "Last 60 seconds statistics",
+    "autoRefresh": "Auto",
     "timeFilter": {
       "all": "All",
       "year": "This Year",
@@ -440,6 +460,7 @@
     "action": "Action",
     "actions": "Operation",
     "noDataAvailable": "No data available",
+    "noSearchResults": "No matching results found",
     "pageSize": "Number of items per page",
     "search": "Search",
     "searchFilters": "Search Filters",
@@ -689,6 +710,7 @@
       "groupRatio": "Group Ratio",
       "groupRatioValue": "Group Ratio",
       "serviceTierRatioValue": "Service Tier Ratio",
+      "longContextRatio": "Long Context Ratio",
       "actualPrice": "Actual Price",
       "input": "Input",
       "output": "Output",
@@ -703,6 +725,7 @@
     "cachedReadTokens": "Cache read Tokens (* {{ ratio }})",
     "cachedWriteTokens": "Write tokens to cache (* {{ ratio }})",
     "cachedWrite1hTokens": "Write tokens to cache 1h (* {{ ratio }})",
+    "openaiCacheWriteTokens": "Write tokens to cache (OpenAI) (* {{ ratio }})",
     "reasoningTokens": "Deduction Tokens (* {{ ratio }})"
   },
   "login": {
@@ -776,6 +799,7 @@
     "cached_write_tokens": "Cache Write Ratio",
     "cached_write_1h_tokens": "Cache Write 1h Ratio",
     "cached_read_tokens": "Cache Read Ratio",
+    "openai_cache_write_tokens": "OpenAI Cache Write Ratio",
     "reasoning_tokens": "Reasoning Ratio",
     "input_text_tokens": "Input Text Ratio",
     "output_text_tokens": "Output Text Ratio",
@@ -803,6 +827,10 @@
     "priceDetails": "Price Details",
     "priceNote": "Different groups have different prices. Switch groups in token management.",
     "otherInfo": "Other Information",
+    "longContext": "Long Context Pricing",
+    "shortContext": "Short context",
+    "longContextLabel": "Long context",
+    "longContextDesc": "When input exceeds {{threshold}} tokens, the whole request is billed at long context prices.",
     "totalModels": "Total {{count}} models",
     "noModelsFound": "No matching models found",
     "noModelsFoundTip": "Please try adjusting filters or search keywords",
@@ -912,10 +940,11 @@
     "currencyInfo5": "Example",
     "currencyInfo6": ": gpt-4 Input: $0.03 / 1K tokens Completion: $0.06 / 1K tokens",
     "currencyInfo7": "0.03 / 0.002 = 15, 0.06 / 0.002 = 30, input multiplier is 15, completion multiplier is 30",
-    "errPricesWarning": "There are models with incorrect supplier types, please configure them in time:",
+    "errPricesWarning": "There are models with incorrect supplier types, please configure them in time",
+    "modelCountLabel": "{{count}} in total",
     "multipleOperation": "Multiple Operation",
     "newButton": "New",
-    "noPriceModelWarning": "There are models without configured prices, please configure the prices in time:",
+    "noPriceModelWarning": "There are models without configured prices, please configure the prices in time",
     "refreshButton": "Refresh",
     "singleOperation": "Single Operation",
     "updatePricesButton": "Update Prices",
@@ -955,7 +984,12 @@
     "noAvailableRatios": "No available extension ratio",
     "noExtraRatios": "No additional magnification rate is available, please select to add from the drop-down menu.",
     "promptRatio": "Leverage ratio",
-    "selectExtraRatio": "Select magnification ratio"
+    "selectExtraRatio": "Select magnification ratio",
+    "longContext": "Long Context Tier",
+    "longContextThreshold": "Threshold (tokens)",
+    "longContextInputRatio": "Input Ratio",
+    "longContextOutputRatio": "Output Ratio",
+    "longContextHelp": "When input tokens exceed the threshold, the whole request is billed at the ratios above. Leave the threshold empty or 0 to disable."
   },
   "profile": "Profile",
   "profilePage": {
@@ -968,6 +1002,10 @@
     "displayName": "Display Name",
     "generateToken": "Generate Access Token",
     "inputDisplayNamePlaceholder": "Enter display name",
+    "quotaRemindEnabled": "Receive Quota Reminder Emails",
+    "quotaRemindThreshold": "Quota Remind Threshold",
+    "quotaRemindThresholdPlaceholder": "Email reminder when remaining quota falls below this value; set 0 to notify only when quota is exhausted",
+    "quotaRemindThresholdDefault": "Leave empty to use the system default: {{default}}",
     "inputPasswordPlaceholder": "Enter password",
     "inputUsernamePlaceholder": "Enter username",
     "keepSafe": "Keep it safe. Reset immediately if leaked.",
@@ -1061,7 +1099,17 @@
     "verificationCodeRequired": "Verification code is required",
     "verificationInfo": "Please try again in a few seconds, Turnstile is checking the user environment!",
     "registering": "Registering...",
-    "inviteCodeRequired": "Invite code is required"
+    "inviteCodeRequired": "Invite code is required",
+    "agreementRequired": "Please read and check to agree to the terms",
+    "agreementPrefix": "I have read and agree to ",
+    "userAgreement": "User Agreement",
+    "privacyPolicy": "Privacy Policy",
+    "agreementAnd": " and "
+  },
+  "legalConsentDialog": {
+    "title": "Terms Update",
+    "description": "The terms have been updated. Please read and agree to continue.",
+    "button": "Agree and continue"
   },
   "registerPage": {
     "alreadyHaveAccount": "Already have an account? Click to login"
@@ -1123,6 +1171,12 @@
           "placeholder": "Number of retries"
         },
         "saveButton": "Save General Settings",
+        "subGroups": {
+          "linkAndBilling": "Links & Billing",
+          "retry": "Retry Policy",
+          "upstreamError": "Upstream Error Handling",
+          "displayOptions": "Display & Billing Options"
+        },
         "title": "General Settings",
         "topUpLink": {
           "label": "Top-up Link",
@@ -1146,6 +1200,8 @@
       },
       "logSettings": {
         "clearLogs": "Clear Historical Logs",
+        "autoDelete": "Enable Auto Deletion of Consumption Logs",
+        "autoDeleteDays": "Retention Days for Auto Deletion",
         "logCleanupTime": {
           "label": "Log Cleanup Time",
           "placeholder": "Log Cleanup Time"
@@ -1166,6 +1222,7 @@
           "label": "Quota Reminder Threshold",
           "placeholder": "When below this quota, an email will be sent to remind the user"
         },
+        "quotaRemindEnabled": "Enable Quota Reminder Emails",
         "saveMonitoringSettings": "Save Monitoring Settings",
         "title": "Monitoring Settings"
       },
@@ -1318,6 +1375,15 @@
         "close": "Close",
         "newVersion": "New Version",
         "viewGitHub": "View on GitHub"
+      },
+      "legalSettings": {
+        "title": "User Agreement / Privacy Policy",
+        "userAgreementLabel": "User Agreement Content",
+        "userAgreementPlaceholder": "Enter the user agreement content here, supports HTML & Markdown",
+        "saveUserAgreement": "Save User Agreement",
+        "privacyPolicyLabel": "Privacy Policy Content",
+        "privacyPolicyPlaceholder": "Enter the privacy policy content here, supports HTML & Markdown",
+        "savePrivacyPolicy": "Save Privacy Policy"
       }
     },
     "systemSettings": {
@@ -1371,7 +1437,9 @@
         "passwordSettings": "Password Login",
         "thirdPartyLogin": "Third-Party Login",
         "turnstileCheck": "Enable Turnstile User Verification",
-        "weChatAuth": "Allow Login & Register via WeChat"
+        "weChatAuth": "Allow Login & Register via WeChat",
+        "userAgreementEnabled": "Enable User Agreement",
+        "privacyPolicyEnabled": "Enable Privacy Policy"
       },
       "configureOIDCAuthorization": {
         "alert1": "Fill in the homepage link",

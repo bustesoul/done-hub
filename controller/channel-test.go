@@ -4,6 +4,7 @@ import (
 	"done-hub/common"
 	"done-hub/common/config"
 	"done-hub/common/logger"
+	"done-hub/common/model_utils"
 	"done-hub/common/notify"
 	"done-hub/common/utils"
 	"done-hub/model"
@@ -179,6 +180,13 @@ func getModelType(modelName string) string {
 
 	if embeddingsRegex.MatchString(modelName) {
 		return "embeddings"
+	}
+
+	// Gemini 原生生图模型只支持 generateContent，必须走 chat 测速；
+	// 否则会被下面 imageRegex 的 image 关键词吞进 image(predict) 分支 → 404 → 自动禁用。
+	// 放在 imageRegex 之前；imagen-* 不在此名单，仍落到 imageRegex 走 image(predict)。
+	if model_utils.IsGeminiNativeImageModel(modelName) {
+		return "chat"
 	}
 
 	if imageRegex.MatchString(modelName) {

@@ -39,6 +39,8 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/available_model", middleware.CORS(), middleware.TrySetUserBySession(), relay.AvailableModel)
 		apiRouter.GET("/user_group_map", middleware.TrySetUserBySession(), controller.GetUserGroupRatio)
 		apiRouter.GET("/home_page_content", controller.GetHomePageContent)
+		apiRouter.GET("/user_agreement", controller.GetUserAgreement)
+		apiRouter.GET("/privacy_policy", controller.GetPrivacyPolicy)
 		apiRouter.GET("/verification", middleware.CriticalRateLimit(), middleware.TurnstileCheck(), controller.SendEmailVerification)
 		apiRouter.GET("/reset_password", middleware.CriticalRateLimit(), middleware.TurnstileCheck(), controller.SendPasswordResetEmail)
 		apiRouter.POST("/user/reset", middleware.CriticalRateLimit(), controller.ResetPassword)
@@ -93,6 +95,7 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.GET("/self", controller.GetSelf)
 				selfRoute.PUT("/self", controller.UpdateSelf)
 				selfRoute.POST("/unbind", controller.Unbind)
+				selfRoute.POST("/agree_terms", controller.AgreeToTerms)
 				// selfRoute.DELETE("/self", controller.DeleteSelf)
 				selfRoute.GET("/token", controller.GenerateAccessToken)
 				selfRoute.GET("/aff", controller.GetAffCode)
@@ -300,6 +303,7 @@ func SetApiRouter(router *gin.Engine) {
 		analyticsRoute.Use(middleware.AdminAuth())
 		{
 			analyticsRoute.GET("/statistics", controller.GetStatisticsDetail)
+			analyticsRoute.GET("/rpm", controller.GetRpmTpmDetail)
 			analyticsRoute.GET("/period", controller.GetStatisticsByPeriod)
 			analyticsRoute.GET("/multi_user_stats", controller.GetMultiUserStatistics)
 			analyticsRoute.GET("/multi_user_stats/export", controller.ExportMultiUserStatisticsCSV)
@@ -316,6 +320,7 @@ func SetApiRouter(router *gin.Engine) {
 			pricesRoute.PUT("/multiple/delete", controller.BatchDeletePrices)
 			pricesRoute.POST("/sync", controller.SyncPricing)
 			pricesRoute.GET("/updateService", controller.GetUpdatePriceService)
+			pricesRoute.GET("/modelsdev", controller.GetPricesFromModelsDev)
 
 		}
 

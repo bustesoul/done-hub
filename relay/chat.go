@@ -82,6 +82,23 @@ func (r *relayChat) getPromptTokens() (int, error) {
 	return common.CountTokenMessages(r.chatRequest.Messages, r.modelName, channel.PreCost), nil
 }
 
+// forcePromptTokens 强制计算输入 token（忽略 PreCost 开关），供超限守卫使用。
+func (r *relayChat) forcePromptTokens() int {
+	return common.CountTokenMessages(r.chatRequest.Messages, r.modelName, config.PreCostDefault)
+}
+
+var need2Response = map[string]bool{
+	"o3-pro-2025-06-10":                true,
+	"o3-pro":                           true,
+	"o1-pro-2025-03-19":                true,
+	"o1-pro":                           true,
+	"o3-deep-research-2025-06-26":      true,
+	"o3-deep-research":                 true,
+	"o4-mini-deep-research-2025-06-26": true,
+	"o4-mini-deep-research":            true,
+	"codex-mini-latest":                true,
+}
+
 func (r *relayChat) send() (err *types.OpenAIErrorWithStatusCode, done bool) {
 	// 图像生成模型走 chat 入口是非标用法，按 chat 协议处理会把上游 base64 当文本反算成百万级 token、
 	// 计费爆炸；在 chat 入口分流到 image generations 协议做渠道降级。
@@ -98,7 +115,7 @@ func (r *relayChat) send() (err *types.OpenAIErrorWithStatusCode, done bool) {
 	}
 
 	channel := r.provider.GetChannel()
-	if channel != nil && channel.ShouldUseResponsesForModel(r.modelName) && config.ShouldSendChatAsResponses(channel.CompatibleResponse, r.provider.GetSupportedResponse(), r.modelName) {
+	if need2Response[r.modelName] || (channel != nil && channel.ShouldUseResponsesForModel(r.modelName) && config.ShouldSendChatAsResponses(channel.CompatibleResponse, r.provider.GetSupportedResponse(), r.modelName)) {
 		if resProvider, ok := r.provider.(providersBase.ResponsesInterface); ok {
 			return r.compatibleSend(resProvider)
 		}
@@ -112,6 +129,9 @@ func (r *relayChat) send() (err *types.OpenAIErrorWithStatusCode, done bool) {
 	}
 
 	r.chatRequest.Model = r.modelName
+	// 入口协议 == chat 且响应原样直返，放行 provider 的响应字节透传（保留上游指纹）。
+	// image / need2Response 等异协议兼容分支在上方已提前返回，不会走到这里。
+	r.c.Set(config.GinRawPassThroughAllowedKey, true)
 	// 内容审查
 	if config.EnableSafe {
 		for _, message := range r.chatRequest.Messages {
@@ -193,6 +213,13 @@ func (r *relayChat) getUsageResponse() string {
 // 降级后 upstream usage 是真实的 input/output image tokens，prompt 也按 image 协议口径算，
 // 不再走 chat 文本 tokenize。
 func (r *relayChat) compatibleSendImage(provider providersBase.ImageGenerationsInterface) (err *types.OpenAIErrorWithStatusCode, done bool) {
+	// 降级到 image 协议后响应要包回 chat 格式（buildImageChatResponse），不能字节直返。
+	// 显式关闭放行：本函数在 send() 上方提前返回、够不到 line 130，但 key 挂在 gin.Context 上跨
+	// 重试尝试存活——若前次尝试走过 chat 分支设过 key=true，本次经 CreateImageGenerations 会误读
+	// 该残留许可、落 image 原始字节，再被 writeRawResponseBodyIfPresent 当响应体直返，给 chat
+	// 客户端吐出 image 格式 JSON（协议违约）。与相邻 chat 分支的放行动作对称。
+	r.c.Set(config.GinRawPassThroughAllowedKey, false)
+
 	imgReq := r.chatRequest.ToImageRequest()
 	imgReq.Model = r.modelName
 

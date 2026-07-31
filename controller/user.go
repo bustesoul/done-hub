@@ -197,6 +197,15 @@ func Register(c *gin.Context) {
 		return
 	}
 
+	// 管理员开启用户协议/隐私政策时，注册需同意相关协议
+	if (config.UserAgreementEnabled || config.PrivacyPolicyEnabled) && !user.Agreed {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "请先阅读并同意相关协议",
+		})
+		return
+	}
+
 	if err := common.Validate.Struct(&user); err != nil {
 		// 友好的验证错误提示
 		friendlyMessage := getFriendlyValidationMessage(err)
@@ -256,6 +265,14 @@ func Register(c *gin.Context) {
 	// 只有启用邀请码注册时才保存使用的邀请码
 	if config.InviteCodeRegisterEnabled && user.InviteCode != "" {
 		cleanUser.UsedInviteCode = user.InviteCode
+	}
+
+	// 注册通过协议校验后，对已开启的协议分别记录当前同意版本
+	if config.UserAgreementEnabled {
+		cleanUser.AgreedUserAgreementVersion = agreementVersion(config.GlobalOption.Get("UserAgreement"))
+	}
+	if config.PrivacyPolicyEnabled {
+		cleanUser.AgreedPrivacyPolicyVersion = agreementVersion(config.GlobalOption.Get("PrivacyPolicy"))
 	}
 
 	if config.EmailVerificationEnabled {
@@ -544,6 +561,13 @@ func GetSelf(c *gin.Context) {
 		user.AffCount = int(affCount)
 	}
 
+	// 实时计算是否需要（重新）同意协议：与注册/AgreeToTerms 同一算法同一正文源。
+	// 判定收归服务端，前端只消费布尔，避免依赖 siteInfo 刷新时机。
+	uaVer := agreementVersion(config.GlobalOption.Get("UserAgreement"))
+	user.NeedAgreeUserAgreement = config.UserAgreementEnabled && uaVer != "" && user.AgreedUserAgreementVersion != uaVer
+	ppVer := agreementVersion(config.GlobalOption.Get("PrivacyPolicy"))
+	user.NeedAgreePrivacyPolicy = config.PrivacyPolicyEnabled && ppVer != "" && user.AgreedPrivacyPolicyVersion != ppVer
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -658,6 +682,22 @@ func UpdateSelf(c *gin.Context) {
 	}
 	updatePassword := user.Password != ""
 	if err := cleanUser.Update(updatePassword); err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// 额度提醒设置单独用 map 更新：结构体 Updates 会跳过零值/false，而“阈值设为 0/清空回退默认”“关闭提醒”都必须能落库。
+	// /api/user/self 只有个人设置页一个调用方且总是携带这两个字段，故阈值直接写指针：nil→SQL NULL（回退系统默认）、非 nil→字面值。
+	remindFields := map[string]interface{}{
+		"quota_remind_threshold": user.QuotaRemindThreshold,
+	}
+	if user.QuotaRemindEnabled != nil {
+		remindFields["quota_remind_enabled"] = *user.QuotaRemindEnabled
+	}
+	if err := model.UpdateUser(c.GetInt("id"), remindFields); err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
 			"message": err.Error(),
@@ -1093,6 +1133,32 @@ func Unbind(c *gin.Context) {
 			"message": err.Error(),
 		})
 		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+	})
+}
+
+// AgreeToTerms 当前登录用户重新同意协议：把服务端当前版本写入用户已同意版本字段。
+// 版本一律服务端从正文即时计算，不信任前端传值，防伪造。
+func AgreeToTerms(c *gin.Context) {
+	id := c.GetInt("id")
+	updates := map[string]interface{}{}
+	if config.UserAgreementEnabled {
+		updates["agreed_user_agreement_version"] = agreementVersion(config.GlobalOption.Get("UserAgreement"))
+	}
+	if config.PrivacyPolicyEnabled {
+		updates["agreed_privacy_policy_version"] = agreementVersion(config.GlobalOption.Get("PrivacyPolicy"))
+	}
+	if len(updates) > 0 {
+		if err := model.UpdateUser(id, updates); err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

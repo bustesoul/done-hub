@@ -404,7 +404,7 @@ func parseServiceAccountEmail(key string) (email string, ok bool) {
 // GetToken 用服务账号凭证换取调用 Gemini API 的 OAuth token，带缓存。
 // 复刻自 vertexai.GetToken，区别仅在于 scope 用 generative-language 而非 cloud-platform。
 func (p *GeminiProvider) GetToken() (string, error) {
-	cacheKey := fmt.Sprintf("%s:%s", geminiSATokenCacheKey, p.ServiceAccountEmail)
+	cacheKey := fmt.Sprintf("%s:%d", geminiSATokenCacheKey, p.Channel.Id)
 	token, err := cache.GetCache[string](cacheKey)
 	if err != nil {
 		logger.SysError("Failed to get token from cache: " + err.Error())
@@ -421,8 +421,12 @@ func (p *GeminiProvider) GetToken() (string, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	ctx = utils.SetProxy(p.Channel.GetProxy(), ctx)
-	ctx = context.WithValue(ctx, oauth2.HTTPClient, requester.HTTPClient)
+
+	httpClient, err := utils.NewProxyHTTPClient(p.Channel.GetProxy())
+	if err != nil {
+		return "", fmt.Errorf("failed to create proxy http client: %w", err)
+	}
+	ctx = context.WithValue(ctx, oauth2.HTTPClient, httpClient)
 
 	tok, err := config.TokenSource(ctx).Token()
 	if err != nil {

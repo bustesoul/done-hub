@@ -110,9 +110,9 @@ func NewQuota(c *gin.Context, modelName string, promptTokens int) *Quota {
 
 func (q *Quota) PreQuotaConsumption() *types.OpenAIErrorWithStatusCode {
 	if q.price.Type == model.TimesPriceType {
-		q.preConsumedQuota = int(1000 * q.inputRatio)
+		q.preConsumedQuota = common.QuotaFromFloat(1000 * q.inputRatio)
 	} else if q.price.Input != 0 || q.price.Output != 0 {
-		q.preConsumedQuota = int(float64(q.promptTokens)*q.inputRatio) + config.PreConsumedQuota
+		q.preConsumedQuota = common.QuotaFromFloat(float64(q.promptTokens)*q.inputRatio) + config.PreConsumedQuota
 	}
 
 	if q.preConsumedQuota == 0 {
@@ -155,7 +155,10 @@ func (q *Quota) UpdateUserRealtimeQuota(usage *types.UsageEvent, nowUsage *types
 	}
 
 	promptTokens, completionTokens := q.getComputeTokensByUsageEvent(nowUsage)
-	increaseQuota := q.GetTotalQuota(promptTokens, completionTokens, nil)
+	// 长上下文分档：实时路径逐增量结算，用累计输入 token（而非单次增量）判断档位，
+	// 与最终结算按整次请求原始输入判档的效果保持收敛；对本次增量套用分档倍率。
+	inRatio, outRatio := q.price.GetLongContextMultiplier(usage.InputTokens)
+	increaseQuota := q.calcQuota(promptTokens, completionTokens, q.inputRatio*inRatio, q.outputRatio*outRatio, q.groupRatio)
 
 	cacheQuota, err := model.CacheIncreaseUserRealtimeQuota(q.userId, increaseQuota)
 	if err != nil {
@@ -331,6 +334,12 @@ func (q *Quota) GetLogMeta(usage *types.Usage) map[string]any {
 			extraRatio := q.price.GetExtraRatio(key)
 			meta[key+"_ratio"] = extraRatio
 		}
+
+		// 长上下文分档命中时记录分档倍率，供日志详情展示。
+		if inRatio, outRatio := q.price.GetLongContextMultiplier(usage.PromptTokens); inRatio != 1 || outRatio != 1 {
+			meta["long_context_input_ratio"] = inRatio
+			meta["long_context_output_ratio"] = outRatio
+		}
 	}
 
 	if q.extraBillingData != nil {
@@ -355,22 +364,22 @@ func (q *Quota) GetTotalQuota(promptTokens, completionTokens int, extraBilling m
 // 依赖调用方已通过 GetExtraBillingData 设置好 extraBillingData。
 func (q *Quota) calcQuota(promptTokens, completionTokens int, inputRatio, outputRatio, ratio float64) (quota int) {
 	if q.price.Type == model.TimesPriceType {
-		quota = int(1000 * inputRatio)
+		quota = common.QuotaFromFloat(1000 * inputRatio)
 	} else {
-		quota = int(math.Ceil((float64(promptTokens) * inputRatio) + (float64(completionTokens) * outputRatio)))
+		quota = common.QuotaFromFloat(math.Ceil((float64(promptTokens) * inputRatio) + (float64(completionTokens) * outputRatio)))
 	}
 
 	extraBillingQuota := 0
 	if q.extraBillingData != nil {
 		for _, value := range q.extraBillingData {
-			extraBillingQuota += int(math.Ceil(
-				float64(value.Price)*float64(config.QuotaPerUnit),
-			)) * value.CallCount
+			extraBillingQuota += common.QuotaFromFloat(
+				math.Ceil(float64(value.Price)*float64(config.QuotaPerUnit)) * float64(value.CallCount),
+			)
 		}
 	}
 
 	if extraBillingQuota > 0 {
-		quota += int(math.Ceil(
+		quota += common.QuotaFromFloat(math.Ceil(
 			float64(extraBillingQuota) * ratio,
 		))
 	}
@@ -385,8 +394,10 @@ func (q *Quota) calcQuota(promptTokens, completionTokens int, inputRatio, output
 		quota = 0
 	}
 
-	// 如果禁用了空回复计费且没有输出token，则不计费
-	if !config.EmptyResponseBillingEnabled && completionTokens == 0 {
+	// 空回复计费闸对按次计费（times）属于误伤：按次语义是"调用成功即全额收"，
+	// 与 completion token 无关（Lyria 等音乐模型成功返回音频时 completionTokens 常为 0）。
+	// 仅对 token 计费类型生效；闸1（totalTokens==0，上游未成功返回）对两类都保留。
+	if q.price.Type != model.TimesPriceType && !config.EmptyResponseBillingEnabled && completionTokens == 0 {
 		quota = 0
 	}
 
@@ -432,7 +443,10 @@ func (q *Quota) getComputeTokensByUsageEvent(usage *types.UsageEvent) (promptTok
 // 通过 usage 获取消费配额
 func (q *Quota) GetTotalQuotaByUsage(usage *types.Usage) (quota int) {
 	promptTokens, completionTokens := q.getComputeTokensByUsage(usage)
-	return q.GetTotalQuota(promptTokens, completionTokens, usage.ExtraBilling)
+	// 长上下文分档：按原始输入 token（未经缓存折算）判断档位，超阈值时整次请求套用分档倍率。
+	inRatio, outRatio := q.price.GetLongContextMultiplier(usage.PromptTokens)
+	q.GetExtraBillingData(usage.ExtraBilling)
+	return q.calcQuota(promptTokens, completionTokens, q.inputRatio*inRatio, q.outputRatio*outRatio, q.groupRatio*q.serviceTierRatio)
 }
 
 // GetCostQuotaByUsage 按渠道成本倍率计算本次请求的上游成本配额，仅用于成本/利润统计，不参与扣费。
@@ -442,8 +456,9 @@ func (q *Quota) GetCostQuotaByUsage(usage *types.Usage) (costQuota int) {
 		return 0
 	}
 	promptTokens, completionTokens := q.getComputeTokensByUsage(usage)
+	inRatio, outRatio := q.price.GetLongContextMultiplier(usage.PromptTokens)
 	q.GetExtraBillingData(usage.ExtraBilling)
-	return q.calcQuota(promptTokens, completionTokens, q.price.GetInput()*q.costRatio, q.price.GetOutput()*q.costRatio, q.costRatio)
+	return q.calcQuota(promptTokens, completionTokens, q.price.GetInput()*q.costRatio*inRatio, q.price.GetOutput()*q.costRatio*outRatio, q.costRatio)
 }
 
 func (q *Quota) GetFirstResponseTime() int64 {
