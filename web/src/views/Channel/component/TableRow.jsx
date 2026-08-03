@@ -630,7 +630,16 @@ export default function ChannelTableRow({
               </Stack>
             </Tooltip>
           ) : (
-            item.name
+            <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0 }}>
+              <Typography variant="body2" noWrap sx={{ minWidth: 0 }}>
+                {item.name}
+              </Typography>
+              {item.affinity_enabled && (
+                <Label color="info" variant="soft" sx={{ fontSize: '0.68rem', flexShrink: 0 }}>
+                  {t('channel_row.affinity')}
+                </Label>
+              )}
+            </Stack>
           )}
         </TableCell>
 

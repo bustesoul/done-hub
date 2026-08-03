@@ -1,13 +1,11 @@
 package model
 
 import (
-	"bytes"
 	"done-hub/common/config"
 	"done-hub/common/logger"
-	"done-hub/common/redis"
-	"done-hub/common/session"
 	"done-hub/common/utils"
-	"encoding/json"
+	"done-hub/internal/gateway/requeststate"
+	gatewayselection "done-hub/internal/gateway/selection"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -17,7 +15,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/tidwall/gjson"
 )
 
 // 错误消息常量
@@ -192,518 +189,9 @@ func (cc *GatewayRouteIndex) ChangeStatus(channelId int, status bool) {
 	}
 }
 
-// checkStickySession 检查是否有粘性 session 映射，如果有且渠道可用，则返回该渠道
-func (cc *GatewayRouteIndex) checkStickySession(channelIds []int, choices map[int]*ChannelChoice, filters []ChannelsFilterFunc, modelName string, ginContext interface{}) *Channel {
-	if !config.RedisEnabled || ginContext == nil || len(channelIds) == 0 {
-		return nil
-	}
-
-	// 获取第一个候选渠道以确定渠道类型（同一批候选渠道类型相同）
-	firstChoice, ok := choices[channelIds[0]]
-	if !ok {
-		return nil
-	}
-
-	// 根据渠道类型生成 session hash（session hash 与具体渠道无关，只与请求内容和渠道类型有关）
-	sessionHash := generateSessionHashForChannel(firstChoice.Channel, ginContext)
-	if sessionHash == "" {
-		return nil
-	}
-
-	// 检查 Redis 中是否有映射（传递渠道类型以使用正确的 key 前缀）
-	channelType := firstChoice.Channel.Type
-	mappedChannelID, err := redis.GetStickySessionMapping(sessionHash, channelType)
-	if err != nil || mappedChannelID <= 0 {
-		return nil
-	}
-
-	// 检查映射的渠道是否存在且未被禁用
-	mappedChoice, ok := choices[mappedChannelID]
-	if !ok || mappedChoice.Disable {
-		// 映射的渠道不存在或已禁用，删除映射
-		redis.DeleteStickySessionMapping(sessionHash, channelType)
-		return nil
-	}
-
-	// 检查映射的渠道是否在候选列表中
-	isInCandidates := false
-	for _, channelId := range channelIds {
-		if channelId == mappedChannelID {
-			isInCandidates = true
-			break
-		}
-	}
-	if !isInCandidates {
-		// 映射的渠道不在候选列表中，删除映射
-		redis.DeleteStickySessionMapping(sessionHash, channelType)
-		return nil
-	}
-
-	// 检查渠道是否在冷却中
-	if cc.IsInCooldown(mappedChannelID, modelName) {
-		// 渠道在冷却中，删除映射
-		redis.DeleteStickySessionMapping(sessionHash, channelType)
-		return nil
-	}
-
-	// 检查过滤器
-	for _, filter := range filters {
-		if filter(mappedChannelID, mappedChoice) {
-			// 渠道被过滤器排除，删除映射
-			redis.DeleteStickySessionMapping(sessionHash, channelType)
-			return nil
-		}
-	}
-
-	// 渠道可用，续期 TTL 并返回
-	ttl := 1 * time.Hour
-	renewalThresholdMinutes := 0 // 默认 0（不续期），与 code-relay-demo 保持一致
-	redis.ExtendStickySessionMappingTTL(sessionHash, channelType, ttl, renewalThresholdMinutes)
-
-	// 安全截取 session hash 用于日志显示
-	sessionHashPreview := sessionHash
-	if len(sessionHash) > 8 {
-		sessionHashPreview = sessionHash[:8]
-	}
-
-	// 从 ginContext 获取 context.Context 用于日志
-	if gc, ok := ginContext.(*gin.Context); ok {
-		logger.LogInfo(gc.Request.Context(), fmt.Sprintf("✓ Using sticky session for %s channel %d (session: %s)",
-			getChannelTypeName(mappedChoice.Channel.Type), mappedChannelID, sessionHashPreview))
-	}
-
-	return mappedChoice.Channel
-}
-
-// createStickySession 为选定的渠道创建粘性 session 映射
-func (cc *GatewayRouteIndex) createStickySession(channel *Channel, ginContext interface{}) {
-	if !config.RedisEnabled || ginContext == nil || channel == nil {
-		return
-	}
-
-	sessionHash := generateSessionHashForChannel(channel, ginContext)
-	if sessionHash == "" {
-		return
-	}
-
-	ttl := 1 * time.Hour
-	channelType := channel.Type
-	err := redis.SetStickySessionMapping(sessionHash, channel.Id, channelType, ttl)
-	if err != nil {
-		// 从 ginContext 获取 context.Context 用于日志
-		if gc, ok := ginContext.(*gin.Context); ok {
-			logger.LogError(gc.Request.Context(), fmt.Sprintf("Failed to create sticky session mapping: %v", err))
-		}
-		return
-	}
-
-	// 安全截取 session hash 用于日志显示
-	sessionHashPreview := sessionHash
-	if len(sessionHash) > 8 {
-		sessionHashPreview = sessionHash[:8]
-	}
-
-	// 从 ginContext 获取 context.Context 用于日志
-	if gc, ok := ginContext.(*gin.Context); ok {
-		logger.LogInfo(gc.Request.Context(), fmt.Sprintf("✓ Created sticky session for %s channel %d (session: %s)",
-			getChannelTypeName(channel.Type), channel.Id, sessionHashPreview))
-	}
-}
-
-// generateSessionHashForChannel 根据渠道类型生成 session hash
-func generateSessionHashForChannel(channel *Channel, ginContext interface{}) string {
-	if channel == nil || ginContext == nil {
-		return ""
-	}
-
-	// 类型断言为 *gin.Context
-	c, ok := ginContext.(interface {
-		Get(key string) (value interface{}, exists bool)
-		GetHeader(key string) string
-		ClientIP() string
-	})
-	if !ok {
-		return ""
-	}
-
-	switch channel.Type {
-	case config.ChannelTypeClaudeCode:
-		// ClaudeCode: 从请求体中提取 Claude 请求并生成 session hash
-		rawBody, exists := c.Get(config.GinRequestBodyKey)
-		if !exists {
-			return ""
-		}
-		bodyBytes, ok := rawBody.([]byte)
-		if !ok {
-			return ""
-		}
-
-		// 解析为 map 以便提取 metadata
-		var requestMap map[string]interface{}
-		if err := json.Unmarshal(bodyBytes, &requestMap); err != nil {
-			return ""
-		}
-
-		// 直接在这里生成 session hash，避免循环导入
-		return generateClaudeCodeSessionHash(requestMap)
-
-	case config.ChannelTypeGeminiCli:
-		// GeminiCli: 基于 User-Agent + IP + API Key 前缀
-		userAgent := c.GetHeader("User-Agent")
-		ip := c.ClientIP()
-
-		// 获取 API Key 并提取前缀（前20个字符，与 demo 保持一致）
-		apiKeyInterface, _ := c.Get("token")
-		apiKey, _ := apiKeyInterface.(string)
-		apiKeyPrefix := ""
-		if len(apiKey) >= 20 {
-			apiKeyPrefix = apiKey[:20]
-		} else {
-			apiKeyPrefix = apiKey
-		}
-
-		return session.GenerateGeminiCliSessionHashFromParts(userAgent, ip, apiKeyPrefix)
-
-	case config.ChannelTypeCodex:
-		// Codex: 优先使用显式会话/缓存信号；缺失时用稳定前缀派生，避免多渠道漂移破坏缓存命中。
-		sessionID := extractCodexSessionSeed(c)
-		return session.GenerateCodexSessionHashFromSessionID(sessionID)
-
-	default:
-		return ""
-	}
-}
-
-func extractCodexSessionSeed(c interface {
-	Get(key string) (value interface{}, exists bool)
-	GetHeader(key string) string
-}) string {
-	for _, header := range []string{"session_id", "x-session-id", "conversation_id"} {
-		if value := strings.TrimSpace(c.GetHeader(header)); value != "" {
-			return value
-		}
-	}
-
-	rawBody, exists := c.Get(config.GinRequestBodyKey)
-	if !exists {
-		return ""
-	}
-	bodyBytes, ok := rawBody.([]byte)
-	if !ok || len(bodyBytes) == 0 {
-		return ""
-	}
-
-	for _, path := range []string{"prompt_cache_key", "user"} {
-		if value := strings.TrimSpace(gjson.GetBytes(bodyBytes, path).String()); value != "" {
-			return value
-		}
-	}
-
-	return deriveCodexContentSessionSeed(bodyBytes)
-}
-
-func deriveCodexContentSessionSeed(body []byte) string {
-	if len(body) == 0 {
-		return ""
-	}
-
-	var b strings.Builder
-	if model := strings.TrimSpace(gjson.GetBytes(body, "model").String()); model != "" {
-		b.WriteString("model=")
-		b.WriteString(model)
-	}
-	appendCodexSeedJSON(&b, "tools", gjson.GetBytes(body, "tools"))
-	appendCodexSeedJSON(&b, "functions", gjson.GetBytes(body, "functions"))
-	if instructions := strings.TrimSpace(gjson.GetBytes(body, "instructions").String()); instructions != "" {
-		b.WriteString("|instructions=")
-		b.WriteString(trimCodexSessionSeed(instructions))
-	}
-
-	firstUserCaptured := false
-	if messages := gjson.GetBytes(body, "messages"); messages.Exists() && messages.IsArray() {
-		messages.ForEach(func(_, msg gjson.Result) bool {
-			appendCodexMessageSeed(&b, msg, &firstUserCaptured)
-			return true
-		})
-	} else if input := gjson.GetBytes(body, "input"); input.Exists() {
-		switch {
-		case input.Type == gjson.String:
-			b.WriteString("|input=")
-			b.WriteString(trimCodexSessionSeed(input.String()))
-		case input.IsArray():
-			input.ForEach(func(_, item gjson.Result) bool {
-				appendCodexMessageSeed(&b, item, &firstUserCaptured)
-				if !firstUserCaptured && item.Get("type").String() == "input_text" {
-					if text := strings.TrimSpace(item.Get("text").String()); text != "" {
-						b.WriteString("|first_user=")
-						b.WriteString(trimCodexSessionSeed(text))
-						firstUserCaptured = true
-					}
-				}
-				return true
-			})
-		}
-	}
-
-	if b.Len() == 0 {
-		return ""
-	}
-	return "donehub_cs_" + b.String()
-}
-
-func appendCodexMessageSeed(b *strings.Builder, msg gjson.Result, firstUserCaptured *bool) {
-	role := strings.TrimSpace(msg.Get("role").String())
-	switch role {
-	case "system", "developer":
-		b.WriteString("|")
-		b.WriteString(role)
-		b.WriteString("=")
-		b.WriteString(codexSeedJSON(msg.Get("content")))
-	case "user":
-		if !*firstUserCaptured {
-			b.WriteString("|first_user=")
-			b.WriteString(codexSeedJSON(msg.Get("content")))
-			*firstUserCaptured = true
-		}
-	}
-}
-
-func appendCodexSeedJSON(b *strings.Builder, label string, value gjson.Result) {
-	if !value.Exists() || value.Raw == "" || value.Raw == "[]" || value.Raw == "{}" {
-		return
-	}
-	b.WriteString("|")
-	b.WriteString(label)
-	b.WriteString("=")
-	b.WriteString(codexSeedJSON(value))
-}
-
-func codexSeedJSON(value gjson.Result) string {
-	if !value.Exists() {
-		return ""
-	}
-	if value.Type == gjson.String {
-		return trimCodexSessionSeed(value.String())
-	}
-	raw := value.Raw
-	var buf bytes.Buffer
-	if err := json.Compact(&buf, []byte(raw)); err == nil {
-		raw = buf.String()
-	}
-	return trimCodexSessionSeed(raw)
-}
-
-func trimCodexSessionSeed(text string) string {
-	text = strings.TrimSpace(text)
-	if len(text) > 8192 {
-		return text[:8192]
-	}
-	return text
-}
-
-// getChannelTypeName 获取渠道类型名称（用于日志）
-func getChannelTypeName(channelType int) string {
-	switch channelType {
-	case config.ChannelTypeClaudeCode:
-		return "ClaudeCode"
-	case config.ChannelTypeGeminiCli:
-		return "GeminiCli"
-	case config.ChannelTypeCodex:
-		return "Codex"
-	default:
-		return fmt.Sprintf("Type%d", channelType)
-	}
-}
-
-// generateClaudeCodeSessionHash 生成 ClaudeCode 的 session hash
-// 完全复刻 code-relay-demo 的实现逻辑
-// 优先级：
-// 1. metadata.user_id 中的 session ID（如果存在）
-// 2. 带有 cache_control: {"type": "ephemeral"} 的内容
-// 3. system 内容
-// 4. 第一条消息内容
-func generateClaudeCodeSessionHash(requestMap map[string]interface{}) string {
-	if requestMap == nil {
-		return ""
-	}
-
-	// 1. 最高优先级：使用 metadata.user_id 中的 session ID。
-	//    user_id 可能是旧字符串格式 user_<hex>_account__session_<uuid>，
-	//    也可能是新对象格式 {"device_id":...,"account_uuid":...,"session_id":"<uuid>"}（claude-cli）。
-	if metadataInterface, exists := requestMap["metadata"]; exists {
-		if metadataMap, ok := metadataInterface.(map[string]interface{}); ok {
-			if userIDRaw, exists := metadataMap["user_id"]; exists {
-				if sessionID := session.ExtractSessionIDFromMetadataValue(userIDRaw); sessionID != "" {
-					return sessionID
-				}
-			}
-		}
-	}
-
-	// 2. 检查是否有 cache_control 内容
-	cacheableContent := extractCacheableContentFromMap(requestMap)
-	if cacheableContent != "" {
-		return session.HashContent(cacheableContent)
-	}
-
-	// 3. 使用 system 内容
-	if systemInterface, exists := requestMap["system"]; exists {
-		systemText := extractSystemTextFromInterface(systemInterface)
-		if systemText != "" {
-			return session.HashContent(systemText)
-		}
-	}
-
-	// 4. Fallback: 使用第一条消息内容
-	if messagesInterface, exists := requestMap["messages"]; exists {
-		if messagesArray, ok := messagesInterface.([]interface{}); ok && len(messagesArray) > 0 {
-			if firstMsg, ok := messagesArray[0].(map[string]interface{}); ok {
-				firstMessageText := extractMessageContent(firstMsg)
-				if firstMessageText != "" {
-					return session.HashContent(firstMessageText)
-				}
-			}
-		}
-	}
-
-	return ""
-}
-
-// extractCacheableContentFromMap 提取带有 cache_control: {"type": "ephemeral"} 的内容
-func extractCacheableContentFromMap(requestMap map[string]interface{}) string {
-	var cacheableContent string
-
-	// 检查 system 中的 cacheable 内容
-	if systemInterface, exists := requestMap["system"]; exists {
-		if systemArray, ok := systemInterface.([]interface{}); ok {
-			for _, item := range systemArray {
-				if itemMap, ok := item.(map[string]interface{}); ok {
-					if cacheControl, ok := itemMap["cache_control"].(map[string]interface{}); ok {
-						if cacheType, ok := cacheControl["type"].(string); ok && cacheType == "ephemeral" {
-							if text, ok := itemMap["text"].(string); ok {
-								cacheableContent += text
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-
-	// 检查 messages 中的 cacheable 内容
-	if messagesInterface, exists := requestMap["messages"]; exists {
-		if messagesArray, ok := messagesInterface.([]interface{}); ok {
-			for _, msgInterface := range messagesArray {
-				if msgMap, ok := msgInterface.(map[string]interface{}); ok {
-					hasCacheControl := false
-
-					// 检查消息内容是否有 cache_control
-					if contentInterface, exists := msgMap["content"]; exists {
-						// 如果 content 是数组
-						if contentArray, ok := contentInterface.([]interface{}); ok {
-							for _, item := range contentArray {
-								if itemMap, ok := item.(map[string]interface{}); ok {
-									if cacheControl, ok := itemMap["cache_control"].(map[string]interface{}); ok {
-										if cacheType, ok := cacheControl["type"].(string); ok && cacheType == "ephemeral" {
-											hasCacheControl = true
-											break
-										}
-									}
-								}
-							}
-						} else if _, ok := contentInterface.(string); ok {
-							// 如果 content 是字符串，检查消息级别的 cache_control
-							if cacheControl, ok := msgMap["cache_control"].(map[string]interface{}); ok {
-								if cacheType, ok := cacheControl["type"].(string); ok && cacheType == "ephemeral" {
-									hasCacheControl = true
-								}
-							}
-						}
-					}
-
-					// 如果找到 cache_control，提取第一条消息的文本内容
-					if hasCacheControl {
-						for _, message := range messagesArray {
-							if messageMap, ok := message.(map[string]interface{}); ok {
-								messageText := extractMessageContent(messageMap)
-								if messageText != "" {
-									cacheableContent += messageText
-									break
-								}
-							}
-						}
-						break
-					}
-				}
-			}
-		}
-	}
-
-	return cacheableContent
-}
-
-// extractSystemTextFromInterface 从 system 字段中提取文本内容
-func extractSystemTextFromInterface(system interface{}) string {
-	if system == nil {
-		return ""
-	}
-
-	// 如果是字符串，直接返回
-	if systemStr, ok := system.(string); ok {
-		return systemStr
-	}
-
-	// 如果是数组，提取所有 text 字段
-	if systemArray, ok := system.([]interface{}); ok {
-		var texts []string
-		for _, item := range systemArray {
-			if itemMap, ok := item.(map[string]interface{}); ok {
-				if text, ok := itemMap["text"].(string); ok {
-					texts = append(texts, text)
-				}
-			}
-		}
-		return strings.Join(texts, "")
-	}
-
-	return ""
-}
-
-// extractMessageContent 从消息 map 中提取文本内容
-func extractMessageContent(msgMap map[string]interface{}) string {
-	if contentInterface, exists := msgMap["content"]; exists {
-		// 如果 content 是字符串
-		if contentStr, ok := contentInterface.(string); ok {
-			return contentStr
-		}
-
-		// 如果 content 是数组
-		if contentArray, ok := contentInterface.([]interface{}); ok {
-			var texts []string
-			for _, item := range contentArray {
-				if itemMap, ok := item.(map[string]interface{}); ok {
-					if itemType, ok := itemMap["type"].(string); ok && itemType == "text" {
-						if text, ok := itemMap["text"].(string); ok {
-							texts = append(texts, text)
-						}
-					}
-				}
-			}
-			return strings.Join(texts, "")
-		}
-	}
-
-	return ""
-}
-
 func (cc *GatewayRouteIndex) balancer(channelIds []int, choices map[int]*ChannelChoice, filters []ChannelsFilterFunc, modelName string, ginContext interface{}) *Channel {
-	// 1. 检查粘性 session（优先级最高）
-	stickyChannel := cc.checkStickySession(channelIds, choices, filters, modelName, ginContext)
-	if stickyChannel != nil {
-		return stickyChannel
-	}
-
-	// 2. 按权重选择渠道
+	// 候选集已由调用方限定在同一优先级层。先完成健康、冷却和请求能力过滤，
+	// 再决定使用无状态亲和或原有权重随机，亲和不能绕过任何过滤条件。
 	totalWeight := 0
 
 	validChannels := make([]*ChannelChoice, 0, len(channelIds))
@@ -738,10 +226,11 @@ func (cc *GatewayRouteIndex) balancer(channelIds []int, choices map[int]*Channel
 	}
 
 	if len(validChannels) == 1 {
-		selectedChannel := validChannels[0].Channel
-		// 建立新的粘性 session 映射
-		cc.createStickySession(selectedChannel, ginContext)
-		return selectedChannel
+		return validChannels[0].Channel
+	}
+
+	if selected := selectAffinityChannel(validChannels, modelName, ginContext); selected != nil {
+		return selected
 	}
 
 	choiceWeight := rand.Intn(totalWeight)
@@ -749,13 +238,78 @@ func (cc *GatewayRouteIndex) balancer(channelIds []int, choices map[int]*Channel
 		weight := int(*choice.Channel.Weight)
 		choiceWeight -= weight
 		if choiceWeight < 0 {
-			selectedChannel := choice.Channel
-			// 建立新的粘性 session 映射
-			cc.createStickySession(selectedChannel, ginContext)
-			return selectedChannel
+			return choice.Channel
 		}
 	}
 
+	return nil
+}
+
+func selectAffinityChannel(candidates []*ChannelChoice, modelName string, ginContext interface{}) *Channel {
+	gc, ok := ginContext.(*gin.Context)
+	if !ok || gc == nil || gc.Request == nil || len(candidates) == 0 {
+		return nil
+	}
+	affinityCandidates := make([]gatewayselection.Candidate, 0, len(candidates))
+	fallbackCandidates := make([]gatewayselection.Candidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate == nil || candidate.Channel == nil {
+			continue
+		}
+		weight := 1
+		if candidate.Channel.Weight != nil && *candidate.Channel.Weight > 0 {
+			weight = int(*candidate.Channel.Weight)
+		}
+		weighted := gatewayselection.Candidate{
+			EndpointID: candidate.Channel.Id,
+			Weight:     weight,
+		}
+		fallbackCandidates = append(fallbackCandidates, weighted)
+		if candidate.Channel.AffinityEnabled {
+			affinityCandidates = append(affinityCandidates, weighted)
+		}
+	}
+	state := requeststate.From(gc.Request.Context())
+	if state == nil || state.InboundProtocol() == "" {
+		return nil
+	}
+	const affinityActiveKey = "gateway_affinity_active"
+	if len(affinityCandidates) > 0 {
+		state.Set(affinityActiveKey, true)
+	} else if !state.GetBool(affinityActiveKey) {
+		return nil
+	} else {
+		// Every affinity-enabled endpoint was filtered or excluded during retry;
+		// keep deterministic failover across the remaining same-priority pool.
+		affinityCandidates = fallbackCandidates
+	}
+	var body []byte
+	if raw, exists := gc.Get(config.GinRequestBodyKey); exists {
+		body, _ = raw.([]byte)
+	}
+	key, ok := gatewayselection.BuildAffinityKey(gatewayselection.AffinityInput{
+		Protocol: state.InboundProtocol(),
+		Headers:  gc.Request.Header,
+		Body:     body,
+		UserID:   gc.GetInt("id"),
+		TokenID:  gc.GetInt("token_id"),
+		Group:    gc.GetString("token_group"),
+		Model:    modelName,
+	})
+	if !ok {
+		return nil
+	}
+	selectedID, ok := gatewayselection.PickWeightedRendezvous(key, affinityCandidates)
+	if !ok {
+		return nil
+	}
+	for _, candidate := range candidates {
+		if candidate != nil && candidate.Channel != nil && candidate.Channel.Id == selectedID {
+			state.Set("gateway_affinity_source", key.Source)
+			state.Set("gateway_affinity_key_fingerprint", key.Digest[:8])
+			return candidate.Channel
+		}
+	}
 	return nil
 }
 
@@ -858,7 +412,7 @@ func (cc *GatewayRouteIndex) Next(group, modelName string, filters ...ChannelsFi
 }
 
 // NextByValidatedModel 使用已经验证过的模型名称获取渠道，跳过模型匹配逻辑
-// ginContext 用于生成 session hash 和粘性 session 处理
+// ginContext 提供协议请求信息，用于可选的无状态渠道亲和选路。
 func (cc *GatewayRouteIndex) NextByValidatedModel(group, validatedModelName string, ginContext interface{}, filters ...ChannelsFilterFunc) (*Channel, error) {
 	cc.RLock()
 

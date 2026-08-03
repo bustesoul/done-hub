@@ -170,6 +170,9 @@
     "sectionBasic": "Basic",
     "sectionAdvanced": "Advanced",
     "sectionBilling": "Billing & Behavior",
+    "sectionScheduling": "Scheduling",
+    "requestAffinity": "Request affinity",
+    "requestAffinityHelp": "Keep the same session or user on a stable upstream connection within the highest available priority tier to improve subscription and upstream prompt-cache reuse. Connections with affinity enabled form the primary pool; same-tier peers without affinity remain failover candidates.",
     "inputAllModel": "Fill in all models",
     "inputChannelModel": "Fill in the channel support model",
     "invalidJson": "Invalid JSON",
@@ -329,6 +332,7 @@
     "azureApiSearchPlaceholder": "API version to search (leave blank for all Azure channels)"
   },
   "channel_row": {
+    "affinity": "Affinity",
     "auto": "automatic",
     "canModels": "Available models:",
     "channelWeb": "Official website",

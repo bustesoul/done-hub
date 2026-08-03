@@ -252,6 +252,7 @@ func TestBackfillGatewayResourcesIsIdempotent(t *testing.T) {
 		PreCost:           1,
 		CostRatio:         &costRatio,
 		PassThroughBody:   true,
+		AffinityEnabled:   true,
 	}
 	if err := db.Create(&channel).Error; err != nil {
 		t.Fatalf("create channel: %v", err)
@@ -279,6 +280,13 @@ func TestBackfillGatewayResourcesIsIdempotent(t *testing.T) {
 	}
 	if endpoint.ProviderID != channel.Type || endpoint.ProtocolProfileID != channel.ProtocolProfileID || endpoint.ActiveCredentialID == 0 || endpoint.BaseURL != baseURL || endpoint.Priority != priority {
 		t.Fatalf("unexpected endpoint: %#v", endpoint)
+	}
+	var policy GatewayPolicy
+	if err := db.Where("channel_id = ?", channel.Id).First(&policy).Error; err != nil {
+		t.Fatalf("load policy: %v", err)
+	}
+	if !policy.AffinityEnabled {
+		t.Fatal("gateway policy did not preserve affinity setting")
 	}
 
 	var credential GatewayCredential

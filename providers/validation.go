@@ -31,6 +31,12 @@ func ValidateChannelConfig(channel *model.Channel, creating bool) error {
 	if err := catalog.ValidateProfileForProvider(domain.ProtocolProfileID(channel.ProtocolProfileID), definition); err != nil {
 		return err
 	}
+	if channel.AffinityEnabled {
+		protocol, ok := domain.ProtocolForProfile(domain.ProtocolProfileID(channel.ProtocolProfileID))
+		if !ok || !catalog.SupportsAffinityProtocol(protocol) {
+			return fmt.Errorf("protocol profile %q does not support request affinity", channel.ProtocolProfileID)
+		}
+	}
 
 	if creating && strings.TrimSpace(channel.Key) == "" && !supportsAuthMode(definition, domain.AuthModeNone) {
 		return fmt.Errorf("provider %q requires a credential", definition.DisplayName)

@@ -59,6 +59,7 @@ type Channel struct {
 	PassThroughBody      bool       `json:"pass_through_body" form:"pass_through_body" gorm:"default:false"`
 	CompatibleResponse   bool       `json:"compatible_response" gorm:"default:false"`
 	AllowExtraBody       bool       `json:"allow_extra_body" form:"allow_extra_body" gorm:"default:false"`
+	AffinityEnabled      bool       `json:"affinity_enabled" form:"affinity_enabled" gorm:"default:false"`
 
 	DisabledStream *datatypes.JSONSlice[string] `json:"disabled_stream,omitempty" gorm:"type:json"`
 

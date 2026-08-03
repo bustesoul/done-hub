@@ -203,9 +203,7 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
       }
       setDraftProbeSignature(draftProbeFingerprint(values));
       setDraftValidationToken(response.data.data?.validation_token || '');
-      showSuccess(
-        `${response.data.data?.tested_connections || 1} 条连接探测全部通过（最慢 ${response.data.data?.latency_ms ?? '-'} ms）`
-      );
+      showSuccess(`${response.data.data?.tested_connections || 1} 条连接探测全部通过（最慢 ${response.data.data?.latency_ms ?? '-'} ms）`);
     } catch (error) {
       setDraftProbeSignature('');
       setDraftValidationToken('');
@@ -749,6 +747,9 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
           onSubmit={submit}
         >
           {({ errors, handleBlur, handleChange, handleSubmit, isSubmitting, touched, values, setFieldValue }) => {
+            const affinitySupported = Boolean(
+              connectionProfiles.find((profile) => profile.id === values.protocol_profile_id)?.supports_affinity
+            );
             // 保存当前Formik状态，以便在模型选择器中使用
             const openModelSelector = () => {
               setTempFormikValues({ ...values });
@@ -783,6 +784,13 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
                           }
                           if (!values.name && profile?.display_name) {
                             setFieldValue('name', `${profile.display_name} · ${variant?.display_name || ''}`.replace(/ · $/, ''));
+                          }
+                          if (!channelId) {
+                            const authModes =
+                              variant?.auth_modes ||
+                              providerDefinitions.find((provider) => provider.channel_type === channelType)?.auth_modes ||
+                              [];
+                            setFieldValue('affinity_enabled', authModes.includes('oauth'));
                           }
                         }}
                       />
@@ -1280,6 +1288,23 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
                   />
                 </CollapsibleSection>
 
+                {affinitySupported && (
+                  <CollapsibleSection title={t('channel_edit.sectionScheduling')}>
+                    <FormControl fullWidth sx={{ ...theme.typography.otherInput }}>
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={Boolean(values.affinity_enabled)}
+                            onChange={(event) => setFieldValue('affinity_enabled', event.target.checked)}
+                          />
+                        }
+                        label={t('channel_edit.requestAffinity')}
+                      />
+                      <FormHelperText>{t('channel_edit.requestAffinityHelp')}</FormHelperText>
+                    </FormControl>
+                  </CollapsibleSection>
+                )}
+
                 <ChannelAdvancedSection
                   title={t('channel_edit.sectionAdvanced')}
                   inputPrompt={inputPrompt}
@@ -1296,7 +1321,6 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
                   syncModelMappingToModels={syncModelMappingToModels}
                 />
 
-
                 <ChannelBillingSection
                   title={t('channel_edit.sectionBilling')}
                   inputPrompt={inputPrompt}
@@ -1311,7 +1335,6 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
                   handleChange={handleChange}
                   isTag={isTag}
                 />
-
 
                 {pluginList[values.type] &&
                   Object.keys(pluginList[values.type]).map((pluginId) => {
@@ -1377,9 +1400,7 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
                     variant="contained"
                     color="primary"
                   >
-                    {!channelId && !isTag && draftProbeSignature !== draftProbeFingerprint(values)
-                      ? '保存为未验证'
-                      : t('common.submit')}
+                    {!channelId && !isTag && draftProbeSignature !== draftProbeFingerprint(values) ? '保存为未验证' : t('common.submit')}
                   </Button>
                 </DialogActions>
               </form>

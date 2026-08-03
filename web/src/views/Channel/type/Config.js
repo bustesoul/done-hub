@@ -24,6 +24,7 @@ const defaultConfig = {
     compatible_response: false,
     allow_extra_body: false,
     pass_through_body: false,
+    affinity_enabled: false,
     cost_ratio: 0
   },
   inputLabel: {

@@ -331,6 +331,9 @@
     "sectionBasic": "基础配置",
     "sectionAdvanced": "高级设置",
     "sectionBilling": "计费与行为",
+    "sectionScheduling": "调度策略",
+    "requestAffinity": "请求亲和",
+    "requestAffinityHelp": "让同一会话或用户在当前最高可用优先级内稳定选择同一上游连接，提高订阅账号与上游 Prompt Cache 的复用概率。开启后此连接会加入亲和主选池；未开启的同级渠道仍可在主选池不可用时作为故障回退。",
     "copyModels": "复制模型",
     "mapAdd": "添加{{name}}",
     "mapAddByJson": "通过JSON添加{{name}}",
@@ -1510,6 +1513,7 @@
     }
   },
   "channel_row": {
+    "affinity": "亲和",
     "priorityTip": "优先级不能小于 0",
     "weightTip": "权重不能小于 1",
     "modelTestTip": "请先设置测试模型",

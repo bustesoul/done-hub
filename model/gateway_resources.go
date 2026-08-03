@@ -93,6 +93,7 @@ type GatewayPolicy struct {
 	PassThroughBody     bool      `json:"pass_through_body"`
 	CompatibleResponse  bool      `json:"compatible_response"`
 	AllowExtraBody      bool      `json:"allow_extra_body"`
+	AffinityEnabled     bool      `json:"affinity_enabled"`
 	CreatedAt           time.Time `json:"created_at"`
 	UpdatedAt           time.Time `json:"updated_at"`
 }
@@ -323,6 +324,7 @@ func backfillGatewayChannel(db *gorm.DB, secretCipher *secret.Cipher, channel *C
 		PassThroughBody:     channel.PassThroughBody,
 		CompatibleResponse:  channel.CompatibleResponse,
 		AllowExtraBody:      channel.AllowExtraBody,
+		AffinityEnabled:     channel.AffinityEnabled,
 	}
 	if err := upsertByChannelID(db, &policy); err != nil {
 		return err
@@ -975,6 +977,7 @@ func LoadGatewayChannelSnapshots(db *gorm.DB) ([]*Channel, error) {
 			PassThroughBody:     policy.PassThroughBody,
 			CompatibleResponse:  policy.CompatibleResponse,
 			AllowExtraBody:      policy.AllowExtraBody,
+			AffinityEnabled:     policy.AffinityEnabled,
 		}
 		if err := restoreGatewayJSONPolicy(channel, policy); err != nil {
 			return nil, fmt.Errorf("restore gateway policy for channel %d: %w", endpoint.ChannelID, err)

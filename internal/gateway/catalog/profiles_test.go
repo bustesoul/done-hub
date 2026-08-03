@@ -34,7 +34,7 @@ func TestConnectionProfilesAreOrderedAndProtocolSafe(t *testing.T) {
 		if profile.ID != want[index] {
 			t.Fatalf("profile %d: expected %q, got %q", index, want[index], profile.ID)
 		}
-		if !profile.Featured || profile.CatalogSection != "mainstream" || len(profile.Variants) == 0 {
+		if !profile.Featured || !profile.SupportsAffinity || profile.CatalogSection != "mainstream" || len(profile.Variants) == 0 {
 			t.Fatalf("profile %q is incomplete: %#v", profile.ID, profile)
 		}
 		for _, variant := range profile.Variants {

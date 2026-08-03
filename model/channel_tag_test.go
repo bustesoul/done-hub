@@ -84,8 +84,8 @@ func TestUpdateChannelsTagPreservesIndependentGatewayCredentials(t *testing.T) {
 	defer viper.Set("gateway_secret_key", "")
 
 	channels := []Channel{
-		{Name: "first", Type: 1, Key: "first-secret", Tag: "shared", Status: 1, Models: "gpt-test", Group: "default"},
-		{Name: "second", Type: 1, Key: "second-secret", Tag: "shared", Status: 1, Models: "gpt-test", Group: "default"},
+		{Name: "first", Type: 1, Key: "first-secret", Tag: "shared", Status: 1, Models: "gpt-test", Group: "default", AffinityEnabled: true},
+		{Name: "second", Type: 1, Key: "second-secret", Tag: "shared", Status: 1, Models: "gpt-test", Group: "default", AffinityEnabled: true},
 	}
 	if err := BatchInsertChannels(channels); err != nil {
 		t.Fatalf("insert channels: %v", err)
@@ -120,6 +120,16 @@ func TestUpdateChannelsTagPreservesIndependentGatewayCredentials(t *testing.T) {
 		}
 		if stored.Group != "premium" {
 			t.Fatalf("channel %d shared config was not updated: %q", index, stored.Group)
+		}
+		if stored.AffinityEnabled {
+			t.Fatalf("channel %d affinity disable was not persisted", index)
+		}
+		var policy GatewayPolicy
+		if err := db.Where("channel_id = ?", channels[index].Id).First(&policy).Error; err != nil {
+			t.Fatalf("load gateway policy %d: %v", index, err)
+		}
+		if policy.AffinityEnabled {
+			t.Fatalf("gateway policy %d affinity disable was not projected", index)
 		}
 	}
 }

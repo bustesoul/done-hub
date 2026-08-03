@@ -94,13 +94,14 @@ func ConnectionProfiles(providerDefinitions []domain.ProviderDefinition) ([]doma
 	profiles := make([]domain.ConnectionProfileDefinition, 0, len(featuredProfileSpecs))
 	for _, spec := range featuredProfileSpecs {
 		profile := domain.ConnectionProfileDefinition{
-			ID:             spec.ID,
-			DisplayName:    spec.DisplayName,
-			Description:    spec.Description,
-			Protocol:       spec.Protocol,
-			Featured:       true,
-			DisplayOrder:   spec.DisplayOrder,
-			CatalogSection: "mainstream",
+			ID:               spec.ID,
+			DisplayName:      spec.DisplayName,
+			Description:      spec.Description,
+			Protocol:         spec.Protocol,
+			Featured:         true,
+			DisplayOrder:     spec.DisplayOrder,
+			CatalogSection:   "mainstream",
+			SupportsAffinity: SupportsAffinityProtocol(spec.Protocol),
 			Probe: domain.ProtocolProbeDefinition{
 				ModelDiscoveryPath: spec.ModelDiscoveryPath,
 				RequestPath:        spec.RequestPath,
@@ -133,6 +134,15 @@ func ConnectionProfiles(providerDefinitions []domain.ProviderDefinition) ([]doma
 		return profiles[i].DisplayOrder < profiles[j].DisplayOrder
 	})
 	return profiles, nil
+}
+
+func SupportsAffinityProtocol(protocol domain.Protocol) bool {
+	switch protocol {
+	case domain.ProtocolOpenAIChat, domain.ProtocolOpenAIResponses, domain.ProtocolClaudeMessages, domain.ProtocolGemini:
+		return true
+	default:
+		return false
+	}
 }
 
 func cloneStringMap(values map[string]string) map[string]string {

@@ -135,6 +135,7 @@ func endpointFromChannel(channel *model.Channel) domain.Endpoint {
 		Priority:          priority,
 		Enabled:           channel.Status == config.ChannelStatusEnabled,
 		ProtocolProfileID: domain.ProtocolProfileID(channel.ProtocolProfileID),
+		AffinityEnabled:   channel.AffinityEnabled,
 	}
 }
 
@@ -208,23 +209,26 @@ func (o *relayAttemptObserver) AttemptFinished(
 	upstreamErr *gatewayretry.UpstreamError,
 	decision gatewayretry.Decision,
 ) {
+	state := gatewayRequestState(o.c)
+	affinitySource := state.GetString("gateway_affinity_source")
+	affinityFingerprint := state.GetString("gateway_affinity_key_fingerprint")
 	if upstreamErr == nil {
 		logger.LogInfo(o.c.Request.Context(), fmt.Sprintf(
-			"gateway_attempt_finished request_id=%s attempt=%d endpoint_id=%d outcome=success duration_ms=%d input_tokens=%d output_tokens=%d output_started=%t accepted=%t",
+			"gateway_attempt_finished request_id=%s attempt=%d endpoint_id=%d outcome=success duration_ms=%d input_tokens=%d output_tokens=%d output_started=%t accepted=%t affinity_source=%s affinity_key_fp=%s",
 			result.Attempt.RequestID, result.Attempt.Number, result.Attempt.Endpoint.ID,
 			result.CompletedAt.Sub(result.Attempt.StartedAt).Milliseconds(),
 			result.Usage.InputTokens, result.Usage.OutputTokens,
-			result.OutputStarted, result.UpstreamAccepted,
+			result.OutputStarted, result.UpstreamAccepted, affinitySource, affinityFingerprint,
 		))
 		return
 	}
 	logger.LogWarn(o.c.Request.Context(), fmt.Sprintf(
-		"gateway_attempt_finished request_id=%s attempt=%d endpoint_id=%d outcome=failed status_code=%d class=%s retry=%t cooldown=%t delay=%s duration_ms=%d input_tokens=%d output_tokens=%d output_started=%t accepted=%t",
+		"gateway_attempt_finished request_id=%s attempt=%d endpoint_id=%d outcome=failed status_code=%d class=%s retry=%t cooldown=%t delay=%s duration_ms=%d input_tokens=%d output_tokens=%d output_started=%t accepted=%t affinity_source=%s affinity_key_fp=%s",
 		result.Attempt.RequestID, result.Attempt.Number, result.Attempt.Endpoint.ID,
 		upstreamErr.StatusCode, upstreamErr.Class, decision.Retry, decision.Cooldown,
 		decision.Delay, result.CompletedAt.Sub(result.Attempt.StartedAt).Milliseconds(),
 		result.Usage.InputTokens, result.Usage.OutputTokens,
-		result.OutputStarted, result.UpstreamAccepted,
+		result.OutputStarted, result.UpstreamAccepted, affinitySource, affinityFingerprint,
 	))
 }
 

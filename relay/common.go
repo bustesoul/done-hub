@@ -390,7 +390,7 @@ func fetchChannelByModel(c *gin.Context, modelName string) (*model.Channel, erro
 	group := c.GetString("token_group")
 	filters := buildChannelFilters(c, modelName)
 
-	// 传递 gin.Context 给 balancer，用于生成 session hash
+	// 传递 gin.Context，让 balancer 可按协议请求信号执行无状态渠道亲和。
 	channel, err := model.GatewayRoutes.NextByValidatedModel(group, modelName, c, filters...)
 	if err != nil {
 		// 这里只判 NextByValidatedModel 自产的两个 sentinel；isRuntimeChannelErr 还列了另外 2 个

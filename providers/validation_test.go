@@ -94,6 +94,16 @@ func TestValidateChannelConfig(t *testing.T) {
 			creating: true,
 			wantPart: "does not support protocol profile",
 		},
+		{
+			name: "native protocol rejects affinity",
+			channel: &model.Channel{
+				Type:            config.ChannelTypeXunfei,
+				Key:             "secret",
+				AffinityEnabled: true,
+			},
+			creating: true,
+			wantPart: "does not support request affinity",
+		},
 	}
 
 	for _, test := range tests {

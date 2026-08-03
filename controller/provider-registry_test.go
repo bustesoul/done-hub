@@ -53,11 +53,12 @@ func TestGetConnectionProfiles(t *testing.T) {
 	var response struct {
 		Success bool `json:"success"`
 		Data    []struct {
-			ID           string `json:"id"`
-			Protocol     string `json:"protocol"`
-			Featured     bool   `json:"featured"`
-			DisplayOrder int    `json:"display_order"`
-			Variants     []struct {
+			ID               string `json:"id"`
+			Protocol         string `json:"protocol"`
+			Featured         bool   `json:"featured"`
+			SupportsAffinity bool   `json:"supports_affinity"`
+			DisplayOrder     int    `json:"display_order"`
+			Variants         []struct {
 				ProviderID  string `json:"provider_id"`
 				ChannelType int    `json:"channel_type"`
 			} `json:"variants"`
@@ -71,7 +72,7 @@ func TestGetConnectionProfiles(t *testing.T) {
 		t.Fatalf("unexpected response: %#v", response)
 	}
 	for index, profile := range response.Data {
-		if profile.ID != want[index] || !profile.Featured || profile.DisplayOrder <= 0 || len(profile.Variants) == 0 {
+		if profile.ID != want[index] || !profile.Featured || !profile.SupportsAffinity || profile.DisplayOrder <= 0 || len(profile.Variants) == 0 {
 			t.Fatalf("profile %d is incomplete: %#v", index, profile)
 		}
 	}

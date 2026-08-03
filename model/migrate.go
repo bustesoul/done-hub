@@ -406,6 +406,35 @@ func addCachedWrite1hRatio() *gormigrate.Migration {
 	}
 }
 
+// enableLegacySubscriptionAffinity preserves the sticky behavior that Codex,
+// Claude Code and Gemini CLI connections had before the stateless affinity
+// selector replaced the Redis mapping. Ordinary API-key connections remain
+// opt-in and therefore keep their existing weighted-random distribution.
+func enableLegacySubscriptionAffinity() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "202608030001",
+		Migrate: func(tx *gorm.DB) error {
+			channelTypes := []int{
+				config.ChannelTypeCodex,
+				config.ChannelTypeClaudeCode,
+				config.ChannelTypeGeminiCli,
+			}
+			if tx.Migrator().HasTable(&Channel{}) && tx.Migrator().HasColumn(&Channel{}, "AffinityEnabled") {
+				if err := tx.Model(&Channel{}).Where("type IN ?", channelTypes).Update("affinity_enabled", true).Error; err != nil {
+					return err
+				}
+			}
+			if tx.Migrator().HasTable(&GatewayPolicy{}) && tx.Migrator().HasColumn(&GatewayPolicy{}, "AffinityEnabled") {
+				return tx.Model(&GatewayPolicy{}).
+					Where("channel_id IN (?)", tx.Model(&Channel{}).Select("id").Where("type IN ?", channelTypes)).
+					Update("affinity_enabled", true).Error
+			}
+			return nil
+		},
+		Rollback: func(tx *gorm.DB) error { return nil },
+	}
+}
+
 func migrateTokenLimitsStructure() *gormigrate.Migration {
 	return &gormigrate.Migration{
 		ID: "202510160002",
@@ -847,6 +876,7 @@ func migrationAfter(db *gorm.DB) error {
 		addExtraRatios(),
 		migrateTokenLimitsStructure(),
 		addCachedWrite1hRatio(),
+		enableLegacySubscriptionAffinity(),
 		installQuotaFixProcedures("202604290001"),
 		installQuotaFixProcedures("202604290002"),
 	})

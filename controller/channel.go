@@ -279,9 +279,10 @@ func SetProviderConnectionStatus(c *gin.Context) {
 }
 
 type providerConnectionSchedulingRequest struct {
-	Priority  *int64   `json:"priority"`
-	Weight    *uint    `json:"weight"`
-	CostRatio *float64 `json:"cost_ratio"`
+	Priority        *int64   `json:"priority"`
+	Weight          *uint    `json:"weight"`
+	CostRatio       *float64 `json:"cost_ratio"`
+	AffinityEnabled *bool    `json:"affinity_enabled"`
 }
 
 func UpdateProviderConnectionScheduling(c *gin.Context) {
@@ -295,7 +296,7 @@ func UpdateProviderConnectionScheduling(c *gin.Context) {
 		common.APIRespondWithError(c, http.StatusBadRequest, err)
 		return
 	}
-	if request.Priority == nil && request.Weight == nil && request.CostRatio == nil {
+	if request.Priority == nil && request.Weight == nil && request.CostRatio == nil && request.AffinityEnabled == nil {
 		common.APIRespondWithError(c, http.StatusBadRequest, errors.New("至少提供一个调度字段"))
 		return
 	}
@@ -307,7 +308,19 @@ func UpdateProviderConnectionScheduling(c *gin.Context) {
 		common.APIRespondWithError(c, http.StatusBadRequest, errors.New("成本倍率不能小于 0"))
 		return
 	}
-	updates := make(map[string]any, 3)
+	if request.AffinityEnabled != nil {
+		channel, loadErr := model.GetChannelById(id)
+		if loadErr != nil {
+			common.APIRespondWithError(c, http.StatusNotFound, loadErr)
+			return
+		}
+		channel.AffinityEnabled = *request.AffinityEnabled
+		if validateErr := providers.ValidateChannelConfig(channel, false); validateErr != nil {
+			common.APIRespondWithError(c, http.StatusBadRequest, validateErr)
+			return
+		}
+	}
+	updates := make(map[string]any, 4)
 	if request.Priority != nil {
 		updates["priority"] = *request.Priority
 	}
@@ -316,6 +329,9 @@ func UpdateProviderConnectionScheduling(c *gin.Context) {
 	}
 	if request.CostRatio != nil {
 		updates["cost_ratio"] = *request.CostRatio
+	}
+	if request.AffinityEnabled != nil {
+		updates["affinity_enabled"] = *request.AffinityEnabled
 	}
 	if err := model.UpdateGatewayConnectionScheduling(id, updates); err != nil {
 		common.APIRespondWithError(c, http.StatusInternalServerError, err)

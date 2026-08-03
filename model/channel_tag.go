@@ -117,7 +117,7 @@ func UpdateChannelsTag(tag string, channel *Channel) error {
 	}
 
 	err = mutateChannelsTag(tag, nil, func(tx *gorm.DB, _ []int) error {
-		return tx.Model(Channel{}).Where("tag = ?", tag).Updates(
+		if err := tx.Model(Channel{}).Where("tag = ?", tag).Updates(
 			Channel{
 				ProtocolProfileID:   channel.ProtocolProfileID,
 				BaseURL:             channel.BaseURL,
@@ -137,7 +137,11 @@ func UpdateChannelsTag(tag string, channel *Channel) error {
 				PreCost:             channel.PreCost,
 				DisabledStream:      channel.DisabledStream,
 				CompatibleResponse:  channel.CompatibleResponse,
-			}).Error
+			}).Error; err != nil {
+			return err
+		}
+		// Struct updates omit false, but disabling affinity must be persisted.
+		return tx.Model(Channel{}).Where("tag = ?", tag).Update("affinity_enabled", channel.AffinityEnabled).Error
 	})
 	return err
 }

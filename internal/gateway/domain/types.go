@@ -122,15 +122,16 @@ type ProtocolProbeDefinition struct {
 }
 
 type ConnectionProfileDefinition struct {
-	ID             ProtocolProfileID       `json:"id"`
-	DisplayName    string                  `json:"display_name"`
-	Description    string                  `json:"description"`
-	Protocol       Protocol                `json:"protocol"`
-	Featured       bool                    `json:"featured"`
-	DisplayOrder   int                     `json:"display_order"`
-	CatalogSection string                  `json:"catalog_section"`
-	Variants       []ProviderVariant       `json:"variants"`
-	Probe          ProtocolProbeDefinition `json:"probe"`
+	ID               ProtocolProfileID       `json:"id"`
+	DisplayName      string                  `json:"display_name"`
+	Description      string                  `json:"description"`
+	Protocol         Protocol                `json:"protocol"`
+	Featured         bool                    `json:"featured"`
+	DisplayOrder     int                     `json:"display_order"`
+	CatalogSection   string                  `json:"catalog_section"`
+	Variants         []ProviderVariant       `json:"variants"`
+	Probe            ProtocolProbeDefinition `json:"probe"`
+	SupportsAffinity bool                    `json:"supports_affinity"`
 }
 
 func (d ProviderDefinition) Supports(capability Capability) bool {
@@ -160,6 +161,7 @@ type Endpoint struct {
 	Enabled           bool
 	ProtocolProfileID ProtocolProfileID
 	CredentialRef     CredentialRef
+	AffinityEnabled   bool
 }
 
 type ModelRoute struct {

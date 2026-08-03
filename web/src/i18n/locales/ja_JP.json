@@ -162,6 +162,9 @@
     "sectionBasic": "基本設定",
     "sectionAdvanced": "詳細設定",
     "sectionBilling": "課金と動作",
+    "sectionScheduling": "スケジューリング",
+    "requestAffinity": "リクエストアフィニティ",
+    "requestAffinityHelp": "同じセッションまたはユーザーを、利用可能な最優先ティア内の安定した上流接続へ振り分け、サブスクリプションと上流 Prompt Cache の再利用率を高めます。アフィニティを有効にした接続が主プールとなり、同一ティアでアフィニティを有効にしていない接続は障害時のフォールバック候補として残ります。",
     "inputAllModel": "すべてのモデルを入力してください",
     "inputChannelModel": "チャネルサポートモデルを入力します",
     "invalidJson": "無効なJSON",
@@ -312,6 +315,7 @@
     "azureApiSearchPlaceholder": "検索する API バージョン（空欄で全 Azure チャネル）"
   },
   "channel_row": {
+    "affinity": "アフィニティ",
     "auto": "自動",
     "canModels": "利用可能なモデル:",
     "channelWeb": "公式ウェブサイト",

@@ -27,8 +27,7 @@ var timeFormat = "2006-01-02T15:04:05.000Z"
 var inMemoryRateLimiter common.InMemoryRateLimiter
 
 // rate-limit 的 Redis 操作超时跟随 redis_read_timeout 配置，但热路径上每请求调一次
-// viper.GetInt 走 RWMutex.RLock+reflect 不划算，init-once 缓存（与 redis.go 的
-// stickySessionOpTimeout 同思路）。
+// viper.GetInt 走 RWMutex.RLock+reflect 不划算，因此 init-once 缓存。
 var (
 	rateLimitTimeout     time.Duration
 	rateLimitTimeoutOnce sync.Once
