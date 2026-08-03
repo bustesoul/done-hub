@@ -29,6 +29,7 @@ type Channel struct {
 	CredentialStatus     string     `json:"credential_status" gorm:"-"`
 	CredentialTestedAt   *time.Time `json:"credential_tested_at,omitempty" gorm:"-"`
 	ValidationToken      string     `json:"validation_token,omitempty" gorm:"-"`
+	SaveUnverified       bool       `json:"save_unverified,omitempty" gorm:"-"`
 	Status               int        `json:"status" form:"status" gorm:"default:1"`
 	Name                 string     `json:"name" form:"name" gorm:"index"`
 	Weight               *uint      `json:"weight" gorm:"default:1"`
@@ -763,10 +764,34 @@ func (channel *Channel) updateRaw(db *gorm.DB, overwrite bool) error {
 }
 
 func (channel *Channel) UpdateResponseTime(responseTime int64) {
-	err := DB.Model(channel).Select("response_time", "test_time").Updates(Channel{
-		TestTime:     utils.GetTimestamp(),
-		ResponseTime: int(responseTime),
-	}).Error
+	testTime := utils.GetTimestamp()
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(channel).Select("response_time", "test_time").Updates(Channel{
+			TestTime:     testTime,
+			ResponseTime: int(responseTime),
+		}).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&GatewayHealthState{}).Where("channel_id = ?", channel.Id).Updates(map[string]any{
+			"test_time":     testTime,
+			"response_time": int(responseTime),
+		}).Error; err != nil {
+			return err
+		}
+		var endpoint GatewayEndpoint
+		if err := tx.Select("active_credential_id").Where("channel_id = ?", channel.Id).First(&endpoint).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil
+			}
+			return err
+		}
+		if endpoint.ActiveCredentialID == 0 {
+			return nil
+		}
+		testedAt := time.Unix(testTime, 0)
+		return tx.Model(&GatewayCredential{}).Where("id = ? AND channel_id = ?", endpoint.ActiveCredentialID, channel.Id).
+			Update("tested_at", &testedAt).Error
+	})
 	if err != nil {
 		logger.SysError("failed to update response time: " + err.Error())
 	}

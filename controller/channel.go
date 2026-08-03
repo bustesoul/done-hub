@@ -85,11 +85,20 @@ func AddChannel(c *gin.Context) {
 		common.APIRespondWithError(c, http.StatusOK, err)
 		return
 	}
-	if c.GetBool("require_provider_validation") {
+	verified := false
+	if c.GetBool("require_provider_validation") && !channel.SaveUnverified {
 		if err = verifyProviderValidationToken(&channel); err != nil {
 			common.APIRespondWithError(c, http.StatusConflict, err)
 			return
 		}
+		verified = true
+	}
+	if channel.SaveUnverified {
+		channel.Status = config.ChannelStatusManuallyDisabled
+		channel.TestTime = 0
+		channel.ResponseTime = 0
+	} else if verified {
+		channel.TestTime = utils.GetTimestamp()
 	}
 	channel.CreatedTime = utils.GetTimestamp()
 	keys := strings.Split(channel.Key, "\n")
@@ -235,6 +244,10 @@ func SetProviderConnectionStatus(c *gin.Context) {
 			common.APIRespondWithError(c, http.StatusConflict, errors.New("该 Provider 不支持无凭据连接"))
 			return
 		}
+		if credential.TestedAt == nil {
+			common.APIRespondWithError(c, http.StatusConflict, errors.New("连接的活动凭据尚未通过测试，不能启用"))
+			return
+		}
 		var routeCount int64
 		if err := model.DB.Model(&model.GatewayModelRoute{}).
 			Where("channel_id = ?", id).
@@ -244,6 +257,11 @@ func SetProviderConnectionStatus(c *gin.Context) {
 		}
 		if routeCount == 0 {
 			common.APIRespondWithError(c, http.StatusConflict, errors.New("连接没有可用模型路由，不能启用"))
+			return
+		}
+		var health model.GatewayHealthState
+		if err := model.DB.Where("channel_id = ?", id).First(&health).Error; err != nil || health.TestTime == 0 {
+			common.APIRespondWithError(c, http.StatusConflict, errors.New("连接尚未通过探测，不能启用"))
 			return
 		}
 	}
@@ -379,6 +397,13 @@ func UpdateChannel(c *gin.Context) {
 		return
 	}
 	channel = channelToValidate
+	if providerConnectionProbeConfigChanged(oldChannel, &channel) {
+		channel.TestTime = 0
+		channel.ResponseTime = 0
+	} else {
+		channel.TestTime = oldChannel.TestTime
+		channel.ResponseTime = oldChannel.ResponseTime
+	}
 	if channel.Models == "" {
 		err = channel.Update(false)
 	} else {
@@ -396,6 +421,18 @@ func UpdateChannel(c *gin.Context) {
 		"message": "",
 		"data":    channel,
 	})
+}
+
+func providerConnectionProbeConfigChanged(before, after *model.Channel) bool {
+	if before == nil || after == nil {
+		return true
+	}
+	return before.Type != after.Type ||
+		before.ProtocolProfileID != after.ProtocolProfileID ||
+		before.GetBaseURL() != after.GetBaseURL() ||
+		before.GetProxy() != after.GetProxy() ||
+		before.Other != after.Other ||
+		before.TestModel != after.TestModel
 }
 
 func BatchUpdateChannelsAzureApi(c *gin.Context) {

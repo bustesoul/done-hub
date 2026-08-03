@@ -124,6 +124,9 @@ func ActivateProviderCredential(c *gin.Context) {
 	}
 	model.ClearChannelTokenCache(channelID)
 	model.GatewayRoutes.Load()
+	if channel, loadErr := model.GetChannelById(channelID); loadErr == nil {
+		channel.UpdateResponseTime(0)
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{

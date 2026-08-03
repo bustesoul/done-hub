@@ -392,6 +392,7 @@ func ProbeProviderConnection(c *gin.Context) {
 		writeProviderProbeError(c, openaiErr, testErr, latency, "inference")
 		return
 	}
+	channel.UpdateResponseTime(latency)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

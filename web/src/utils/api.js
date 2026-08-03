@@ -23,6 +23,8 @@ API.interceptors.response.use(
     }
 
     showError(error);
+    error.shownByApiInterceptor = true;
+    return Promise.reject(error);
   }
 );
 

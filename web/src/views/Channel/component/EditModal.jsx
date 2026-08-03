@@ -60,17 +60,32 @@ const checkedIcon = <CheckBoxIcon fontSize="small" />;
 
 const filter = createFilterOptions();
 const normalizeDraftValue = (value) => (typeof value === 'string' ? value.trim() : value);
+const normalizeDraftBaseURL = (value) =>
+  String(value || '')
+    .split('\n')
+    .map((item) => item.trim().replace(/\/$/, ''))
+    .join('\n')
+    .trim();
+const resolveDraftTestModel = (values) => {
+  const explicit = normalizeDraftValue(values.test_model);
+  if (explicit) return explicit;
+  const firstModel = Array.isArray(values.models) ? values.models.find((model) => normalizeDraftValue(model?.id || model)) : null;
+  return normalizeDraftValue(firstModel?.id || firstModel || '');
+};
 const draftProbePayload = (values) => ({
   name: normalizeDraftValue(values.name),
   type: values.type,
   protocol_profile_id: normalizeDraftValue(values.protocol_profile_id),
   key: normalizeDraftValue(values.key),
-  base_url: normalizeDraftValue(values.base_url),
+  base_url: normalizeDraftBaseURL(values.base_url),
   proxy: normalizeDraftValue(values.proxy),
   other: normalizeDraftValue(values.other),
-  test_model: normalizeDraftValue(values.test_model)
+  test_model: resolveDraftTestModel(values)
 });
-const draftProbeFingerprint = (values) => JSON.stringify(draftProbePayload(values));
+const draftProbeFingerprint = (values) => {
+  const { name: _name, ...probeBoundConfig } = draftProbePayload(values);
+  return JSON.stringify(probeBoundConfig);
+};
 const getValidationSchema = (t, providerDefinitions) =>
   Yup.object().shape({
     is_edit: Yup.boolean(),
@@ -194,7 +209,9 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
     } catch (error) {
       setDraftProbeSignature('');
       setDraftValidationToken('');
-      showError(error.response?.data?.error?.message || error.response?.data?.message || error.message);
+      if (!error.shownByApiInterceptor) {
+        showError(error.response?.data?.error?.message || error.response?.data?.message || error.message);
+      }
     } finally {
       setDraftProbeWorking(false);
     }
@@ -414,14 +431,8 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
   const doSubmit = async (values, { setErrors, setStatus, setSubmitting }) => {
     setSubmitting(true);
     values = trims(values);
-    if (!channelId && !isTag && draftProbeSignature !== draftProbeFingerprint(values)) {
-      const message = '连接配置尚未通过探测，或探测后关键字段已变化，请重新执行“连接探测”。';
-      setSubmitting(false);
-      setStatus({ success: false });
-      setErrors({ submit: message });
-      showError(message);
-      return;
-    }
+    const draftPayload = draftProbePayload(values);
+    const saveUnverified = !channelId && !isTag && draftProbeSignature !== draftProbeFingerprint(values);
     if (channelId && !isTag && values.key) {
       const message = '新凭据尚未进入轮换流程，请先点击“建立候选”，完成测试和激活后再保存其他配置。';
       setSubmitting(false);
@@ -550,14 +561,19 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
       } else {
         res = await API.post(baseApiUrl, {
           ...values,
+          base_url: draftPayload.base_url,
+          test_model: draftPayload.test_model,
           models: modelsStr,
-          validation_token: draftValidationToken
+          validation_token: draftValidationToken,
+          save_unverified: saveUnverified
         });
       }
       const { success, message } = res.data;
       if (success) {
         if (channelId) {
           showSuccess(t('channel_edit.editSuccess'));
+        } else if (saveUnverified) {
+          showSuccess('连接已保存为未验证状态并保持停用；探测通过后才能启用。');
         } else {
           showSuccess(t('channel_edit.addSuccess'));
         }
@@ -571,7 +587,7 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
       }
     } catch (error) {
       setStatus({ success: false });
-      showError(error.message);
+      if (!error.shownByApiInterceptor) showError(error.message);
       setErrors({ submit: error.message });
     }
   };
@@ -1361,7 +1377,9 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
                     variant="contained"
                     color="primary"
                   >
-                    {t('common.submit')}
+                    {!channelId && !isTag && draftProbeSignature !== draftProbeFingerprint(values)
+                      ? '保存为未验证'
+                      : t('common.submit')}
                   </Button>
                 </DialogActions>
               </form>

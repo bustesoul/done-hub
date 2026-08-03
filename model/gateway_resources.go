@@ -401,6 +401,10 @@ func upsertGatewayCredential(db *gorm.DB, secretCipher *secret.Cipher, channel *
 		SecretVersion:    maxVersion + 1,
 		Status:           "active",
 	}
+	if channel.TestTime > 0 {
+		testedAt := time.Unix(channel.TestTime, 0)
+		credential.TestedAt = &testedAt
+	}
 	if err := db.Create(&credential).Error; err != nil {
 		return 0, err
 	}
