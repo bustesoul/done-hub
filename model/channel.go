@@ -857,11 +857,15 @@ func UpdateChannelStatusById(id int, status int) error {
 	}
 
 	isEnabled := status == config.ChannelStatusEnabled
-	GatewayRoutes.ChangeStatus(id, isEnabled)
-
-	// 启用渠道时清除冻结缓存
 	if isEnabled {
+		// A connection created as an unverified draft is absent from the runtime
+		// index. Enabling only an existing ChannelChoice is therefore a no-op.
+		// Reload the authoritative Gateway resources so newly enabled endpoints
+		// and their routes become immediately schedulable.
+		GatewayRoutes.Load()
 		GatewayRoutes.ClearChannelCooldowns(id)
+	} else {
+		GatewayRoutes.ChangeStatus(id, false)
 	}
 	return nil
 }

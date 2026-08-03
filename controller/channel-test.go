@@ -394,12 +394,19 @@ func ProbeProviderConnection(c *gin.Context) {
 	}
 	channel.UpdateResponseTime(latency)
 
+	writeProviderProbeSuccess(c, latency, channel.ProtocolProfileID)
+}
+
+func writeProviderProbeSuccess(c *gin.Context, latency int64, protocolProfileID string) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
+		// Keep the legacy channel-test response contract for list callers while
+		// exposing the millisecond precision used by the new management flow.
+		"time": float64(latency) / 1000.0,
 		"data": gin.H{
 			"stage":               "completed",
 			"latency_ms":          latency,
-			"protocol_profile_id": channel.ProtocolProfileID,
+			"protocol_profile_id": protocolProfileID,
 			"request_id":          c.GetString("request_id"),
 		},
 	})

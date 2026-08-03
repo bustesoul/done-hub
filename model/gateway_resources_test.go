@@ -150,6 +150,73 @@ func TestHydrateGatewayCredentialsUsesBatchQueries(t *testing.T) {
 	}
 }
 
+func TestEnablingDraftReloadsGatewayRouteIndex(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(&Channel{}); err != nil {
+		t.Fatalf("migrate channel: %v", err)
+	}
+	if err := AutoMigrateGatewayResources(db); err != nil {
+		t.Fatalf("migrate gateway resources: %v", err)
+	}
+
+	oldDB := DB
+	DB = db
+	defer func() { DB = oldDB }()
+	GatewayRoutes = GatewayRouteIndex{}
+	defer func() { GatewayRoutes = GatewayRouteIndex{} }()
+	oldLogger := logger.Logger
+	logger.Logger = zap.NewNop()
+	defer func() { logger.Logger = oldLogger }()
+	viper.Set("gateway_secret_key", "enable-draft-route-test")
+	defer viper.Set("gateway_secret_key", "")
+
+	weight := uint(1)
+	priority := int64(0)
+	baseURL := "https://example.invalid"
+	channel := Channel{
+		Type:              config.ChannelTypeOpenAI,
+		ProtocolProfileID: "openai-responses",
+		Key:               "candidate-secret",
+		Status:            config.ChannelStatusManuallyDisabled,
+		Name:              "draft",
+		Weight:            &weight,
+		Priority:          &priority,
+		BaseURL:           &baseURL,
+		Models:            "gpt-test",
+		TestModel:         "gpt-test",
+		Group:             "default",
+	}
+	if err := db.Create(&channel).Error; err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+	secretCipher, err := secret.New("enable-draft-route-test")
+	if err != nil {
+		t.Fatalf("create cipher: %v", err)
+	}
+	if err := BackfillGatewayResources(db, secretCipher); err != nil {
+		t.Fatalf("backfill gateway resources: %v", err)
+	}
+	GatewayRoutes.Load()
+	if GatewayRoutes.GetChannel(channel.Id) != nil {
+		t.Fatal("disabled draft unexpectedly entered route index")
+	}
+
+	if err := UpdateChannelStatusById(channel.Id, config.ChannelStatusEnabled); err != nil {
+		t.Fatalf("enable channel: %v", err)
+	}
+	loaded := GatewayRoutes.GetChannel(channel.Id)
+	if loaded == nil || loaded.Status != config.ChannelStatusEnabled {
+		t.Fatalf("enabled draft missing from route index: %#v", loaded)
+	}
+	models, err := GatewayRoutes.GetGroupModels("default")
+	if err != nil || len(models) != 1 || models[0] != "gpt-test" {
+		t.Fatalf("unexpected group models: %v, %v", models, err)
+	}
+}
+
 func TestBackfillGatewayResourcesIsIdempotent(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {

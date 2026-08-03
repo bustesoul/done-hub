@@ -107,6 +107,28 @@ func TestProviderConnectionProbeConfigChanged(t *testing.T) {
 	}
 }
 
+func TestProviderProbeSuccessKeepsLegacyTimeContract(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	latency := int64(744)
+
+	writeProviderProbeSuccess(context, latency, "openai-responses")
+
+	var response struct {
+		Success bool    `json:"success"`
+		Time    float64 `json:"time"`
+		Data    struct {
+			LatencyMS int64 `json:"latency_ms"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !response.Success || response.Time != 0.744 || response.Data.LatencyMS != latency {
+		t.Fatalf("unexpected probe response: %#v", response)
+	}
+}
+
 func TestProviderConnectionDraftProbeReportsMissingTestModel(t *testing.T) {
 	body := []byte(`{
 		"type": 1,

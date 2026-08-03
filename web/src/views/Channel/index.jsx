@@ -256,7 +256,16 @@ export default function ChannelList() {
         showError(message);
       }
 
-      return res.data;
+      const responseData = res.data;
+      if (
+        action === 'test' &&
+        !tag &&
+        typeof responseData.time !== 'number' &&
+        Number.isFinite(responseData.data?.latency_ms)
+      ) {
+        return { ...responseData, time: responseData.data.latency_ms / 1000 };
+      }
+      return responseData;
     } catch (error) {
       const message = error.response?.data?.error?.message
         || error.response?.data?.message
