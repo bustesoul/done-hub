@@ -91,6 +91,46 @@ func TestChatResponsesRegistryExecutesRequestConversion(t *testing.T) {
 	}
 }
 
+func TestChatResponsesRegistryConvertsResponsesBackToChat(t *testing.T) {
+	context, _ := gin.CreateTestContext(nil)
+	context.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	setInboundProtocol(context, domain.ProtocolOpenAIChat)
+	channel := &model.Channel{ProtocolProfileID: string(domain.ProfileOpenAIResponses)}
+	if err := bindProtocolRoute(context, channel); err != nil {
+		t.Fatalf("bind route: %v", err)
+	}
+
+	converted, err := convertProtocolResponse(context, &types.OpenAIResponsesResponses{Usage: &types.ResponsesUsage{}})
+	if err != nil {
+		t.Fatalf("convert response: %v", err)
+	}
+	if _, ok := converted.(*types.ChatCompletionResponse); !ok {
+		t.Fatalf("unexpected conversion result: %#v", converted)
+	}
+}
+
+func TestChatResponsesRegistryConvertsChatBackToResponses(t *testing.T) {
+	context, _ := gin.CreateTestContext(nil)
+	context.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	setInboundProtocol(context, domain.ProtocolOpenAIResponses)
+	channel := &model.Channel{ProtocolProfileID: string(domain.ProfileOpenAIChat)}
+	if err := bindProtocolRoute(context, channel); err != nil {
+		t.Fatalf("bind route: %v", err)
+	}
+
+	request := &types.OpenAIResponsesRequest{Model: "test-model"}
+	converted, err := convertProtocolResponse(context, chatToResponsesResult{
+		Response: &types.ChatCompletionResponse{Usage: &types.Usage{}},
+		Request:  request,
+	})
+	if err != nil {
+		t.Fatalf("convert response: %v", err)
+	}
+	if _, ok := converted.(*types.OpenAIResponsesResponses); !ok {
+		t.Fatalf("unexpected conversion result: %#v", converted)
+	}
+}
+
 func TestProtocolProfileFilterRejectsUndeclaredConversion(t *testing.T) {
 	context, _ := gin.CreateTestContext(nil)
 	setInboundProtocol(context, domain.ProtocolOpenAIResponses)

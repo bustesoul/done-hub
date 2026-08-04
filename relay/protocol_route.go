@@ -143,12 +143,12 @@ func chatResponsesProtocolConverter(from, to domain.Protocol) relayProtocolConve
 	converter.responseConverter = func(_ context.Context, value any) (any, error) {
 		switch response := value.(type) {
 		case *types.OpenAIResponsesResponses:
-			if to != domain.ProtocolOpenAIChat {
-				return nil, fmt.Errorf("responses response cannot convert to %s", to)
+			if from != domain.ProtocolOpenAIChat {
+				return nil, fmt.Errorf("responses response cannot convert back to %s", from)
 			}
 			return response.ToChat(), nil
 		case chatToResponsesResult:
-			if to != domain.ProtocolOpenAIResponses || response.Response == nil || response.Request == nil {
+			if from != domain.ProtocolOpenAIResponses || response.Response == nil || response.Request == nil {
 				return nil, errors.New("invalid chat to responses conversion payload")
 			}
 			return response.Response.ToResponses(response.Request), nil
