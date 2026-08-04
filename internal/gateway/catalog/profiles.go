@@ -22,6 +22,9 @@ type profileSpec struct {
 
 type variantSpec struct {
 	ChannelType    int
+	DisplayName    string
+	Description    string
+	Advanced       bool
 	DefaultBaseURL string
 }
 
@@ -29,7 +32,7 @@ var featuredProfileSpecs = []profileSpec{
 	{
 		ID:                 domain.ProfileOpenAIChat,
 		DisplayName:        "OpenAI Chat Completions",
-		Description:        "OpenAI 官方或兼容的 /v1/chat/completions 接口",
+		Description:        "上游实际提供 /v1/chat/completions；Responses 客户端可由 DoneHub 转换",
 		Protocol:           domain.ProtocolOpenAIChat,
 		DisplayOrder:       10,
 		ModelDiscoveryPath: "/v1/models",
@@ -37,13 +40,18 @@ var featuredProfileSpecs = []profileSpec{
 		Streaming:          true,
 		Variants: []variantSpec{
 			{ChannelType: config.ChannelTypeOpenAI, DefaultBaseURL: "https://api.openai.com"},
-			{ChannelType: config.ChannelTypeCustom},
+			{
+				ChannelType: config.ChannelTypeCustom,
+				DisplayName: "高级兼容模式",
+				Description: "仅用于需要自定义接口路径或无法接受 stream_options 的上游；普通 OpenAI 兼容服务无需开启",
+				Advanced:    true,
+			},
 		},
 	},
 	{
 		ID:                 domain.ProfileOpenAIResponses,
 		DisplayName:        "OpenAI Responses API",
-		Description:        "OpenAI 官方或已验证兼容的 /v1/responses 接口",
+		Description:        "上游原生提供完整 /v1/responses；适合 OpenAI 官方等完整实现",
 		Protocol:           domain.ProtocolOpenAIResponses,
 		DisplayOrder:       20,
 		ModelDiscoveryPath: "/v1/models",
@@ -51,7 +59,12 @@ var featuredProfileSpecs = []profileSpec{
 		Streaming:          true,
 		Variants: []variantSpec{
 			{ChannelType: config.ChannelTypeOpenAI, DefaultBaseURL: "https://api.openai.com"},
-			{ChannelType: config.ChannelTypeCustom},
+			{
+				ChannelType: config.ChannelTypeCustom,
+				DisplayName: "高级兼容模式",
+				Description: "仅用于需要自定义接口路径或无法接受 stream_options 的上游；普通 OpenAI 兼容服务无需开启",
+				Advanced:    true,
+			},
 		},
 	},
 	{
@@ -117,10 +130,16 @@ func ConnectionProfiles(providerDefinitions []domain.ProviderDefinition) ([]doma
 			if !supportsProtocol(definition, spec.Protocol) {
 				return nil, fmt.Errorf("provider %q does not support profile protocol %q", definition.ID, spec.Protocol)
 			}
+			displayName := variant.DisplayName
+			if displayName == "" {
+				displayName = definition.DisplayName
+			}
 			profile.Variants = append(profile.Variants, domain.ProviderVariant{
 				ProviderID:     definition.ID,
 				ChannelType:    definition.ChannelType,
-				DisplayName:    definition.DisplayName,
+				DisplayName:    displayName,
+				Description:    variant.Description,
+				Advanced:       variant.Advanced,
 				DefaultBaseURL: variant.DefaultBaseURL,
 				AuthModes:      append([]domain.AuthMode(nil), definition.AuthModes...),
 				BaseURLPolicy:  definition.BaseURLPolicy,

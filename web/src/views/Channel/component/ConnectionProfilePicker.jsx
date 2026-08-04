@@ -1,5 +1,19 @@
 import PropTypes from 'prop-types';
-import { Alert, Box, ButtonBase, Chip, FormControl, InputLabel, MenuItem, Select, Stack, Typography } from '@mui/material';
+import {
+  Alert,
+  Box,
+  ButtonBase,
+  Chip,
+  FormControl,
+  FormControlLabel,
+  FormHelperText,
+  InputLabel,
+  MenuItem,
+  Select,
+  Stack,
+  Switch,
+  Typography
+} from '@mui/material';
 
 const protocolToProfile = {
   openai_chat: 'openai-chat-completions',
@@ -25,6 +39,9 @@ const ConnectionProfilePicker = ({ profiles, providers, profileId, channelType, 
     .filter((provider) => !featuredChannelTypes.has(provider.channel_type))
     .sort((left, right) => left.display_name.localeCompare(right.display_name));
   const specializedValue = selectedFeaturedVariant ? '' : channelType || '';
+  const standardVariants = selectedProfile?.variants.filter((variant) => !variant.advanced) || [];
+  const advancedVariant = selectedProfile?.variants.find((variant) => variant.advanced);
+  const advancedEnabled = Boolean(advancedVariant && advancedVariant.channel_type === channelType);
 
   const selectProfile = (profile) => {
     const currentVariant = profile.variants.find((variant) => variant.channel_type === channelType);
@@ -43,8 +60,11 @@ const ConnectionProfilePicker = ({ profiles, providers, profileId, channelType, 
   return (
     <Box sx={{ mb: 2 }}>
       <Typography variant="subtitle2" sx={{ mb: 1 }}>
-        主流协议
+        上游 API 协议
       </Typography>
+      <Alert severity="info" sx={{ mb: 1.5 }}>
+        按上游真实提供的接口选择。Base URL 是否为 OpenAI 官方地址不影响这里的选择。
+      </Alert>
       <Box
         sx={{
           display: 'grid',
@@ -75,37 +95,56 @@ const ConnectionProfilePicker = ({ profiles, providers, profileId, channelType, 
                 <Typography variant="caption" color="text.secondary">
                   {profile.description}
                 </Typography>
-                <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
-                  {profile.variants.map((variant) => (
-                    <Chip key={variant.channel_type} label={variant.display_name} size="small" variant="outlined" />
-                  ))}
-                </Stack>
+                <Box>
+                  <Chip label={profile.probe?.request_path || profile.protocol} size="small" variant="outlined" />
+                </Box>
               </Stack>
             </ButtonBase>
           );
         })}
       </Box>
 
-      {selectedFeaturedVariant && selectedProfile?.variants.length > 1 && (
+      {selectedFeaturedVariant && standardVariants.length > 1 && (
         <FormControl fullWidth size="small" sx={{ mt: 1.5 }}>
-          <InputLabel id="connection-profile-variant-label">实现方式</InputLabel>
+          <InputLabel id="connection-profile-variant-label">上游平台</InputLabel>
           <Select
             labelId="connection-profile-variant-label"
-            label="实现方式"
+            label="上游平台"
             value={channelType}
             disabled={disabled}
             onChange={(event) => {
-              const variant = selectedProfile.variants.find((item) => item.channel_type === event.target.value);
+              const variant = standardVariants.find((item) => item.channel_type === event.target.value);
               onChange(selectedProfile.id, event.target.value, variant, selectedProfile);
             }}
           >
-            {selectedProfile.variants.map((variant) => (
+            {standardVariants.map((variant) => (
               <MenuItem key={variant.channel_type} value={variant.channel_type}>
                 {variant.display_name}
               </MenuItem>
             ))}
           </Select>
         </FormControl>
+      )}
+
+      {selectedFeaturedVariant && advancedVariant && (
+        <Box sx={{ mt: 1.5 }}>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={advancedEnabled}
+                disabled={disabled}
+                onChange={(event) => {
+                  const variant = event.target.checked ? advancedVariant : standardVariants[0];
+                  onChange(selectedProfile.id, variant.channel_type, variant, selectedProfile);
+                }}
+              />
+            }
+            label="高级兼容模式"
+          />
+          <FormHelperText sx={{ ml: 0 }}>
+            {advancedVariant.description || '仅用于非标准 OpenAI 兼容实现；普通兼容 Base URL 无需开启。'}
+          </FormHelperText>
+        </Box>
       )}
 
       <FormControl fullWidth size="small" sx={{ mt: 2 }}>

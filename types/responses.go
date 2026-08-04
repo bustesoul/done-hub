@@ -193,6 +193,10 @@ func (r *OpenAIResponsesRequest) ToChatCompletionRequest() (*ChatCompletionReque
 		// 转换 effort 字段（从指针类型转换为字符串类型）
 		if r.Reasoning.Effort != nil {
 			chat.Reasoning.Effort = *r.Reasoning.Effort
+			// OpenAI Chat Completions 兼容接口使用顶层 reasoning_effort。
+			// 同时保留内部 Reasoning，供 Anthropic/Gemini 等能力适配器消费；
+			// OpenAI Provider 在序列化前会移除内部字段。
+			chat.ReasoningEffort = r.Reasoning.Effort
 		}
 
 		// 转换 summary 字段
@@ -1093,16 +1097,17 @@ func (m ResponsesOutput) GetSummaryString() string {
 	if m.Type != InputTypeReasoning {
 		return ""
 	}
-	if m.EncryptedContent != nil && *m.EncryptedContent != "" {
-		return *m.EncryptedContent
-	}
-
 	summary := ""
 	for _, item := range m.Summary {
 		if item.Type == ContentTypeSummaryText {
 			summary += item.Text
 		}
 	}
+	if summary != "" {
+		return summary
+	}
+	// encrypted_content 是上游提供的不透明 continuation 数据，不是
+	// 可展示的推理文本，因此不能暴露成 Chat reasoning_content。
 	return summary
 }
 
@@ -1357,10 +1362,9 @@ func (cc *ChatCompletionResponse) ToResponses(request *OpenAIResponsesRequest) *
 		if choice.Message.ReasoningContent != "" {
 			reasoningContent := choice.Message.ReasoningContent
 			outputs = append(outputs, ResponsesOutput{
-				Type:             InputTypeReasoning,
-				ID:               fmt.Sprintf("msg_%s", utils.GetRandomString(48)),
-				Status:           ResponseStatusCompleted,
-				EncryptedContent: &reasoningContent,
+				Type:   InputTypeReasoning,
+				ID:     fmt.Sprintf("rs_%s", utils.GetRandomString(48)),
+				Status: ResponseStatusCompleted,
 				Summary: []SummaryResponses{
 					{
 						Type: "summary_text",

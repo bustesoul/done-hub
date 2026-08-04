@@ -44,6 +44,24 @@ func TestConnectionProfilesAreOrderedAndProtocolSafe(t *testing.T) {
 			}
 		}
 	}
+	for _, profileID := range []domain.ProtocolProfileID{domain.ProfileOpenAIChat, domain.ProfileOpenAIResponses} {
+		profile := profiles[0]
+		if profileID == domain.ProfileOpenAIResponses {
+			profile = profiles[1]
+		}
+		advancedCount := 0
+		for _, variant := range profile.Variants {
+			if variant.Advanced {
+				advancedCount++
+				if variant.ChannelType != domain.ProviderID(config.ChannelTypeCustom) || variant.Description == "" {
+					t.Fatalf("profile %q has invalid advanced variant: %#v", profile.ID, variant)
+				}
+			}
+		}
+		if advancedCount != 1 {
+			t.Fatalf("profile %q expected one advanced variant, got %d", profile.ID, advancedCount)
+		}
+	}
 }
 
 func TestConnectionProfilesRejectProtocolMismatch(t *testing.T) {

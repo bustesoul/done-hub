@@ -108,6 +108,8 @@ type ProviderVariant struct {
 	ProviderID     string                   `json:"provider_id"`
 	ChannelType    ProviderID               `json:"channel_type"`
 	DisplayName    string                   `json:"display_name"`
+	Description    string                   `json:"description,omitempty"`
+	Advanced       bool                     `json:"advanced,omitempty"`
 	DefaultBaseURL string                   `json:"default_base_url,omitempty"`
 	AuthModes      []AuthMode               `json:"auth_modes"`
 	BaseURLPolicy  BaseURLPolicy            `json:"base_url_policy"`

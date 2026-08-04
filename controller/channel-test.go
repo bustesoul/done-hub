@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -35,6 +36,19 @@ var (
 	imageRegex      = regexp.MustCompile(`flux|diffusion|stabilityai|sd-|dall|cogview|janus|image`)
 	responseRegex   = regexp.MustCompile(`(?:^o[1-9])`)
 	noSupportRegex  = regexp.MustCompile(`(?:^tts|rerank|whisper|speech|^mj_|^chirp)`)
+)
+
+type reasoningProbeReport struct {
+	Requested  bool   `json:"requested"`
+	Visibility string `json:"visibility"`
+	Source     string `json:"source"`
+	Message    string `json:"message"`
+}
+
+const (
+	reasoningVisibilityVisible = "visible"
+	reasoningVisibilityOpaque  = "opaque"
+	reasoningVisibilityUnknown = "unknown"
 )
 
 func testChannel(channel *model.Channel, testModel string) (openaiErr *types.OpenAIErrorWithStatusCode, err error) {
@@ -378,6 +392,35 @@ func ProbeProviderConnection(c *gin.Context) {
 		common.APIRespondWithError(c, http.StatusNotFound, err)
 		return
 	}
+	draftProbe := false
+	var draftBody []byte
+	if c.Request.Body != nil {
+		draftBody, err = io.ReadAll(c.Request.Body)
+		if err != nil {
+			common.APIRespondWithError(c, http.StatusBadRequest, err)
+			return
+		}
+		trimmedBody := bytes.TrimSpace(draftBody)
+		draftProbe = len(trimmedBody) > 0 && !bytes.Equal(trimmedBody, []byte("null")) && !bytes.Equal(trimmedBody, []byte("{}"))
+	}
+	if draftProbe {
+		var candidate model.Channel
+		if err := json.Unmarshal(draftBody, &candidate); err != nil {
+			common.APIRespondWithError(c, http.StatusBadRequest, err)
+			return
+		}
+		candidate.Id = channel.Id
+		candidate.Key = channel.Key
+		candidate.Status = channel.Status
+		if candidate.TestModel == "" {
+			candidate.TestModel = channel.TestModel
+		}
+		if err := providers.ValidateChannelConfig(&candidate, false); err != nil {
+			common.APIRespondWithError(c, http.StatusBadRequest, err)
+			return
+		}
+		channel = &candidate
+	}
 	if channel.ProtocolProfileID == "" {
 		if profileID, profileErr := providers.DefaultProtocolProfile(channel.Type); profileErr == nil {
 			channel.ProtocolProfileID = string(profileID)
@@ -392,23 +435,41 @@ func ProbeProviderConnection(c *gin.Context) {
 		writeProviderProbeError(c, openaiErr, testErr, latency, "inference")
 		return
 	}
-	channel.UpdateResponseTime(latency)
+	if !draftProbe {
+		channel.UpdateResponseTime(latency)
+	}
 
-	writeProviderProbeSuccess(c, latency, channel.ProtocolProfileID)
+	reasoningReport := probeChannelReasoningCapability(channel, testModel)
+	validationToken := ""
+	if draftProbe {
+		validationToken, err = issueProviderValidationToken(channel)
+		if err != nil {
+			common.APIRespondWithError(c, http.StatusInternalServerError, err)
+			return
+		}
+	}
+	writeProviderProbeSuccess(c, latency, channel.ProtocolProfileID, reasoningReport, validationToken)
 }
 
-func writeProviderProbeSuccess(c *gin.Context, latency int64, protocolProfileID string) {
+func writeProviderProbeSuccess(c *gin.Context, latency int64, protocolProfileID string, report *reasoningProbeReport, validationToken string) {
+	data := gin.H{
+		"stage":               "completed",
+		"latency_ms":          latency,
+		"protocol_profile_id": protocolProfileID,
+		"request_id":          c.GetString("request_id"),
+	}
+	if report != nil {
+		data["reasoning"] = report
+	}
+	if validationToken != "" {
+		data["validation_token"] = validationToken
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		// Keep the legacy channel-test response contract for list callers while
 		// exposing the millisecond precision used by the new management flow.
 		"time": float64(latency) / 1000.0,
-		"data": gin.H{
-			"stage":               "completed",
-			"latency_ms":          latency,
-			"protocol_profile_id": protocolProfileID,
-			"request_id":          c.GetString("request_id"),
-		},
+		"data": data,
 	})
 }
 
@@ -427,6 +488,7 @@ func ProbeProviderConnectionDraft(c *gin.Context) {
 	allowEmptyCredential := providers.AllowsEmptyCredential(channel.Type)
 	tested := 0
 	var maxLatency int64
+	var reasoningReport *reasoningProbeReport
 	for index, key := range keys {
 		key = strings.TrimSpace(key)
 		if key == "" && (!allowEmptyCredential || index > 0) {
@@ -453,6 +515,9 @@ func ProbeProviderConnectionDraft(c *gin.Context) {
 			writeProviderProbeError(c, openaiErr, testErr, latency, fmt.Sprintf("inference[%d]", index))
 			return
 		}
+		if reasoningReport == nil {
+			reasoningReport = probeChannelReasoningCapability(&candidate, candidate.TestModel)
+		}
 		tested++
 	}
 	if tested == 0 {
@@ -464,17 +529,131 @@ func ProbeProviderConnectionDraft(c *gin.Context) {
 		common.APIRespondWithError(c, http.StatusInternalServerError, err)
 		return
 	}
+	data := gin.H{
+		"stage":               "completed",
+		"latency_ms":          maxLatency,
+		"tested_connections":  tested,
+		"protocol_profile_id": channel.ProtocolProfileID,
+		"request_id":          c.GetString("request_id"),
+		"validation_token":    validationToken,
+	}
+	if reasoningReport != nil {
+		data["reasoning"] = reasoningReport
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data": gin.H{
-			"stage":               "completed",
-			"latency_ms":          maxLatency,
-			"tested_connections":  tested,
-			"protocol_profile_id": channel.ProtocolProfileID,
-			"request_id":          c.GetString("request_id"),
-			"validation_token":    validationToken,
-		},
+		"data":    data,
 	})
+}
+
+func probeChannelReasoningCapability(channel *model.Channel, testModel string) *reasoningProbeReport {
+	profileID := domain.ProtocolProfileID(channel.ProtocolProfileID)
+	if profileID != domain.ProfileOpenAIChat && profileID != domain.ProfileOpenAIResponses {
+		return nil
+	}
+	if testModel == "" {
+		testModel = channel.TestModel
+	}
+	parts := strings.Split(testModel, "#")
+	testModel = strings.TrimSpace(parts[0])
+	if testModel == "" || getModelType(testModel) != "chat" && getModelType(testModel) != "response" {
+		return nil
+	}
+
+	report := &reasoningProbeReport{
+		Requested:  true,
+		Visibility: reasoningVisibilityUnknown,
+		Source:     "not_observed",
+		Message:    "本次未观察到思考内容；不影响连接，也不会自动切换上游协议。",
+	}
+	channel.SetProxy()
+	probeContext, _ := gin.CreateTestContext(httptest.NewRecorder())
+	probeContext.Request = httptest.NewRequest(http.MethodPost, "/api/admin/provider-connections/probe/reasoning", nil)
+	provider := providers.GetProvider(channel, providerRequestContext(probeContext))
+	if provider == nil {
+		return report
+	}
+	modelName, err := provider.ModelMappingHandler(testModel)
+	if err != nil {
+		return report
+	}
+	modelName = strings.TrimPrefix(modelName, "+")
+	usage := &types.Usage{}
+	provider.SetUsage(usage)
+	effort := "low"
+	summary := "auto"
+
+	if profileID == domain.ProfileOpenAIResponses {
+		responsesProvider, ok := provider.(providers_base.ResponsesInterface)
+		if !ok {
+			return report
+		}
+		request := buildTestResponsesRequest(modelName)
+		request.Reasoning = &types.ReasoningEffort{Effort: &effort, Summary: &summary}
+		response, responseErr := responsesProvider.CreateResponses(request)
+		if responseErr != nil || response == nil {
+			return report
+		}
+		return classifyResponsesReasoningCapability(response, usage)
+	}
+
+	chatProvider, ok := provider.(providers_base.ChatInterface)
+	if !ok {
+		return report
+	}
+	response, responseErr := chatProvider.CreateChatCompletion(&types.ChatCompletionRequest{
+		Model:               modelName,
+		Messages:            []types.ChatCompletionMessage{{Role: types.ChatMessageRoleUser, Content: "Reply with hi."}},
+		MaxCompletionTokens: 32,
+		ReasoningEffort:     &effort,
+		Reasoning:           &types.ChatReasoning{Effort: effort, Summary: &summary},
+	})
+	if responseErr != nil || response == nil {
+		return report
+	}
+	return classifyChatReasoningCapability(response, usage)
+}
+
+func classifyResponsesReasoningCapability(response *types.OpenAIResponsesResponses, usage *types.Usage) *reasoningProbeReport {
+	for _, output := range response.Output {
+		if output.Type != types.InputTypeReasoning {
+			continue
+		}
+		for _, item := range output.Summary {
+			if strings.TrimSpace(item.Text) != "" {
+				return &reasoningProbeReport{Requested: true, Visibility: reasoningVisibilityVisible, Source: "summary", Message: "检测到可见 reasoning summary。"}
+			}
+		}
+		if output.EncryptedContent != nil && strings.TrimSpace(*output.EncryptedContent) != "" {
+			return &reasoningProbeReport{Requested: true, Visibility: reasoningVisibilityOpaque, Source: "encrypted_content", Message: "上游提供不透明推理数据，但没有可见摘要；保持当前协议。"}
+		}
+	}
+	if reasoningTokenCount(response.Usage, usage) > 0 {
+		return &reasoningProbeReport{Requested: true, Visibility: reasoningVisibilityOpaque, Source: "reasoning_tokens", Message: "上游报告了推理令牌，但没有可见摘要；保持当前协议。"}
+	}
+	return &reasoningProbeReport{Requested: true, Visibility: reasoningVisibilityUnknown, Source: "not_observed", Message: "本次未观察到思考内容；不影响连接，也不会自动切换上游协议。"}
+}
+
+func classifyChatReasoningCapability(response *types.ChatCompletionResponse, usage *types.Usage) *reasoningProbeReport {
+	for _, choice := range response.Choices {
+		if strings.TrimSpace(choice.Message.ReasoningContent) != "" || strings.TrimSpace(choice.Message.Reasoning) != "" {
+			return &reasoningProbeReport{Requested: true, Visibility: reasoningVisibilityVisible, Source: "reasoning_content", Message: "检测到 Chat reasoning_content，可转换为 Responses reasoning summary。"}
+		}
+	}
+	if response.Usage != nil && response.Usage.CompletionTokensDetails.ReasoningTokens > 0 || usage != nil && usage.CompletionTokensDetails.ReasoningTokens > 0 {
+		return &reasoningProbeReport{Requested: true, Visibility: reasoningVisibilityOpaque, Source: "reasoning_tokens", Message: "上游报告了推理令牌，但没有可见 reasoning_content；保持当前协议。"}
+	}
+	return &reasoningProbeReport{Requested: true, Visibility: reasoningVisibilityUnknown, Source: "not_observed", Message: "本次未观察到思考内容；不影响连接，也不会自动切换上游协议。"}
+}
+
+func reasoningTokenCount(responseUsage *types.ResponsesUsage, usage *types.Usage) int {
+	if responseUsage != nil && responseUsage.OutputTokensDetails != nil && responseUsage.OutputTokensDetails.ReasoningTokens > 0 {
+		return responseUsage.OutputTokensDetails.ReasoningTokens
+	}
+	if usage != nil {
+		return usage.CompletionTokensDetails.ReasoningTokens
+	}
+	return 0
 }
 
 var testAllChannelsLock sync.Mutex

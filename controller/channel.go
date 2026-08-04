@@ -413,9 +413,20 @@ func UpdateChannel(c *gin.Context) {
 		return
 	}
 	channel = channelToValidate
-	if providerConnectionProbeConfigChanged(oldChannel, &channel) {
-		channel.TestTime = 0
-		channel.ResponseTime = 0
+	configChanged := providerConnectionProbeConfigChanged(oldChannel, &channel)
+	if configChanged {
+		if channel.SaveUnverified {
+			channel.Status = config.ChannelStatusManuallyDisabled
+			channel.TestTime = 0
+			channel.ResponseTime = 0
+		} else {
+			if err = verifyProviderValidationToken(&channel); err != nil {
+				common.APIRespondWithError(c, http.StatusConflict, err)
+				return
+			}
+			channel.TestTime = utils.GetTimestamp()
+			channel.ResponseTime = 0
+		}
 	} else {
 		channel.TestTime = oldChannel.TestTime
 		channel.ResponseTime = oldChannel.ResponseTime

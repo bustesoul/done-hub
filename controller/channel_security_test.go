@@ -112,7 +112,7 @@ func TestProviderProbeSuccessKeepsLegacyTimeContract(t *testing.T) {
 	context, _ := gin.CreateTestContext(recorder)
 	latency := int64(744)
 
-	writeProviderProbeSuccess(context, latency, "openai-responses")
+	writeProviderProbeSuccess(context, latency, "openai-responses", nil, "")
 
 	var response struct {
 		Success bool    `json:"success"`
@@ -125,6 +125,32 @@ func TestProviderProbeSuccessKeepsLegacyTimeContract(t *testing.T) {
 		t.Fatalf("decode response: %v", err)
 	}
 	if !response.Success || response.Time != 0.744 || response.Data.LatencyMS != latency {
+		t.Fatalf("unexpected probe response: %#v", response)
+	}
+}
+
+func TestProviderProbeSuccessIncludesNonBlockingReasoningReport(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	report := &reasoningProbeReport{
+		Requested:  true,
+		Visibility: reasoningVisibilityUnknown,
+		Source:     "not_observed",
+		Message:    "not observed",
+	}
+
+	writeProviderProbeSuccess(context, 10, "openai-responses", report, "")
+
+	var response struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Reasoning *reasoningProbeReport `json:"reasoning"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !response.Success || response.Data.Reasoning == nil || response.Data.Reasoning.Visibility != reasoningVisibilityUnknown {
 		t.Fatalf("unexpected probe response: %#v", response)
 	}
 }

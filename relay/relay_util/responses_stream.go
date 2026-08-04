@@ -23,6 +23,7 @@ type OpenAIResponsesStreamConverter struct {
 	item              *types.ResponsesOutput
 	part              *types.ContentResponses
 	content           []types.ContentResponses
+	summary           []types.SummaryResponses
 	itemID            string
 	isFirstResponse   bool
 	isCompleted       bool
@@ -110,6 +111,11 @@ func (converter *OpenAIResponsesStreamConverter) processChoices(choices []types.
 		if ok {
 			converter.nowStatus = types.ConvertChatStatusToResponses(nowStatus)
 		}
+		// role-only 和 finish-only chunk 不包含可输出负载。跳过它们，避免创建
+		// 空 message item 或空 delta；状态仍由上方记录并在 finalize 时落盘。
+		if choice.Delta.Content == "" && choice.Delta.ReasoningContent == "" && len(choice.Delta.ToolCalls) == 0 {
+			continue
+		}
 
 		currentType := converter.GetResponseType(&choice)
 		// 检查是否需要创建新的output_item
@@ -154,6 +160,8 @@ func (converter *OpenAIResponsesStreamConverter) createNewItem(choice types.Chat
 
 	// 生成新的itemID
 	converter.generateResponseItemID(currentType)
+	converter.contentIndex = 0
+	converter.summaryIndex = 0
 
 	response := converter.buildStreamResponse("response.output_item.added")
 
@@ -204,7 +212,11 @@ func (converter *OpenAIResponsesStreamConverter) done() {
 	response.OutputIndex = &converter.outputIndex
 
 	converter.item.Status = converter.nowStatus
-	converter.item.Content = converter.content
+	if converter.item.Type == types.InputTypeReasoning {
+		converter.item.Summary = converter.summary
+	} else if converter.item.Type == types.InputTypeMessage {
+		converter.item.Content = converter.content
+	}
 	response.Item = converter.item
 
 	if converter.item.Status == "" {
@@ -218,6 +230,7 @@ func (converter *OpenAIResponsesStreamConverter) done() {
 	converter.item = nil
 	// 清空 content
 	converter.content = nil
+	converter.summary = nil
 
 	converter.outputIndex++
 }
@@ -300,14 +313,14 @@ func (converter *OpenAIResponsesStreamConverter) processReasoning(choice types.C
 		}
 
 		response := converter.buildStreamResponseWithItemID("response.reasoning_summary_part.added")
-		response.ContentIndex = &converter.contentIndex
+		response.SummaryIndex = &converter.summaryIndex
 		response.Part = converter.part
 		converter.sendStreamEvent(response, "response.reasoning_summary_part.added")
 	}
 
 	// 处理推理内容
 	response := converter.buildStreamResponseWithItemID("response.reasoning_summary_text.delta")
-	response.ContentIndex = &converter.contentIndex
+	response.SummaryIndex = &converter.summaryIndex
 	response.Delta = choice.Delta.ReasoningContent
 	converter.sendStreamEvent(response, "response.reasoning_summary_text.delta")
 
@@ -333,8 +346,9 @@ func (converter *OpenAIResponsesStreamConverter) doneReasoningPart() {
 
 	// contentIndex 递增
 	converter.summaryIndex++
-	// 需要将数据添加到content中
-	converter.addContent()
+	// reasoning summary 与 message content 使用独立缓冲，避免最终 item
+	// 生成错误的 content:[{type:"summary_text"}] 结构。
+	converter.addSummary()
 	// 清空 part
 	converter.part = nil
 }
@@ -375,8 +389,21 @@ func (converter *OpenAIResponsesStreamConverter) addContent() {
 	converter.content = append(converter.content, *converter.part)
 }
 
+func (converter *OpenAIResponsesStreamConverter) addSummary() {
+	if converter.part == nil {
+		return
+	}
+	converter.summary = append(converter.summary, types.SummaryResponses{
+		Type: converter.part.Type,
+		Text: converter.part.Text,
+	})
+}
+
 // 输出最终的数据
 func (converter *OpenAIResponsesStreamConverter) finalizeStream() {
+	if converter.nowStatus == "" {
+		converter.nowStatus = types.ResponseStatusCompleted
+	}
 	if converter.item != nil {
 		converter.done()
 	}

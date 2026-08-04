@@ -272,6 +272,22 @@ func (h *OpenAIStreamHandler) HandlerChatStream(rawLine *[]byte, dataChan chan s
 }
 
 func otherProcessing(request *types.ChatCompletionRequest, otherArg string) {
+	// Chat Completions 的标准兼容字段是顶层 reasoning_effort。Reasoning 是
+	// DoneHub 的内部统一表示，供其他协议适配器使用，不应原样发给 OpenAI
+	// Chat 上游。该转换不能依赖模型名前缀，否则 DeepSeek 等兼容模型会收到
+	// 错误的嵌套 reasoning 对象。
+	if request.Reasoning != nil {
+		if request.ReasoningEffort == nil && request.Reasoning.Effort != "" {
+			effort := request.Reasoning.Effort
+			request.ReasoningEffort = &effort
+		}
+		request.Reasoning = nil
+	}
+	if request.ReasoningEffort == nil && otherArg != "" {
+		effort := otherArg
+		request.ReasoningEffort = &effort
+	}
+
 	matched, _ := regexp.MatchString(`(?i)^o[1-9]`, request.Model)
 	if matched || model_utils.HasPrefixCaseInsensitive(request.Model, "gpt-5") {
 		if request.MaxTokens > 0 {
@@ -280,14 +296,6 @@ func otherProcessing(request *types.ChatCompletionRequest, otherArg string) {
 		}
 		if request.Model != "gpt-5-chat-latest" {
 			request.Temperature = nil
-		}
-		// 只有当 otherArg 不为空且没有已存在的 Reasoning 设置时，才使用 otherArg 设置 ReasoningEffort
-		if otherArg != "" && request.Reasoning == nil {
-			request.ReasoningEffort = &otherArg
-		}
-		// 如果有 Reasoning 设置，优先使用 Reasoning.Effort 设置 ReasoningEffort
-		if request.Reasoning != nil && request.Reasoning.Effort != "" {
-			request.ReasoningEffort = &request.Reasoning.Effort
 		}
 	}
 }

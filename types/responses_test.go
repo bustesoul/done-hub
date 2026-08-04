@@ -426,7 +426,7 @@ func TestBuiltinNeed2ResponseModels_IncludesMimoModels(t *testing.T) {
 	}
 }
 
-func TestChatCompletionToResponses_PreservesReasoningEncryptedContent(t *testing.T) {
+func TestChatCompletionToResponses_UsesVisibleSummaryWithoutForgingEncryptedContent(t *testing.T) {
 	reasoning := "full mimo reasoning trace"
 	response := &ChatCompletionResponse{
 		ID:      "chatcmpl-test",
@@ -466,14 +466,58 @@ func TestChatCompletionToResponses_PreservesReasoningEncryptedContent(t *testing
 	if reasoningOutput.Type != InputTypeReasoning {
 		t.Fatalf("第一项应为 reasoning，实际 %s", reasoningOutput.Type)
 	}
-	if reasoningOutput.EncryptedContent == nil || *reasoningOutput.EncryptedContent != reasoning {
-		t.Fatalf("reasoning encrypted_content 未保留: %#v", reasoningOutput.EncryptedContent)
+	if reasoningOutput.EncryptedContent != nil {
+		t.Fatalf("Chat 明文 reasoning_content 不应伪造成 encrypted_content: %#v", reasoningOutput.EncryptedContent)
 	}
 	if reasoningOutput.GetSummaryString() != reasoning {
-		t.Fatalf("reasoning 摘要读取应优先返回完整 encrypted_content")
+		t.Fatalf("reasoning 摘要未保留")
 	}
 	if responses.Output[1].Type != InputTypeFunctionCall {
 		t.Fatalf("第二项应为 function_call，实际 %s", responses.Output[1].Type)
+	}
+}
+
+func TestResponsesToChatCompletionRequest_MapsReasoningEffortForCompatibleChat(t *testing.T) {
+	effort := "high"
+	summary := "detailed"
+	request := &OpenAIResponsesRequest{
+		Model: "deepseek-v4-flash",
+		Input: "hello",
+		Reasoning: &ReasoningEffort{
+			Effort:  &effort,
+			Summary: &summary,
+		},
+	}
+
+	chat, err := request.ToChatCompletionRequest()
+	if err != nil {
+		t.Fatalf("转换失败: %v", err)
+	}
+	if chat.ReasoningEffort == nil || *chat.ReasoningEffort != effort {
+		t.Fatalf("reasoning_effort 未映射: %#v", chat.ReasoningEffort)
+	}
+	if chat.Reasoning == nil || chat.Reasoning.Effort != effort || chat.Reasoning.Summary == nil || *chat.Reasoning.Summary != summary {
+		t.Fatalf("内部 reasoning 能力信息未保留: %#v", chat.Reasoning)
+	}
+}
+
+func TestResponsesOutputDoesNotExposeOpaqueEncryptedContentAsChatReasoning(t *testing.T) {
+	encrypted := "opaque-continuation"
+	response := (&OpenAIResponsesResponses{
+		Model:  "gpt-5",
+		Status: ResponseStatusCompleted,
+		Usage:  &ResponsesUsage{},
+		Output: []ResponsesOutput{{
+			Type:             InputTypeReasoning,
+			EncryptedContent: &encrypted,
+		}},
+	}).ToChat()
+
+	if len(response.Choices) != 1 {
+		t.Fatalf("unexpected choices: %#v", response.Choices)
+	}
+	if response.Choices[0].Message.ReasoningContent != "" {
+		t.Fatalf("opaque encrypted_content 不应暴露为 reasoning_content: %#v", response.Choices[0].Message)
 	}
 }
 

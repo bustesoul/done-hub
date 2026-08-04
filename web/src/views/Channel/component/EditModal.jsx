@@ -23,9 +23,7 @@ import {
   IconButton,
   InputLabel,
   ListItemText,
-  MenuItem,
   OutlinedInput,
-  Select,
   Stack,
   Switch,
   TextField,
@@ -83,7 +81,8 @@ const draftProbePayload = (values) => ({
   test_model: resolveDraftTestModel(values)
 });
 const draftProbeFingerprint = (values) => {
-  const { name: _name, ...probeBoundConfig } = draftProbePayload(values);
+  const probeBoundConfig = draftProbePayload(values);
+  delete probeBoundConfig.name;
   return JSON.stringify(probeBoundConfig);
 };
 const getValidationSchema = (t, providerDefinitions) =>
@@ -131,8 +130,6 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
   const [inputPrompt, setInputPrompt] = useState(defaultConfig.prompt);
   const [batchAdd, setBatchAdd] = useState(false);
   const [inputValue, setInputValue] = useState('');
-  const [parameterFocused, setParameterFocused] = useState(false);
-  const parameterInputRef = useRef(null);
   const removeDuplicates = (array) => [...new Set(array)];
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
   const [tempFormikValues, setTempFormikValues] = useState(null);
@@ -143,6 +140,7 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
   const [draftProbeSignature, setDraftProbeSignature] = useState('');
   const [draftValidationToken, setDraftValidationToken] = useState('');
   const [draftProbeWorking, setDraftProbeWorking] = useState(false);
+  const [draftReasoningProbe, setDraftReasoningProbe] = useState(null);
 
   // 用于追踪模型的原始名称映射关系 { displayName: originalName }
   const [modelOriginalMapping, setModelOriginalMapping] = useState({});
@@ -194,19 +192,27 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
     setDraftProbeWorking(true);
     try {
       const payload = draftProbePayload(values);
-      if (!payload.key && !providerDefinitions.find((item) => item.channel_type === payload.type)?.auth_modes?.includes('none')) {
+      if (
+        !channelId &&
+        !payload.key &&
+        !providerDefinitions.find((item) => item.channel_type === payload.type)?.auth_modes?.includes('none')
+      ) {
         throw new Error('请先填写凭据');
       }
-      const response = await API.post('/api/admin/provider-connections/probe', payload);
+      const response = channelId
+        ? await API.post(`/api/admin/provider-connections/${channelId}/probe`, payload)
+        : await API.post('/api/admin/provider-connections/probe', payload);
       if (!response.data?.success) {
         throw new Error(response.data?.message || '连接探测失败');
       }
       setDraftProbeSignature(draftProbeFingerprint(values));
       setDraftValidationToken(response.data.data?.validation_token || '');
+      setDraftReasoningProbe(response.data.data?.reasoning || null);
       showSuccess(`${response.data.data?.tested_connections || 1} 条连接探测全部通过（最慢 ${response.data.data?.latency_ms ?? '-'} ms）`);
     } catch (error) {
       setDraftProbeSignature('');
       setDraftValidationToken('');
+      setDraftReasoningProbe(null);
       if (!error.shownByApiInterceptor) {
         showError(error.response?.data?.error?.message || error.response?.data?.message || error.message);
       }
@@ -268,7 +274,7 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
   };
 
   // 应用模型映射的核心逻辑
-  const applyModelMapping = (mapping, currentModels, currentMapping, setFieldValue) => {
+  const applyModelMapping = (mapping, currentModels, currentMapping) => {
     let updatedModels = [...currentModels];
     let newMapping = { ...currentMapping };
     let hasChanges = false;
@@ -335,7 +341,7 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
       return;
     }
 
-    const { updatedModels, newMapping, hasChanges } = applyModelMapping(mapping, currentModels, modelOriginalMapping, setFieldValue);
+    const { updatedModels, newMapping, hasChanges } = applyModelMapping(mapping, currentModels, modelOriginalMapping);
 
     if (hasChanges) {
       updateModelsList(updatedModels, newMapping, setFieldValue);
@@ -430,7 +436,7 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
     setSubmitting(true);
     values = trims(values);
     const draftPayload = draftProbePayload(values);
-    const saveUnverified = !channelId && !isTag && draftProbeSignature !== draftProbeFingerprint(values);
+    const saveUnverified = !isTag && draftProbeSignature !== draftProbeFingerprint(values);
     if (channelId && !isTag && values.key) {
       const message = '新凭据尚未进入轮换流程，请先点击“建立候选”，完成测试和激活后再保存其他配置。';
       setSubmitting(false);
@@ -555,7 +561,13 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
       if (channelId) {
         res = isTag
           ? await API.put(baseApiUrl, { ...values, id: parseInt(channelId), models: modelsStr })
-          : await API.patch(`${baseApiUrl}/${channelId}`, { ...values, id: parseInt(channelId), models: modelsStr });
+          : await API.patch(`${baseApiUrl}/${channelId}`, {
+              ...values,
+              id: parseInt(channelId),
+              models: modelsStr,
+              validation_token: draftValidationToken,
+              save_unverified: saveUnverified
+            });
       } else {
         res = await API.post(baseApiUrl, {
           ...values,
@@ -568,7 +580,9 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
       }
       const { success, message } = res.data;
       if (success) {
-        if (channelId) {
+        if (channelId && saveUnverified) {
+          showSuccess('连接配置已保存为未验证并保持停用；探测通过后才能重新启用。');
+        } else if (channelId) {
           showSuccess(t('channel_edit.editSuccess'));
         } else if (saveUnverified) {
           showSuccess('连接已保存为未验证状态并保持停用；探测通过后才能启用。');
@@ -703,6 +717,9 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
         }
         initChannel(data.type);
         setInitialInput(data);
+        setDraftProbeSignature(data.test_time > 0 ? draftProbeFingerprint(data) : '');
+        setDraftValidationToken('');
+        setDraftReasoningProbe(null);
 
         if (isTag) {
           // 优先用后端返回的 count；旧后端无该字段时回退到 KeyMap 条数
@@ -711,7 +728,9 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
       } else {
         showError(message);
       }
-    } catch (error) {}
+    } catch (error) {
+      showError(error.response?.data?.message || error.message || '加载连接配置失败');
+    }
   };
 
   useEffect(() => {
@@ -774,7 +793,7 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
                         profileId={values.protocol_profile_id || ''}
                         channelType={values.type}
                         error={providerCatalogError}
-                        disabled={Boolean(channelId)}
+                        disabled={false}
                         onChange={(profileId, channelType, variant, profile) => {
                           setFieldValue('protocol_profile_id', profileId);
                           setFieldValue('type', channelType);
@@ -796,6 +815,11 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
                       />
                       {touched.protocol_profile_id && errors.protocol_profile_id && (
                         <FormHelperText error>{errors.protocol_profile_id}</FormHelperText>
+                      )}
+                      {channelId && draftProbeSignature !== draftProbeFingerprint(values) && (
+                        <Alert severity="warning" sx={{ mb: 2 }}>
+                          上游连接配置已变更。请重新执行连接探测；也可直接保存为未验证，连接将自动停用。
+                        </Alert>
                       )}
                     </>
                   )}
@@ -1381,9 +1405,14 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
                       </CollapsibleSection>
                     );
                   })}
+                {!isTag && draftReasoningProbe && draftProbeSignature === draftProbeFingerprint(values) && (
+                  <Alert severity={draftReasoningProbe.visibility === 'visible' ? 'success' : 'info'} sx={{ mx: 3, mb: 1 }}>
+                    {draftReasoningProbe.message}
+                  </Alert>
+                )}
                 <DialogActions>
                   <Button onClick={onCancel}>{t('common.cancel')}</Button>
-                  {!channelId && !isTag && (
+                  {!isTag && (
                     <Button
                       disabled={draftProbeWorking || Boolean(providerCatalogError)}
                       onClick={() => probeDraftConnection(values)}
@@ -1400,7 +1429,7 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
                     variant="contained"
                     color="primary"
                   >
-                    {!channelId && !isTag && draftProbeSignature !== draftProbeFingerprint(values) ? '保存为未验证' : t('common.submit')}
+                    {!isTag && draftProbeSignature !== draftProbeFingerprint(values) ? '保存为未验证' : t('common.submit')}
                   </Button>
                 </DialogActions>
               </form>
