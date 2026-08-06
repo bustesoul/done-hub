@@ -11,6 +11,7 @@ import { useLogType } from '../type/LogType'
 import { useTranslation } from 'react-i18next'
 import QuotaWithDetailRow from './QuotaWithDetailRow'
 import QuotaWithDetailContent, { calculatePrice } from './QuotaWithDetailContent'
+import { calculateTokenBilling, formatTokenCount } from './tokenBilling'
 import { styled } from '@mui/material/styles'
 import { stickyCellSx } from 'ui-component/stickyCellSx';
 
@@ -82,7 +83,7 @@ export default function LogTableRow({ item, userIsAdmin, userGroup, columnVisibi
     request_ts_str = `${request_ts.toFixed(2)} t/s`
   }
 
-  const { totalInputTokens, totalOutputTokens, show, tokenDetails } = useMemo(() => calculateTokens(item), [item])
+  const tokenBilling = useMemo(() => calculateTokenBilling(item), [item])
 
   // 计算当前显示的列数
   const colCount = Object.values(columnVisibility).filter(Boolean).length
@@ -170,7 +171,7 @@ export default function LogTableRow({ item, userIsAdmin, userGroup, columnVisibi
             sx={{
               p: '10px 8px',
               textAlign: 'center'
-            }}>{viewInput(item, t, totalInputTokens, totalOutputTokens, show, tokenDetails)}</TableCell>
+            }}>{viewInput(item, t, tokenBilling)}</TableCell>
         )}
         {columnVisibility.completion && <TableCell sx={{
           p: '10px 8px',
@@ -191,7 +192,9 @@ export default function LogTableRow({ item, userIsAdmin, userGroup, columnVisibi
           <TableCell sx={{ p: '10px 8px', textAlign: 'center' }}>{item.source_ip || ''}</TableCell>}
         {columnVisibility.detail && (
           <TableCell sx={{ p: '10px 8px', textAlign: 'center', ...stickyCellSx }}>
-            {item.type === 5 ? viewErrorDetail(item, t) : viewLogContent(item, t, totalInputTokens, totalOutputTokens)}
+            {item.type === 5
+              ? viewErrorDetail(item, t)
+              : viewLogContent(item, t, tokenBilling.billableInputTokens, tokenBilling.billableOutputTokens)}
           </TableCell>
         )}
       </TableRow>
@@ -205,8 +208,7 @@ export default function LogTableRow({ item, userIsAdmin, userGroup, columnVisibi
                 userGroup={userGroup}
                 userIsAdmin={userIsAdmin}
                 t={t}
-                totalInputTokens={totalInputTokens}
-                totalOutputTokens={totalOutputTokens}
+                tokenBilling={tokenBilling}
               />
             </Collapse>
           </TableCell>
@@ -299,15 +301,46 @@ const MetadataTypography = styled(Typography)(({ theme }) => ({
   }
 }))
 
-function viewInput(item, t, totalInputTokens, totalOutputTokens, show, tokenDetails) {
+function viewInput(item, t, tokenBilling) {
   const { prompt_tokens } = item
+  const {
+    billableInputTokens,
+    billableOutputTokens,
+    cacheDetails,
+    hasCache,
+    rawInputTokens,
+    show,
+    tokenDetails,
+    uncachedInputTokens
+  } = tokenBilling
 
   if (prompt_tokens === undefined || prompt_tokens === null) return ''
-  if (!show) return prompt_tokens
+  if (!show) return formatTokenCount(prompt_tokens)
 
-  const tooltipContent = tokenDetails.map(({ key, label, tokens, value, rate, labelParams }) => (
+  const tooltipContent = tokenDetails.map(({ key, label, rawTokens, billableTokens, ratio }) => (
     <MetadataTypography
-      key={key}>{`${t(label, labelParams)}: ${value} *  (${rate} - 1) = ${tokens}`}</MetadataTypography>
+      key={key}
+    >
+      {t('logPage.tokenBillingAdjustment', {
+        label: t(label, { ratio }),
+        raw: formatTokenCount(rawTokens),
+        billable: formatTokenCount(billableTokens)
+      })}
+    </MetadataTypography>
+  ))
+
+  const cacheSummary = cacheDetails.map(({ key, shortLabel, rawTokens, ratio, hasRatio }) => (
+    <Typography
+      component="span"
+      key={key}
+      sx={{ color: 'primary.main', fontSize: 11, fontWeight: 500, lineHeight: 1.35, whiteSpace: 'nowrap' }}
+    >
+      {t('logPage.cacheSummary', {
+        label: t(shortLabel),
+        tokens: formatTokenCount(rawTokens),
+        ratio: hasRatio ? ratio : '-'
+      })}
+    </Typography>
   ))
 
   return (
@@ -317,154 +350,34 @@ function viewInput(item, t, totalInputTokens, totalOutputTokens, show, tokenDeta
           <>
             {tooltipContent}
             <MetadataTypography>
-              {t('logPage.totalInputTokens')}: {totalInputTokens}
+              {t('logPage.rawInputTokens')}: {formatTokenCount(rawInputTokens)}
             </MetadataTypography>
             <MetadataTypography>
-              {t('logPage.totalOutputTokens')}: {totalOutputTokens}
+              {t('logPage.billableInputTokens')}: {formatTokenCount(billableInputTokens)}
+            </MetadataTypography>
+            <MetadataTypography>
+              {t('logPage.totalOutputTokens')}: {formatTokenCount(billableOutputTokens)}
             </MetadataTypography>
           </>
         }
         placement="top"
         arrow
       >
-        <span style={{ cursor: 'help' }}>{prompt_tokens}</span>
+        <Stack component="span" spacing={0.15} alignItems="center" sx={{ cursor: 'help' }}>
+          <Typography component="span" sx={{ color: 'text.primary', fontSize: 13, fontWeight: 600, lineHeight: 1.3 }}>
+            {formatTokenCount(prompt_tokens)}
+          </Typography>
+          {hasCache && (
+            <Typography component="span" sx={{ color: 'text.secondary', fontSize: 11, lineHeight: 1.35, whiteSpace: 'nowrap' }}>
+              {t('logPage.uncachedInputSummary', { tokens: formatTokenCount(uncachedInputTokens) })}
+              {' · '}
+              {cacheSummary.reduce((result, entry, index) => (index === 0 ? [entry] : [...result, ' · ', entry]), [])}
+            </Typography>
+          )}
+        </Stack>
       </Tooltip>
     </Badge>
   )
-}
-
-const TOKEN_RATIOS = {
-  INPUT_AUDIO: 20,
-  OUTPUT_AUDIO: 10,
-  CACHED: 0.5,
-  TEXT: 1
-}
-
-function calculateTokens(item) {
-  const { prompt_tokens, completion_tokens, metadata } = item
-
-  if ((prompt_tokens === undefined || prompt_tokens === null) || !metadata) {
-    return {
-      totalInputTokens: prompt_tokens || 0,
-      totalOutputTokens: completion_tokens || 0,
-      show: false,
-      tokenDetails: []
-    }
-  }
-
-  let totalInputTokens = prompt_tokens
-  let totalOutputTokens = completion_tokens
-  let show = false
-
-  const input_audio_tokens = metadata?.input_audio_tokens_ratio || 1;
-  const output_audio_tokens = metadata?.output_audio_tokens_ratio || 1;
-  const input_image_tokens = metadata?.input_image_tokens_ratio || 1;
-  const output_image_tokens = metadata?.output_image_tokens_ratio || 1;
-
-  const cached_ratio = metadata?.cached_tokens_ratio || 1;
-  const cached_write_ratio = metadata?.cached_write_tokens_ratio || 1;
-  const cached_write_1h_ratio = metadata?.cached_write_1h_tokens_ratio || 1;
-  const cached_read_ratio = metadata?.cached_read_tokens_ratio || 1;
-  const openai_cache_write_ratio = metadata?.openai_cache_write_tokens_ratio || 1;
-  const reasoning_tokens = metadata?.reasoning_tokens_ratio || 1;
-  const input_text_tokens_ratio = metadata?.input_text_tokens_ratio || 1;
-  const output_text_tokens_ratio = metadata?.output_text_tokens_ratio || 1;
-
-  const tokenDetails = [
-    {
-      key: 'input_text_tokens',
-      label: 'logPage.inputTextTokens',
-      rate: input_text_tokens_ratio,
-      labelParams: { ratio: input_text_tokens_ratio }
-    },
-    {
-      key: 'output_text_tokens',
-      label: 'logPage.outputTextTokens',
-      rate: output_text_tokens_ratio,
-      labelParams: { ratio: output_text_tokens_ratio }
-    },
-    {
-      key: 'input_audio_tokens',
-      label: 'logPage.inputAudioTokens',
-      rate: input_audio_tokens,
-      labelParams: { ratio: input_audio_tokens }
-    },
-    {
-      key: 'output_audio_tokens',
-      label: 'logPage.outputAudioTokens',
-      rate: output_audio_tokens,
-      labelParams: { ratio: output_audio_tokens }
-    },
-    { key: 'cached_tokens', label: 'logPage.cachedTokens', rate: cached_ratio, labelParams: { ratio: cached_ratio } },
-    {
-      key: 'cached_write_tokens',
-      label: 'logPage.cachedWriteTokens',
-      rate: cached_write_ratio,
-      labelParams: { ratio: cached_write_ratio }
-    },
-    {
-      key: 'cached_write_1h_tokens',
-      label: 'logPage.cachedWrite1hTokens',
-      rate: cached_write_1h_ratio,
-      labelParams: { ratio: cached_write_1h_ratio }
-    },
-    { key: 'cached_read_tokens', label: 'logPage.cachedReadTokens', rate: cached_read_ratio, labelParams: { ratio: cached_read_ratio } },
-    {
-      key: 'openai_cache_write_tokens',
-      label: 'logPage.openaiCacheWriteTokens',
-      rate: openai_cache_write_ratio,
-      labelParams: { ratio: openai_cache_write_ratio }
-    },
-    { key: 'reasoning_tokens', label: 'logPage.reasoningTokens', rate: reasoning_tokens, labelParams: { ratio: reasoning_tokens } },
-    {
-      key: 'input_image_tokens',
-      label: 'logPage.inputImageTokens',
-      rate: input_image_tokens,
-      labelParams: { ratio: input_image_tokens }
-    },
-    {
-      key: 'output_image_tokens',
-      label: 'logPage.outputImageTokens',
-      rate: output_image_tokens,
-      labelParams: { ratio: output_image_tokens }
-    }
-  ]
-    .filter(({ key }) => metadata[key] > 0)
-    .map(({ key, label, rate, labelParams }) => {
-      const tokens = Math.ceil(metadata[key] * (rate - 1))
-
-      // Check if this token type affects input or output totals
-      const isInputToken = [
-        'input_text_tokens',
-        'output_text_tokens',
-        'input_audio_tokens',
-        'cached_tokens',
-        'cached_write_tokens',
-        'cached_write_1h_tokens',
-        'cached_read_tokens',
-        'openai_cache_write_tokens',
-        'input_image_tokens'
-      ].includes(key);
-
-      const isOutputToken = ['output_audio_tokens', 'reasoning_tokens', 'output_image_tokens'].includes(key);
-
-      if (isInputToken) {
-        totalInputTokens += tokens
-        show = true
-      } else if (isOutputToken) {
-        totalOutputTokens += tokens
-        show = true
-      }
-
-      return { key, label, tokens, value: metadata[key], rate, labelParams }
-    })
-
-  return {
-    totalInputTokens,
-    totalOutputTokens,
-    show,
-    tokenDetails
-  }
 }
 
 // viewErrorDetail 渲染错误日志（type=5）的详情列：
