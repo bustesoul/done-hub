@@ -17,12 +17,12 @@ const Footer = () => {
           <div className="custom-footer" dangerouslySetInnerHTML={{ __html: siteInfo.footer_html }}></div>
         ) : (
           <>
-            <Link href="https://github.com/deanxv/done-hub" target="_blank">
+            <Link href="https://github.com/bustesoul/done-hub" target="_blank">
               {siteInfo.system_name} {import.meta.env.VITE_APP_VERSION}{' '}
             </Link>
             {t('footer.developedBy')}{' '}
-            <Link href="https://github.com/deanxv" target="_blank">
-              deanxv
+            <Link href="https://github.com/bustesoul" target="_blank">
+              bustesoul
             </Link>
             ，{t('footer.basedOn')}{' '}
             <Link href="https://github.com/MartialBE" target="_blank">

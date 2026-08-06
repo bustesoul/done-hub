@@ -25,7 +25,7 @@ const config = {
     quota_per_unit: 500000,
     server_address: '',
     start_time: 0,
-    system_name: 'Done Hub',
+    system_name: 'SekuxAI',
     language: 'zh_CN',
     top_up_link: '',
     turnstile_check: false,

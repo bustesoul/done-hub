@@ -4,7 +4,7 @@
 
 <p align="center">
    <picture>
-   <img style="width: 80%" src="https://pic1.imgdb.cn/item/6846e33158cb8da5c83eb1eb.png" alt="image__3_-removebg-preview.png"> 
+   <img style="width: 42%" src="./web/public/sekuxai-stacked.svg" alt="SekuxAI">
     </picture>
 </p>
 
@@ -26,9 +26,9 @@ _本项目是基于 [one-hub](https://github.com/MartialBE/one-api) 二次开发
 
 ## 项目简介
 
-**Done Hub** 是基于 [one-hub](https://github.com/MartialBE/one-api) 的二次开发版本，在保持与原版**数据库与镜像完全兼容**的前提下，围绕**新型客户端反代（Claude Code / Gemini CLI / Codex / Antigravity 等）**、**渠道精细化管控**、**邀请与返利体系**、**数据分析**与**多实例部署稳定性**等方向做了大量增强与修复。
+**SekuxAI**（代码仓库：done-hub）是基于 [one-hub](https://github.com/MartialBE/one-api) 的二次开发版本，在保持与原版**数据库兼容**的前提下，围绕**新型客户端反代（Claude Code / Gemini CLI / Codex / Antigravity 等）**、**渠道精细化管控**、**缓存计费与数据分析**以及**多实例部署稳定性**等方向做了大量增强与修复。
 
-> 数据库与原版兼容，原版用户可直接拉取本项目镜像 `deanxv/done-hub` 完成平滑迁移。
+> 数据库与原版兼容，原版用户可拉取 `ghcr.io/bustesoul/done-hub:dev` 完成平滑迁移。
 
 ---
 
@@ -48,7 +48,7 @@ _本项目是基于 [one-hub](https://github.com/MartialBE/one-api) 二次开发
 
 ### 二、原生路由（Native Route）跨渠道兼容
 
-原版 Provider 通常仅能"按自身协议"被调用，Done Hub 打通了不同协议在不同渠道之间的相互转换，使一个渠道可以同时承担多种客户端的反代角色：
+原版 Provider 通常仅能"按自身协议"被调用，SekuxAI 打通了不同协议在不同渠道之间的相互转换，使一个渠道可以同时承担多种客户端的反代角色：
 
 - **自定义渠道**支持以 **Claude 原生路由**（`/v1/messages`）对外提供服务 —— 可直接接入 Claude Code。
 - **Vertex AI** 渠道支持以 **Gemini 原生路由**（`/gemini/*`）对外提供服务 —— 可直接接入 Gemini CLI。
@@ -146,21 +146,21 @@ _本项目是基于 [one-hub](https://github.com/MartialBE/one-api) 二次开发
 
 ## 部署
 
-> 按照原版部署教程将镜像替换为 `deanxv/done-hub` 即可。
+> 按照原版部署教程将镜像替换为 `ghcr.io/bustesoul/done-hub:dev` 即可。
 
 > 数据库兼容，原版可直接拉取此镜像迁移。
 
 常见使用方式：
 
 ```bash
-docker pull deanxv/done-hub:latest
+docker pull ghcr.io/bustesoul/done-hub:dev
 
 docker run -d \
   --name done-hub \
   -p 3000:3000 \
   -e TZ=Asia/Shanghai \
   -v $(pwd)/data:/data \
-  deanxv/done-hub:latest
+  ghcr.io/bustesoul/done-hub:dev
 ```
 
 > 完整部署、配置、计费、模型价格等参考原项目文档：<https://one-hub-doc.vercel.app/>

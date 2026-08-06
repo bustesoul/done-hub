@@ -20,7 +20,7 @@ func getLogo() string {
 
 func getSystemName() string {
 	if config.SystemName == "" {
-		return "Done Hub"
+		return "SekuxAI"
 	}
 
 	return config.SystemName

@@ -43,7 +43,7 @@ const CTA = () => {
             </Typography>
 
             <Button
-              href="https://github.com/deanxv/done-hub"
+              href="https://github.com/bustesoul/done-hub"
               target="_blank"
               rel="noopener"
               variant="outlined"

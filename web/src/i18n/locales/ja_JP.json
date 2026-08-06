@@ -525,7 +525,7 @@
     "code": {
       "title": "3 つのプロトコル、ひとつのアドレス",
       "subtitle": "OpenAI・Claude・Gemini のリクエストをそのままプロキシ。",
-      "reply": "こんにちは。{{model}} です。Done Hub 経由で接続しています。"
+      "reply": "こんにちは。{{model}} です。SekuxAI 経由で接続しています。"
     },
     "providers": {
       "title": "数十のプロバイダーを、ひとつの API で",
@@ -557,7 +557,7 @@
       "title": "4 ステップで稼働",
       "subtitle": "デプロイから接続まで、各ステップが実際のリクエストパスに沿います。",
       "s1Title": "デプロイ",
-      "s1Desc": "Docker で Done Hub を起動し、基本設定。",
+      "s1Desc": "Docker で SekuxAI を起動し、基本設定。",
       "s2Title": "チャネル追加",
       "s2Desc": "OpenAI、Claude、Gemini を有効化し、上流キーを登録。",
       "s3Title": "クライアント接続",

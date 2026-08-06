@@ -62,7 +62,7 @@ func main() {
 	}
 
 	logger.SetupLogger()
-	logger.SysLog("Done Hub " + config.Version + " started")
+	logger.SysLog("SekuxAI " + config.Version + " started")
 
 	// Initialize user token
 	err := common.InitUserToken()

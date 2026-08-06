@@ -545,7 +545,7 @@
     "code": {
       "title": "Three protocols, one address",
       "subtitle": "OpenAI, Claude, and Gemini requests are proxied as-is.",
-      "reply": "Hi! I'm {{model}}, reached through Done Hub."
+      "reply": "Hi! I'm {{model}}, reached through SekuxAI."
     },
     "providers": {
       "title": "Dozens of providers, one API",
@@ -577,7 +577,7 @@
       "title": "Up and running in four steps",
       "subtitle": "From deploy to client, each step follows the real request path.",
       "s1Title": "Deploy",
-      "s1Desc": "Run Done Hub with Docker and set the basics.",
+      "s1Desc": "Run SekuxAI with Docker and set the basics.",
       "s2Title": "Add channels",
       "s2Desc": "Enable OpenAI, Claude, Gemini and add upstream keys.",
       "s3Title": "Connect clients",
@@ -1373,7 +1373,7 @@
       "customSettings": {
         "aboutLabel": "About",
         "aboutPlaceholder": "Enter new about content here, supports Markdown & HTML code. If a link is entered, it will be used as the src attribute of the iframe, allowing you to set any web page as the about page.",
-        "copyrightWarning": "Removing the Done Hub copyright must be authorized first. Maintaining the project requires a lot of effort. If this project is meaningful to you, please support it.",
+        "copyrightWarning": "Removing the SekuxAI copyright must be authorized first. Maintaining the project requires a lot of effort. If this project is meaningful to you, please support it.",
         "footerLabel": "Footer Settings",
         "footerPlaceholder": "Enter new footer here, leave blank to use the default footer, supports HTML code",
         "homePageContentLabel": "Home Page Content",

@@ -2,7 +2,7 @@ version: "3.4"
 
 services:
   one-hub:
-    image: deanxv/done-hub:latest
+    image: ghcr.io/bustesoul/done-hub:dev
     container_name: done-hub
     restart: always
     ports:

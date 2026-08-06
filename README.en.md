@@ -4,7 +4,7 @@
 
 <p align="center">
    <picture>
-   <img style="width: 80%" src="https://pic1.imgdb.cn/item/6846e33158cb8da5c83eb1eb.png" alt="image__3_-removebg-preview.png"> 
+   <img style="width: 42%" src="./web/public/sekuxai-stacked.svg" alt="SekuxAI">
     </picture>
 </p>
 
@@ -26,9 +26,9 @@ _This project is a secondary development based on [one-hub](https://github.com/M
 
 ## About
 
-**Done Hub** is a fork / secondary development of [one-hub](https://github.com/MartialBE/one-api). It stays **fully database- and image-compatible** with the upstream while adding substantial improvements around **reverse-proxying modern clients (Claude Code / Gemini CLI / Codex / Antigravity, etc.)**, **fine-grained channel control**, an **invitation & rebate system**, **analytics**, and **multi-instance deployment stability**.
+**SekuxAI** (repository: done-hub) is a fork / secondary development of [one-hub](https://github.com/MartialBE/one-api). It remains **database-compatible** with the upstream while adding substantial improvements around **reverse-proxying modern clients (Claude Code / Gemini CLI / Codex / Antigravity, etc.)**, **fine-grained channel control**, **cache-aware billing and analytics**, and **multi-instance deployment stability**.
 
-> The database schema is compatible with the upstream — existing one-hub users can migrate by simply pulling the `deanxv/done-hub` image.
+> The database schema is compatible with the upstream — existing one-hub users can migrate with `ghcr.io/bustesoul/done-hub:dev`.
 
 ---
 
@@ -48,7 +48,7 @@ The additions are grouped into ten categories: **new providers**, **native-route
 
 ### 2. Native-Route Compatibility Across Channels
 
-Upstream providers can normally only be called via their own protocol. Done Hub bridges different native protocols so that a single channel can simultaneously serve multiple client types:
+Upstream providers can normally only be called via their own protocol. SekuxAI bridges different native protocols so that a single channel can simultaneously serve multiple client types:
 
 - **Custom channels** can expose the **native Claude route** (`/v1/messages`) — ready to plug into Claude Code.
 - **Vertex AI** channels can expose the **native Gemini route** (`/gemini/*`) — ready to plug into Gemini CLI.
@@ -146,21 +146,21 @@ Covers billing, caching, statistics, payments, security — the critical paths:
 
 ## Deployment
 
-> Follow the upstream deployment guide and swap the image for `deanxv/done-hub`.
+> Follow the upstream deployment guide and swap the image for `ghcr.io/bustesoul/done-hub:dev`.
 
 > Database-compatible — existing one-hub deployments can migrate by simply pulling this image.
 
 Quick start:
 
 ```bash
-docker pull deanxv/done-hub:latest
+docker pull ghcr.io/bustesoul/done-hub:dev
 
 docker run -d \
   --name done-hub \
   -p 3000:3000 \
   -e TZ=Asia/Shanghai \
   -v $(pwd)/data:/data \
-  deanxv/done-hub:latest
+  ghcr.io/bustesoul/done-hub:dev
 ```
 
 > Full deployment, configuration, billing, and model-pricing docs live in the upstream documentation: <https://one-hub-doc.vercel.app/>
@@ -177,4 +177,4 @@ docker run -d \
 - This program builds on the following open-source project:
     - [one-hub](https://github.com/MartialBE/one-api) — the foundation of this project.
 
-Thanks to the authors and contributors of the upstream project, and to everyone who has filed PRs, issues, or feedback for Done Hub.
+Thanks to the authors and contributors of the upstream project, and to everyone who has filed PRs, issues, or feedback for SekuxAI.

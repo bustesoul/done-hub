@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 336 88" role="img" aria-labelledby="title">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 820" role="img" aria-labelledby="title">
   <title id="title">SekuxAI</title>
   <defs>
     <linearGradient id="sekux-blue" x1="0" y1="0" x2="1" y2="1">
@@ -6,9 +6,9 @@
       <stop offset="1" stop-color="#1647F5"/>
     </linearGradient>
   </defs>
-  <g transform="translate(4 4) scale(.125)">
+  <g transform="translate(32 20)">
     <path fill="url(#sekux-blue)" d="M192 32h352L416 160H288l-80 80 128 128-96 96L16 240z"/>
     <path fill="#0B1220" d="m304 248 224 224-176 176H0l128-128h128l80-80-128-128z"/>
   </g>
-  <text x="88" y="57" fill="#0B1220" font-family="Inter,Public Sans,Arial,sans-serif" font-size="42" font-weight="750" letter-spacing="-1.8">Sekux<tspan fill="#165DFF">AI</tspan></text>
+  <text x="320" y="760" text-anchor="middle" fill="#0B1220" font-family="Inter,Public Sans,Arial,sans-serif" font-size="104" font-weight="750" letter-spacing="-4">Sekux<tspan fill="#165DFF">AI</tspan></text>
 </svg>

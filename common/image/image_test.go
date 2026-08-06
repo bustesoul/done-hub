@@ -193,7 +193,7 @@ func TestGetImageFromUrl(t *testing.T) {
 		})
 	}
 
-	url := "https://raw.githubusercontent.com/deanxv/done-hub/main/README.md"
+	url := "https://raw.githubusercontent.com/bustesoul/done-hub/main/README.md"
 	_, _, err := img.GetImageFromUrl(url)
 	assert.Error(t, err)
 	encodedBase64 := "data:image/text;base64,"
