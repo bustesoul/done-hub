@@ -87,6 +87,7 @@ func SetApiRouter(router *gin.Engine) {
 			selfRoute.Use(middleware.SessionSecurity()) // 为所有用户相关接口添加会话安全
 			{
 				selfRoute.GET("/dashboard", controller.GetUserDashboard)
+				selfRoute.GET("/dashboard/usage", controller.GetUserDashboardUsage)
 				selfRoute.GET("/dashboard/rate", controller.GetRateRealtime)
 				selfRoute.GET("/dashboard/uptimekuma/status-page", controller.UptimeKumaStatusPage)
 				selfRoute.GET("/dashboard/uptimekuma/status-page/heartbeat", controller.UptimeKumaStatusPageHeartbeat)

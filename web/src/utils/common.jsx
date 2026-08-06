@@ -7,7 +7,7 @@ import { useSelector } from 'react-redux';
 
 export function getSystemName() {
   let system_name = localStorage.getItem('system_name');
-  if (!system_name) return 'Done Hub';
+  if (!system_name) return 'SekuxAI';
   return system_name;
 }
 
@@ -551,13 +551,13 @@ export const verifyJSON = (str) => {
 
 export function renderNumber(num) {
   if (num >= 1000000000) {
-    return (num / 1000000000).toFixed(1) + 'B';
+    return (num / 1000000000).toFixed(1) + ' B';
   } else if (num >= 1000000) {
-    return (num / 1000000).toFixed(1) + 'M';
+    return (num / 1000000).toFixed(1) + ' M';
   } else if (num >= 10000) {
-    return (num / 1000).toFixed(1) + 'k';
+    return (num / 1000).toFixed(1) + ' K';
   } else {
-    return num;
+    return Number(num).toLocaleString();
   }
 }
 
