@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { API } from 'utils/api';
 import { showError, copy } from 'utils/common';
 import { Box, Card, Stack, alpha, Tooltip, IconButton, Typography } from '@mui/material';
@@ -7,12 +7,14 @@ import { useTranslation } from 'react-i18next';
 import { ExpandMore, ExpandLess } from '@mui/icons-material';
 import { useSelector } from 'react-redux';
 import IconWrapper from 'ui-component/IconWrapper';
+import { groupAvailableModels } from 'utils/availableModels';
 
 const SupportModels = () => {
-  const [modelList, setModelList] = useState([]);
-  const [expanded, setExpanded] = useState(false);
+  const [models, setModels] = useState({});
+  const [expanded, setExpanded] = useState(true);
   const { t } = useTranslation();
   const ownedby = useSelector((state) => state.siteInfo?.ownedby);
+  const modelGroups = useMemo(() => groupAvailableModels(models, ownedby, t('dashboard_index.unknown')), [models, ownedby, t]);
 
   const fetchModels = async () => {
     try {
@@ -20,29 +22,7 @@ const SupportModels = () => {
       const { data, success } = res.data;
       if (!success) return;
 
-      const modelGroup = Object.entries(data).reduce((acc, [modelId, modelInfo]) => {
-        const { owned_by } = modelInfo;
-        if (!acc[owned_by]) {
-          acc[owned_by] = [];
-        }
-        acc[owned_by].push(modelId);
-        return acc;
-      }, {});
-
-      Object.values(modelGroup).forEach((models) => models.sort());
-
-      const sortedModelGroup = Object.keys(modelGroup)
-        .sort((a, b) => {
-          const ownerA = ownedby?.find((item) => item.name === a);
-          const ownerB = ownedby?.find((item) => item.name === b);
-          return (ownerA?.id || 0) - (ownerB?.id || 0);
-        })
-        .reduce((acc, key) => {
-          acc[key] = modelGroup[key];
-          return acc;
-        }, {});
-
-      setModelList(sortedModelGroup);
+      setModels(data || {});
     } catch (error) {
       showError(error.message);
     }
@@ -53,114 +33,32 @@ const SupportModels = () => {
   }, []);
 
   const getIconByName = (name) => {
-    const owner = ownedby.find((item) => item.name === name);
+    const owner = (ownedby || []).find((item) => item.name === name);
     return owner?.icon;
   };
 
   return (
-    <Card>
+    <Card sx={{ alignSelf: 'start', minWidth: 0 }}>
       <Box sx={{ p: 2 }}>
-        <Box sx={{ position: 'relative' }}>
-          <Stack
-            direction="row"
-            alignItems="center"
-            spacing={2}
-            sx={{
-              mb: expanded ? 2 : 0,
-              pr: 5
-            }}
-          >
-            <Typography variant="subtitle1" sx={{ color: 'text.secondary', whiteSpace: 'nowrap' }}>
-              {t('dashboard_index.model_price')}:
-            </Typography>
-
-            {!expanded && (
-              <Box
-                sx={{
-                  flex: 1,
-                  overflow: 'auto',
-                  display: 'flex',
-                  gap: 1,
-                  '&::-webkit-scrollbar': { display: 'none' },
-                  scrollbarWidth: 'none',
-                  maskImage: 'linear-gradient(to right, black 90%, transparent 100%)',
-                  WebkitMaskImage: 'linear-gradient(to right, black 90%, transparent 100%)'
-                }}
-              >
-                {Object.entries(modelList)
-                  .slice(0, 1)
-                  .map(([provider, models]) => (
-                    <Box
-                      key={provider}
-                      sx={{
-                        display: 'flex',
-                        gap: 1,
-                        alignItems: 'center'
-                      }}
-                    >
-                      <Typography
-                        variant="subtitle2"
-                        sx={{
-                          color: 'text.secondary',
-                          whiteSpace: 'nowrap',
-                          fontWeight: 'bold'
-                        }}
-                      >
-                        {provider}:
-                      </Typography>
-                      {models.map((model) => (
-                        <Label
-                          key={model}
-                          variant="soft"
-                          color="primary"
-                          onClick={() => copy(model, t('dashboard_index.model_name'))}
-                          sx={{
-                            cursor: 'pointer',
-                            whiteSpace: 'nowrap',
-                            '&:hover': {
-                              bgcolor: (theme) => alpha(theme.palette.primary.main, 0.16)
-                            }
-                          }}
-                        >
-                          {model}
-                        </Label>
-                      ))}
-                    </Box>
-                  ))}
-              </Box>
-            )}
-          </Stack>
-
-          <Box
-            sx={{
-              position: 'absolute',
-              right: 0,
-              top: -2,
-              bgcolor: (theme) => theme.palette.background.paper,
-              background: (theme) => `linear-gradient(to right, transparent, ${theme.palette.background.paper} 20%)`,
-              pl: 1
-            }}
-          >
-            <Tooltip>
-              <IconButton
-                size="small"
-                onClick={() => setExpanded(!expanded)}
-                sx={{
-                  color: 'text.secondary',
-                  '&:hover': {
-                    color: 'text.primary'
-                  }
-                }}
-              >
-                {expanded ? <ExpandLess sx={{ width: 20 }} /> : <ExpandMore sx={{ width: 20 }} />}
-              </IconButton>
-            </Tooltip>
-          </Box>
-        </Box>
+        <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
+          <Typography variant="subtitle1" sx={{ color: 'text.secondary' }}>
+            {t('dashboard_index.model_price')}
+          </Typography>
+          <Tooltip title={expanded ? t('dashboard_index.collapse_models') : t('dashboard_index.expand_models')}>
+            <IconButton
+              size="small"
+              onClick={() => setExpanded(!expanded)}
+              aria-label={expanded ? t('dashboard_index.collapse_models') : t('dashboard_index.expand_models')}
+              sx={{ color: 'text.secondary', '&:hover': { color: 'text.primary' } }}
+            >
+              {expanded ? <ExpandLess sx={{ width: 20 }} /> : <ExpandMore sx={{ width: 20 }} />}
+            </IconButton>
+          </Tooltip>
+        </Stack>
 
         {expanded && (
-          <Stack spacing={2}>
-            {Object.entries(modelList).map(([provider, models]) => (
+          <Stack spacing={2} sx={{ mt: 2 }}>
+            {modelGroups.map(({ provider, models: providerModels }) => (
               <Box key={provider}>
                 <Typography
                   variant="subtitle2"
@@ -184,7 +82,7 @@ const SupportModels = () => {
                     pl: 1
                   }}
                 >
-                  {models.map((model) => (
+                  {providerModels.map((model) => (
                     <Label
                       key={model}
                       variant="soft"
@@ -204,6 +102,47 @@ const SupportModels = () => {
               </Box>
             ))}
           </Stack>
+        )}
+
+        {!expanded && (
+          <Box
+            sx={{
+              display: 'flex',
+              gap: 2.5,
+              minWidth: 0,
+              mt: 1.5,
+              pb: 0.75,
+              overflowX: 'auto',
+              '&::-webkit-scrollbar': { height: 4 },
+              '&::-webkit-scrollbar-thumb': { bgcolor: 'divider', borderRadius: 4 }
+            }}
+          >
+            {modelGroups.map(({ provider, models: providerModels }) => (
+              <Stack key={provider} direction="row" alignItems="center" spacing={1} flexShrink={0}>
+                <Stack direction="row" alignItems="center" spacing={0.75}>
+                  <IconWrapper url={getIconByName(provider)} />
+                  <Typography variant="subtitle2" color="text.secondary" fontWeight="bold" whiteSpace="nowrap">
+                    {provider}
+                  </Typography>
+                </Stack>
+                {providerModels.map((model) => (
+                  <Label
+                    key={model}
+                    variant="soft"
+                    color="primary"
+                    onClick={() => copy(model, t('dashboard_index.model_name'))}
+                    sx={{
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      '&:hover': { bgcolor: (theme) => alpha(theme.palette.primary.main, 0.16) }
+                    }}
+                  >
+                    {model}
+                  </Label>
+                ))}
+              </Stack>
+            ))}
+          </Box>
         )}
       </Box>
     </Card>

@@ -438,7 +438,8 @@ const Dashboard = () => {
         sx={{
           display: 'grid',
           gridTemplateColumns: { xs: '1fr', lg: siteInfo.builtin_chat_enabled !== false ? '1.4fr .6fr' : '1fr' },
-          gap: 2.5
+          gap: 2.5,
+          alignItems: 'start'
         }}
       >
         <SupportModels />

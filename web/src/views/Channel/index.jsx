@@ -23,6 +23,7 @@ import EditeModal from './component/EditModal';
 import { getPageSize, PAGE_SIZE_OPTIONS, savePageSize, getTableSort, saveTableSort } from 'constants';
 import TableToolBar from './component/TableToolBar';
 import BatchModal from './component/BatchModal';
+import SelectedChannelTestDialog from './component/SelectedChannelTestDialog';
 import { useTranslation } from 'react-i18next';
 
 import { useBoolean } from 'hooks/use-boolean';
@@ -106,6 +107,8 @@ export default function ChannelList() {
   // 批量删除相关状态
   const [selectedChannels, setSelectedChannels] = useState([]);
   const [batchDeleteConfirm, setBatchDeleteConfirm] = useState(false);
+  const [selectedTestOpen, setSelectedTestOpen] = useState(false);
+  const [selectedTestTargets, setSelectedTestTargets] = useState([]);
 
   // 提示框展开状态
   const [alertExpanded, setAlertExpanded] = useState(false);
@@ -456,6 +459,17 @@ export default function ChannelList() {
     setBatchDeleteConfirm(true);
   };
 
+  const handleOpenSelectedTest = () => {
+    if (selectedChannels.length === 0) return;
+    setSelectedTestTargets(
+      selectedChannels.map((id) => {
+        const channel = channels.find((item) => item.id === id);
+        return { id, name: channel?.name || `#${id}` };
+      })
+    );
+    setSelectedTestOpen(true);
+  };
+
   const confirmBatchDelete = async () => {
     try {
       const { success, message } = await manageChannel(null, 'batch_delete', selectedChannels);
@@ -583,22 +597,29 @@ export default function ChannelList() {
             minWidth: 0
           }}
         >
-          {/* 左侧删除渠道按钮 */}
+          {/* 左侧选中渠道操作 */}
           {matchUpMd && (
-            <Button
-              variant="outlined"
-              onClick={handleBatchDelete}
-              disabled={selectedChannels.length === 0}
-              startIcon={<Icon icon="solar:trash-bin-2-bold-duotone" width={18} />}
-              color="error"
-              sx={{
-                minWidth: 'auto',
-                whiteSpace: 'nowrap',
-                flexShrink: 0
-              }}
-            >
-              {t('channel_index.deleteChannels')} ({selectedChannels.length})
-            </Button>
+            <Stack direction="row" spacing={1} flexShrink={0}>
+              <Button
+                variant="outlined"
+                onClick={handleOpenSelectedTest}
+                disabled={selectedChannels.length === 0}
+                startIcon={<Icon icon="solar:test-tube-bold-duotone" width={18} />}
+                sx={{ minWidth: 'auto', whiteSpace: 'nowrap' }}
+              >
+                {t('channel_index.testSelectedChannels')} ({selectedChannels.length})
+              </Button>
+              <Button
+                variant="outlined"
+                onClick={handleBatchDelete}
+                disabled={selectedChannels.length === 0}
+                startIcon={<Icon icon="solar:trash-bin-2-bold-duotone" width={18} />}
+                color="error"
+                sx={{ minWidth: 'auto', whiteSpace: 'nowrap' }}
+              >
+                {t('channel_index.deleteChannels')} ({selectedChannels.length})
+              </Button>
+            </Stack>
           )}
 
           <Box sx={{ flex: 1, overflow: 'hidden', minWidth: 0, display: 'flex', justifyContent: 'flex-end', ml: 2 }}>
@@ -704,13 +725,14 @@ export default function ChannelList() {
                 </ButtonGroup>
               </Box>
             ) : (
-              <Container maxWidth="xl">
+              <Container maxWidth="xl" sx={{ overflowX: 'auto', px: '0 !important' }}>
                 <Stack
                   direction="row"
                   spacing={1}
                   divider={<Divider orientation="vertical" flexItem />}
                   justifyContent="space-around"
                   alignItems="center"
+                  sx={{ minWidth: 'max-content' }}
                 >
                   <IconButton onClick={() => handleRefresh(true)} size="small">
                     <Icon icon="solar:refresh-circle-bold-duotone" width={18} />
@@ -740,6 +762,15 @@ export default function ChannelList() {
                   </IconButton>
                   <IconButton onClick={() => handlePopoverOpen(t('channel_index.testAllChannels'), testAllChannels)} size="small">
                     <Icon icon="solar:test-tube-bold-duotone" width={18} />
+                  </IconButton>
+                  <IconButton
+                    onClick={handleOpenSelectedTest}
+                    disabled={selectedChannels.length === 0}
+                    size="small"
+                    title={t('channel_index.testSelectedChannels')}
+                    aria-label={t('channel_index.testSelectedChannels')}
+                  >
+                    <Icon icon="solar:checklist-minimalistic-bold-duotone" width={18} />
                   </IconButton>
                   <IconButton
                     onClick={() => handlePopoverOpen(t('channel_index.updateEnabledBalance'), updateAllChannelsBalance)}
@@ -843,6 +874,12 @@ export default function ChannelList() {
         groupOptions={groupOptions}
         groupMap={groupMap}
         modelOptions={modelOptions}
+      />
+      <SelectedChannelTestDialog
+        open={selectedTestOpen}
+        onClose={() => setSelectedTestOpen(false)}
+        channels={selectedTestTargets}
+        onCompleted={() => handleRefresh(false)}
       />
 
       <ConfirmDialog

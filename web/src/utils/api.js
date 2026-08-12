@@ -22,8 +22,10 @@ API.interceptors.response.use(
       error.message = error.response.data.message;
     }
 
-    showError(error);
-    error.shownByApiInterceptor = true;
+    if (!error.config?.skipErrorToast) {
+      showError(error);
+      error.shownByApiInterceptor = true;
+    }
     return Promise.reject(error);
   }
 );
