@@ -72,7 +72,9 @@ const Dashboard = () => {
         prompt: '输入 Tokens',
         saved: '命中输入占比',
         quality: '运行质量',
-        errors: '错误率',
+        errors: '请求失败率',
+        failedRequests: '次失败',
+        totalRequests: '次请求',
         liveRpm: '实时 RPM',
         tracked: '错误日志已启用',
         untracked: '错误日志未完整记录',
@@ -108,7 +110,9 @@ const Dashboard = () => {
         prompt: 'Input tokens',
         saved: 'Input hit share',
         quality: 'Runtime quality',
-        errors: 'Error rate',
+        errors: 'Request failure rate',
+        failedRequests: 'failed',
+        totalRequests: 'requests',
         liveRpm: 'Live RPM',
         tracked: 'Error logging enabled',
         untracked: 'Errors are not fully tracked',
@@ -358,6 +362,10 @@ const Dashboard = () => {
                 </Typography>
                 <Typography variant="h3" sx={{ mt: 0.5 }}>
                   {formatPercent(totals.error_rate)}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {exactNumber(totals.errors || 0)} {copy.failedRequests} / {exactNumber((totals.requests || 0) + (totals.errors || 0))}{' '}
+                  {copy.totalRequests}
                 </Typography>
               </Box>
               <Chip

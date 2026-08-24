@@ -106,7 +106,10 @@ func GetUserDashboardUsage(userID, days int, start, end time.Time, errorsTracked
 			continue
 		}
 
-		cachedRead := metadataInt64(log.Metadata.Data(), "cached_read_tokens")
+		// Anthropic-style providers record cache reads as cached_read_tokens,
+		// while OpenAI/Gemini use the standard cached_tokens field. Prefer the
+		// explicit bucket and fall back to the standard one to avoid double-counting.
+		cachedRead := metadataCachedReadTokens(log.Metadata.Data())
 		cachedWrite := metadataInt64(log.Metadata.Data(), "cached_write_tokens") +
 			metadataInt64(log.Metadata.Data(), "cached_write_1h_tokens") +
 			metadataInt64(log.Metadata.Data(), "openai_cache_write_tokens")
@@ -197,6 +200,14 @@ func metadataInt64(metadata map[string]any, key string) int64 {
 	default:
 		return 0
 	}
+}
+
+func metadataCachedReadTokens(metadata map[string]any) int64 {
+	cachedRead := metadataInt64(metadata, "cached_read_tokens")
+	if cachedRead > 0 {
+		return cachedRead
+	}
+	return metadataInt64(metadata, "cached_tokens")
 }
 
 func cacheHitRate(cachedRead, prompt int64) float64 {
