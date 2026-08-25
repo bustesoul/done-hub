@@ -678,6 +678,7 @@
     "inputLabel": "Input",
     "inputTextTokens": "Input text tokens (* {{ ratio }})",
     "modelLabel": "Model",
+    "reasoningEffortLabel": "Reasoning effort",
     "outputAudioTokens": "Output audio tokens (* {{ ratio }})",
     "outputLabel": "Output",
     "outputTextTokens": "Output text tokens (* {{ ratio }})",

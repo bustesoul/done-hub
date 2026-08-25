@@ -658,6 +658,7 @@
     "inputLabel": "入力",
     "inputTextTokens": "Input text tokens (* {{ ratio }})",
     "modelLabel": "モデル",
+    "reasoningEffortLabel": "推論強度",
     "outputAudioTokens": "Output audio tokens (* {{ ratio }})",
     "outputLabel": "出力",
     "outputTextTokens": "Output text tokens (* {{ ratio }})",

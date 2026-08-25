@@ -155,6 +155,18 @@ export default function LogTableRow({ item, userIsAdmin, userGroup, columnVisibi
           <TableCell
             sx={{ p: '10px 8px', textAlign: 'center' }}>{viewModelName(item.model_name, item.is_stream, item.metadata?.service_tier)}</TableCell>}
 
+        {columnVisibility.reasoning_effort && (
+          <TableCell sx={{ p: '10px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+            {item.metadata?.reasoning_effort ? (
+              <Label color="default" variant="soft" copyText={item.metadata.reasoning_effort}>
+                {item.metadata.reasoning_effort}
+              </Label>
+            ) : (
+              <Typography component="span" color="text.secondary">—</Typography>
+            )}
+          </TableCell>
+        )}
+
         {columnVisibility.duration && (
           <TableCell sx={{ p: '10px 8px', textAlign: 'center' }}>
             <Stack direction="column" spacing={0.5}>

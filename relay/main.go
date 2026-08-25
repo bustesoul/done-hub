@@ -42,6 +42,10 @@ func Relay(c *gin.Context) {
 		return
 	}
 
+	// Snapshot the client-provided reasoning effort before any mapping or
+	// provider conversion can normalize, move, or remove the original field.
+	captureOriginalReasoningEffort(c)
+
 	// Apply pre-mapping before setRequest to ensure request body modifications take effect
 	applyPreMappingBeforeRequest(c)
 
@@ -86,6 +90,10 @@ func Relay(c *gin.Context) {
 		"error_source":  errorSource,
 		"attempt_count": finalAttempt,
 		"channel_type":  selection.ChannelType,
+	}
+	if reasoningEffort := c.GetString(config.GinReasoningEffortKey); reasoningEffort != "" {
+		errorMetadata["reasoning_effort"] = reasoningEffort
+		errorMetadata["reasoning_effort_source"] = c.GetString(config.GinReasoningEffortSourceKey)
 	}
 	model.RecordErrorLog(
 		c.Request.Context(),

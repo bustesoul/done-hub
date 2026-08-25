@@ -96,6 +96,7 @@ export default function Log() {
     token_name: true,
     type: true,
     model_name: true,
+    reasoning_effort: true,
     duration: true,
     message: true,
     completion: true,
@@ -577,6 +578,7 @@ export default function Log() {
                 { id: 'token_name', label: t('logPage.tokenLabel') },
                 { id: 'type', label: t('logPage.typeLabel') },
                 { id: 'model_name', label: t('logPage.modelLabel') },
+                { id: 'reasoning_effort', label: t('logPage.reasoningEffortLabel') },
                 { id: 'duration', label: t('logPage.durationLabel') },
                 { id: 'message', label: t('logPage.inputLabel') },
                 { id: 'completion', label: t('logPage.outputLabel') },
@@ -645,6 +647,12 @@ export default function Log() {
                     label: t('logPage.modelLabel'),
                     disableSort: false,
                     hide: !columnVisibility.model_name
+                  },
+                  {
+                    id: 'reasoning_effort',
+                    label: t('logPage.reasoningEffortLabel'),
+                    disableSort: true,
+                    hide: !columnVisibility.reasoning_effort
                   },
                   {
                     id: 'duration',

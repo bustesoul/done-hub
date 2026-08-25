@@ -650,6 +650,7 @@
     "inputLabel": "輸入",
     "inputTextTokens": "輸入文本Tokens (* {{ ratio }})",
     "modelLabel": "模型",
+    "reasoningEffortLabel": "推理強度",
     "outputAudioTokens": "輸出音頻Tokens (* {{ ratio }})",
     "outputLabel": "輸出",
     "outputTextTokens": "輸出文本Tokens (* {{ ratio }})",

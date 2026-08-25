@@ -43,3 +43,19 @@ func TestPriorityServiceTierIncreasesQuota(t *testing.T) {
 		t.Fatalf("fast quota = %d, want 600", fastQuota)
 	}
 }
+
+func TestGetLogMetaIncludesOriginalReasoningEffort(t *testing.T) {
+	quota := &Quota{
+		price:           model.Price{Type: model.TokensPriceType},
+		reasoningEffort: "minimal",
+		reasoningSource: "reasoning.effort",
+	}
+
+	metadata := quota.GetLogMeta(nil)
+	if metadata["reasoning_effort"] != "minimal" {
+		t.Fatalf("reasoning_effort = %#v, want minimal", metadata["reasoning_effort"])
+	}
+	if metadata["reasoning_effort_source"] != "reasoning.effort" {
+		t.Fatalf("reasoning_effort_source = %#v, want reasoning.effort", metadata["reasoning_effort_source"])
+	}
+}

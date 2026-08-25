@@ -36,6 +36,8 @@ type Quota struct {
 	outputRatio      float64
 	serviceTier      string
 	serviceTierRatio float64
+	reasoningEffort  string
+	reasoningSource  string
 	costRatio        float64
 	preConsumedQuota int
 	cacheQuota       int
@@ -84,6 +86,8 @@ func NewQuota(c *gin.Context, modelName string, promptTokens int) *Quota {
 		isBackupGroup:    isBackupGroup, // 记录是否使用备用分组
 		serviceTier:      serviceTier,
 		serviceTierRatio: ServiceTierRatio(serviceTier),
+		reasoningEffort:  c.GetString(config.GinReasoningEffortKey),
+		reasoningSource:  c.GetString(config.GinReasoningEffortSourceKey),
 	}
 
 	quota.price = *model.PricingInstance.GetPrice(quota.modelName)
@@ -340,6 +344,10 @@ func (q *Quota) GetLogMeta(usage *types.Usage) map[string]any {
 	if q.serviceTier != "" {
 		meta["service_tier"] = q.serviceTier
 		meta["service_tier_ratio"] = q.serviceTierRatio
+	}
+	if q.reasoningEffort != "" {
+		meta["reasoning_effort"] = q.reasoningEffort
+		meta["reasoning_effort_source"] = q.reasoningSource
 	}
 
 	firstResponseTime := q.GetFirstResponseTime()

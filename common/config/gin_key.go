@@ -9,6 +9,10 @@ const (
 	GinProcessedBytesKey        = "processed_request_bytes"
 	GinProcessedBytesIsVertexAI = "processed_bytes_is_vertexai"
 
+	// 原始推理强度在任何协议映射或 provider 改写前采集，供成功/失败日志复用。
+	GinReasoningEffortKey       = "reasoning_effort"
+	GinReasoningEffortSourceKey = "reasoning_effort_source"
+
 	// Bedrock 响应指纹保真：provider 侧把上游原始响应暂存到 gin.Context，
 	// 由 relay 层的响应写入函数按需取用，从而只影响 Bedrock 渠道。
 	GinBedrockRawResponseBodyKey = "bedrock_raw_response_body" // 非流式：上游原始响应字节

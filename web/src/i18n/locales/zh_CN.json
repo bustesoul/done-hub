@@ -529,6 +529,7 @@
     "tokenLabel": "令牌",
     "typeLabel": "类型",
     "modelLabel": "模型",
+    "reasoningEffortLabel": "推理强度",
     "durationLabel": "耗时",
     "durationTooltip": "t/s：输出Token的数量除以总生成时间，表示生成速度",
     "inputLabel": "输入",
