@@ -47,7 +47,7 @@ func (p *OpenAIProvider) CreateChatCompletion(request *types.ChatCompletionReque
 	}
 	defer req.Body.Close()
 
-	response := &OpenAIProviderChatResponse{}
+	response := &chatCompletionResponse{}
 	// 开启渠道 PassThroughBody 且 relay 层已放行（入口协议 == chat、响应原样直返）时，
 	// 用 outputResp=true 让 SendRequest 回填 resp.Body：既 unmarshal 一份供计费，又能拿到上游
 	// 原始字节用于响应字节透传（保留未知字段 / 字段顺序）。responses/claude 等兼容路径不放行，
@@ -97,6 +97,9 @@ func (p *OpenAIProvider) CreateChatCompletion(request *types.ChatCompletionReque
 	// 无映射时 UnifyModelInJSONBytes 恒 no-op。下方结构体 response.Model 改写仅回退路径生效。
 	if passThrough {
 		if rawBytes, readErr := io.ReadAll(resp.Body); readErr == nil && len(rawBytes) > 0 {
+			if response.unwrappedBody != nil {
+				rawBytes = response.unwrappedBody
+			}
 			if patched, changed := base.UnifyModelInJSONBytes(p.Context, rawBytes, "model"); changed {
 				rawBytes = patched
 			}
