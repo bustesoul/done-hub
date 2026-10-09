@@ -130,7 +130,7 @@ func (p *OpenAIProvider) CreateResponsesStream(request *types.OpenAIResponsesReq
 // 当客户端走的是 chat→responses 兼容路径（ConvertChat=true）或拿不到原始字节时，
 // 回退到结构体序列化路径 GetRequestTextBody。
 func (p *OpenAIProvider) getResponsesRequest(request *types.OpenAIResponsesRequest) (*http.Request, *types.OpenAIErrorWithStatusCode) {
-	if !request.ConvertChat {
+	if p.canReuseRequestBody(request) {
 		if patched, ok := p.patchResponsesRequestBody(request); ok {
 			url, errWithCode := p.GetSupportedAPIUri(config.RelayModeResponses)
 			if errWithCode != nil {

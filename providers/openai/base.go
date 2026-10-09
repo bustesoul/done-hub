@@ -6,6 +6,7 @@ import (
 	"done-hub/common/config"
 	"done-hub/common/logger"
 	"done-hub/common/requester"
+	"done-hub/internal/gateway/requeststate"
 	"done-hub/model"
 	"done-hub/types"
 	"encoding/json"
@@ -349,7 +350,22 @@ func (p *OpenAIProvider) patchPassThroughBody(modelName string) ([]byte, bool) {
 	return out, true
 }
 
-// 修改GetRequestTextBody函数中的对应部分
+// canReuseRequestBody excludes raw bytes from a different inbound protocol.
+// Unbound/native routes retain their existing behavior (including non-chat APIs).
+func (p *OpenAIProvider) canReuseRequestBody(request any) bool {
+	if responses, ok := request.(*types.OpenAIResponsesRequest); ok && responses.ConvertChat {
+		return false
+	}
+	if p.Context != nil && p.Context.Request != nil {
+		if state := requeststate.From(p.Context.Request.Context()); state != nil {
+			if route, ok := state.ProtocolRoute(); ok {
+				return route.From == route.To
+			}
+		}
+	}
+	return true
+}
+
 func (p *OpenAIProvider) GetRequestTextBody(relayMode int, ModelName string, request any) (*http.Request, *types.OpenAIErrorWithStatusCode) {
 	url, errWithCode := p.GetSupportedAPIUri(relayMode)
 	if errWithCode != nil {
@@ -362,7 +378,8 @@ func (p *OpenAIProvider) GetRequestTextBody(relayMode int, ModelName string, req
 	headers := p.GetRequestHeaders()
 
 	// 请求体完整透传：以原始字节为基础，仅改写映射后的模型名，其余字节原样保留
-	if p.Channel.PassThroughBody {
+	reuseRawBody := p.canReuseRequestBody(request)
+	if p.Channel.PassThroughBody && reuseRawBody {
 		if patched, ok := p.patchPassThroughBody(ModelName); ok {
 			return p.NewRequestWithCustomParamsBytes(http.MethodPost, fullRequestURL, patched, headers, ModelName)
 		}
@@ -401,7 +418,7 @@ func (p *OpenAIProvider) GetRequestTextBody(relayMode int, ModelName string, req
 		}
 
 		// 如果允许额外字段透传，从原始请求中获取额外字段
-		if p.Channel.AllowExtraBody {
+		if p.Channel.AllowExtraBody && reuseRawBody {
 			requestMap = p.mergeExtraBodyFromRawRequest(requestMap)
 		}
 

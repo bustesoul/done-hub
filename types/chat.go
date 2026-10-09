@@ -301,6 +301,30 @@ type ChatCompletionTool struct {
 	ResponsesTools
 }
 
+// UnmarshalJSON keeps the Chat fields separate from the embedded Responses tool.
+// An alias of ChatCompletionTool would still inherit ResponsesTools.UnmarshalJSON
+// and leave Type and Function empty.
+func (t *ChatCompletionTool) UnmarshalJSON(data []byte) error {
+	var chat struct {
+		Type     string                 `json:"type"`
+		Function ChatCompletionFunction `json:"function"`
+	}
+	if err := json.Unmarshal(data, &chat); err != nil {
+		return err
+	}
+	var responses ResponsesTools
+	if err := json.Unmarshal(data, &responses); err != nil {
+		return err
+	}
+	delete(responses.ExtraFields, "function")
+	*t = ChatCompletionTool{
+		Type:           chat.Type,
+		Function:       chat.Function,
+		ResponsesTools: responses,
+	}
+	return nil
+}
+
 // MarshalJSON overrides the promoted ResponsesTools.MarshalJSON to prevent it
 // from swallowing ChatCompletionTool's own Type and Function fields.
 func (t ChatCompletionTool) MarshalJSON() ([]byte, error) {
@@ -521,7 +545,7 @@ func (c *ChatCompletionRequest) ToResponsesRequest() *OpenAIResponsesRequest {
 		Store:                c.Store,
 		Stream:               c.Stream,
 		Temperature:          c.Temperature,
-		ToolChoice:           c.ToolChoice,
+		ToolChoice:           chatToolChoiceToResponses(c.ToolChoice),
 		TopP:                 c.TopP,
 		User:                 c.User,
 	}

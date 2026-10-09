@@ -118,7 +118,7 @@ func (r *OpenAIResponsesRequest) ToChatCompletionRequest() (*ChatCompletionReque
 		Stream:               r.Stream,
 		Temperature:          r.Temperature,
 		// ResponseFormat:    r.Text,
-		ToolChoice: r.ToolChoice,
+		ToolChoice: responsesToolChoiceToChat(r.ToolChoice),
 		TopP:       r.TopP,
 		User:       r.User,
 	}
