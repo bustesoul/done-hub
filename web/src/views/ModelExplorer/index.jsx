@@ -360,6 +360,7 @@ function ModelExplorerContent({ models, usage, loading, error, reload, updateBin
   }
   const d = detail ? all.find((r) => r.id === detail) : null;
   const detailStats = d ? history.byChannel[d.id] : null;
+  const channelModels = d ? models.filter((m) => m.routes.some((r) => r.id === d.id)) : [];
   return (
     <AdminContainer>
       <Stack direction="row" alignItems="center" justifyContent="space-between" mb={5} gap={2} flexWrap="wrap">
@@ -768,6 +769,31 @@ function ModelExplorerContent({ models, usage, loading, error, reload, updateBin
                 </Typography>
               </Stack>
             ))}
+            <Divider sx={{ my: 3 }} />
+            <Typography variant="subtitle1">渠道全部模型（{channelModels.length}）</Typography>
+            <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
+              此渠道已配置的全部模型，包含停用绑定，不受当前筛选影响。
+            </Typography>
+            <Stack direction="row" flexWrap="wrap" gap={1} mt={2} data-testid="channel-all-models">
+              {channelModels.map((m) => (
+                <Label
+                  key={m.id}
+                  color={m.id === model.id ? 'primary' : 'default'}
+                  copyText={m.id}
+                  sx={{
+                    height: 'auto',
+                    minHeight: 24,
+                    lineHeight: 1.5,
+                    py: 0.5,
+                    whiteSpace: 'normal',
+                    overflowWrap: 'anywhere',
+                    maxWidth: '100%'
+                  }}
+                >
+                  {m.id}
+                </Label>
+              ))}
+            </Stack>
             <Divider sx={{ my: 3 }} />
             <Stack direction="row" justifyContent="space-between" alignItems="center">
               <Typography variant="subtitle1">近 24 小时观测</Typography>
