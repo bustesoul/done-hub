@@ -16,6 +16,7 @@ type Selection struct {
 	ChannelID            int
 	ChannelType          int
 	OriginalModel        string
+	RouteModel           string
 	UpstreamModel        string
 	BillingOriginalModel bool
 }

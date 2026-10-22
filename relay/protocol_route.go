@@ -279,3 +279,19 @@ func filterProtocolProfile(c *gin.Context) model.ChannelsFilterFunc {
 		return !explicit || !protocolCompatible(inbound, target)
 	}
 }
+
+// ModelExplorerProtocols uses the same protocol admission rules as relay selection.
+// These are routing capabilities, not a promise that every model accepts every payload.
+func ModelExplorerProtocols(profile string) []string {
+	target, ok := domain.ProtocolForProfile(domain.ProtocolProfileID(profile))
+	if !ok {
+		return []string{"native"}
+	}
+	result := []string{}
+	for _, p := range []domain.Protocol{domain.ProtocolOpenAIChat, domain.ProtocolOpenAIResponses, domain.ProtocolClaudeMessages, domain.ProtocolGemini} {
+		if protocolCompatible(p, target) {
+			result = append(result, string(p))
+		}
+	}
+	return result
+}

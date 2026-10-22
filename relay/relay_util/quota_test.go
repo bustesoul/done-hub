@@ -59,3 +59,11 @@ func TestGetLogMetaIncludesOriginalReasoningEffort(t *testing.T) {
 		t.Fatalf("reasoning_effort_source = %#v, want reasoning.effort", metadata["reasoning_effort_source"])
 	}
 }
+
+func TestQuotaLogKeepsPublicAndRouteModel(t *testing.T) {
+	quota := Quota{modelName: "upstream", publicModel: "ClientModel", routeModel: "client-*"}
+	metadata := quota.GetLogMeta(nil)
+	if metadata["public_model"] != "ClientModel" || metadata["route_model"] != "client-*" {
+		t.Fatalf("missing model provenance: %+v", metadata)
+	}
+}

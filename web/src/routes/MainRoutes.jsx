@@ -4,6 +4,7 @@ import { lazy } from 'react';
 import MainLayout from 'layout/MainLayout';
 import Loadable from 'ui-component/Loadable';
 
+const ModelExplorer = Loadable(lazy(() => import('views/ModelExplorer')));
 const Channel = Loadable(lazy(() => import('views/Channel')));
 const Log = Loadable(lazy(() => import('views/Log')));
 const Redemption = Loadable(lazy(() => import('views/Redemption')));
@@ -57,6 +58,10 @@ const MainRoutes = {
     {
       path: 'multi_user_stats',
       element: <MultiUserStats />
+    },
+    {
+      path: 'model-explorer',
+      element: <ModelExplorer />
     },
     {
       path: 'channel',

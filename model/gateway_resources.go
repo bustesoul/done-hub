@@ -135,6 +135,7 @@ func AutoMigrateGatewayResources(db *gorm.DB) error {
 		&GatewayPolicy{},
 		&GatewayHealthState{},
 		&GatewayMigrationState{},
+		&ModelChannelOverride{},
 	); err != nil {
 		return err
 	}
@@ -559,6 +560,7 @@ func DeleteGatewayChannelResources(db *gorm.DB, channelID int) error {
 	return db.Transaction(func(tx *gorm.DB) error {
 		for _, resource := range []any{
 			&GatewayModelRoute{},
+			&ModelChannelOverride{},
 			&GatewayPolicy{},
 			&GatewayHealthState{},
 			&GatewayCredential{},

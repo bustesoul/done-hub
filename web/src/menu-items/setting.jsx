@@ -42,6 +42,15 @@ const Setting = {
       isAdmin: true
     },
     {
+      id: 'model-explorer',
+      title: '模型',
+      type: 'item',
+      url: '/panel/model-explorer',
+      icon: icons.IconModel,
+      breadcrumbs: false,
+      isAdmin: true
+    },
+    {
       id: 'operation',
       title: '运营',
       type: 'collapse',

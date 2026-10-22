@@ -40,9 +40,10 @@ var (
 )
 
 type ChannelChoice struct {
-	Channel       *Channel
-	CooldownsTime int64
-	Disable       bool
+	Channel        *Channel
+	CooldownsTime  int64
+	Disable        bool
+	DisabledModels map[string]bool
 }
 
 type GatewayRouteIndex struct {
@@ -197,7 +198,7 @@ func (cc *GatewayRouteIndex) balancer(channelIds []int, choices map[int]*Channel
 	validChannels := make([]*ChannelChoice, 0, len(channelIds))
 	for _, channelId := range channelIds {
 		choice, ok := choices[channelId]
-		if !ok || choice.Disable {
+		if !ok || choice.Disable || choice.modelDisabled(modelName) {
 			continue
 		}
 
@@ -533,7 +534,7 @@ func (cc *GatewayRouteIndex) countValidChannels(channelIds []int, filters []Chan
 	count := 0
 	for _, channelId := range channelIds {
 		choice, ok := cc.Channels[channelId]
-		if !ok || choice.Disable {
+		if !ok || choice.Disable || choice.modelDisabled(modelName) {
 			continue
 		}
 
@@ -566,6 +567,19 @@ func (cc *GatewayRouteIndex) Load() {
 		return
 	}
 
+	var overrides []ModelChannelOverride
+	if err := DB.Find(&overrides).Error; err != nil {
+		logger.SysError("model overrides load failed: " + err.Error())
+		return
+	}
+	disabled := map[int]map[string]bool{}
+	for _, o := range overrides {
+		if disabled[o.ChannelID] == nil {
+			disabled[o.ChannelID] = map[string]bool{}
+		}
+		disabled[o.ChannelID][o.PublicModel] = true
+	}
+
 	newGroup := make(map[string]map[string][][]int)
 	newChannels := make(map[int]*ChannelChoice)
 	newMatch := make(map[string]bool)
@@ -584,9 +598,10 @@ func (cc *GatewayRouteIndex) Load() {
 			channel.Weight = &config.DefaultChannelWeight
 		}
 		newChannels[channel.Id] = &ChannelChoice{
-			Channel:       channel,
-			CooldownsTime: 0,
-			Disable:       false,
+			Channel:        channel,
+			CooldownsTime:  0,
+			Disable:        false,
+			DisabledModels: disabled[channel.Id],
 		}
 
 		// 处理groups和models

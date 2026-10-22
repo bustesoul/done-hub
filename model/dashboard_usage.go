@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"gorm.io/gorm"
 	"math"
 	"sort"
 	"time"
@@ -105,6 +106,11 @@ func GetUserDashboardUsage(userID, days int, start, end time.Time, errorsTracked
 // before pagination and never loads administrator-only columns or channel data.
 func scanDashboardLogs(ctx context.Context, userID int, q DashboardQuery, start, end time.Time, visit func(*Log) error) error {
 	tx := DB.WithContext(ctx).Model(&Log{}).Select("id", "created_at", "content", "type", "model_name", "token_name", "quota", "prompt_tokens", "completion_tokens", "request_time", "is_stream", "metadata").Where("user_id = ? AND created_at >= ? AND created_at < ? AND type IN ?", userID, start.Unix(), end.Unix(), []int{LogTypeConsume, LogTypeError})
+	return scanUsageLogs(tx, visit)
+}
+
+// Shared bounded scanner; each caller owns its authorization and selected columns.
+func scanUsageLogs(tx *gorm.DB, visit func(*Log) error) error {
 	rows, err := tx.Order("created_at DESC, id DESC").Rows()
 	if err != nil {
 		return err
@@ -117,7 +123,7 @@ func scanDashboardLogs(ctx context.Context, userID int, q DashboardQuery, start,
 			return fmt.Errorf("记录超过 %d 条，请缩短时间范围", DashboardMaxRecords)
 		}
 		var l Log
-		if err = DB.ScanRows(rows, &l); err != nil {
+		if err = tx.ScanRows(rows, &l); err != nil {
 			return err
 		}
 		if err = visit(&l); err != nil {

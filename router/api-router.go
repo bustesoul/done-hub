@@ -162,6 +162,9 @@ func SetApiRouter(router *gin.Engine) {
 		providerAdminRoute := apiRouter.Group("/admin")
 		providerAdminRoute.Use(middleware.AdminAuth())
 		{
+			providerAdminRoute.GET("/models", controller.GetModelExplorer(relay.ModelExplorerProtocols))
+			providerAdminRoute.GET("/models/usage", controller.GetModelExplorerUsage)
+			providerAdminRoute.PUT("/models/binding", controller.SetModelExplorerBinding)
 			providerAdminRoute.GET("/connection-profiles", controller.GetConnectionProfiles)
 			providerAdminRoute.GET("/provider-definitions", controller.GetProviderDefinitions)
 			providerAdminRoute.GET("/provider-connections", controller.GetChannelsList)

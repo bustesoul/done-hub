@@ -84,6 +84,8 @@ func Relay(c *gin.Context) {
 	}
 	errorMetadata := map[string]any{
 		"request_time_unit": "ms",
+		"public_model":      selection.OriginalModel,
+		"route_model":       selection.RouteModel,
 		"status_code":       apiErr.StatusCode,
 		"error_type":        apiErr.OpenAIError.Type,
 		"error_message":     utils.TruncateBase64InMessage(apiErr.OpenAIError.Message),

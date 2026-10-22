@@ -26,6 +26,8 @@ const (
 
 type Quota struct {
 	modelName        string
+	publicModel      string
+	routeModel       string
 	promptTokens     int
 	price            model.Price
 	groupName        string
@@ -71,12 +73,16 @@ func NewQuota(c *gin.Context, modelName string, promptTokens int) *Quota {
 	isBackupGroup := c.GetBool("is_backupGroup")
 	serviceTier := NormalizeServiceTier(c.GetString("service_tier"))
 	channelID := 0
+	publicModel, routeModel := "", ""
 	if state := requeststate.From(c.Request.Context()); state != nil {
 		channelID = state.Selection().ChannelID
+		publicModel, routeModel = state.Selection().OriginalModel, state.Selection().RouteModel
 	}
 
 	quota := &Quota{
 		modelName:        modelName,
+		publicModel:      publicModel,
+		routeModel:       routeModel,
 		promptTokens:     promptTokens,
 		userId:           c.GetInt("id"),
 		channelId:        channelID,
@@ -333,6 +339,8 @@ func (q *Quota) GetInputRatio() float64 {
 func (q *Quota) GetLogMeta(usage *types.Usage) map[string]any {
 	meta := map[string]any{
 		"group_name":        q.groupName,
+		"public_model":      q.publicModel,
+		"route_model":       q.routeModel,
 		"backup_group_name": q.backupGroupName,
 		"is_backup_group":   q.isBackupGroup, // 添加是否使用备用分组的标识
 		"price_type":        q.price.Type,

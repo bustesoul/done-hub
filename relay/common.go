@@ -311,6 +311,7 @@ func GetProvider(c *gin.Context, modelName string) (provider providersBase.Provi
 		ChannelID:            channel.Id,
 		ChannelType:          channel.Type,
 		OriginalModel:        modelName,
+		RouteModel:           actualModelName,
 		UpstreamModel:        newModelName,
 		BillingOriginalModel: BillingOriginalModel,
 	})
@@ -340,6 +341,9 @@ func fetchChannel(c *gin.Context, modelName string) (channel *model.Channel, fai
 	channelId := c.GetInt("specific_channel_id")
 	ignore := c.GetBool("specific_channel_id_ignore")
 	if channelId > 0 && !ignore {
+		if model.GatewayRoutes.IsModelDisabled(channelId, modelName) {
+			return nil, model.ErrChannelDisabledSentinel
+		}
 		return fetchChannelById(channelId)
 	}
 
