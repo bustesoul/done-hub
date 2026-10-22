@@ -117,7 +117,14 @@ func testChannel(channel *model.Channel, testModel string) (openaiErr *types.Ope
 	c.Request = req
 
 	// 获取并验证provider
-	provider := providers.GetProvider(channel, providerRequestContext(c))
+	providerContext := providerRequestContext(c)
+	if channelType == "gemini" {
+		// Gemini 原生请求从 provider 上下文缓存读取请求体。
+		if _, err := providerContext.GetRawData(); err != nil {
+			return nil, err
+		}
+	}
+	provider := providers.GetProvider(channel, providerContext)
 	if provider == nil {
 		return nil, errors.New("channel not implemented")
 	}
