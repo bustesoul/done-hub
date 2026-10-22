@@ -32,7 +32,6 @@ type Channel struct {
 	SaveUnverified       bool       `json:"save_unverified,omitempty" gorm:"-"`
 	Status               int        `json:"status" form:"status" gorm:"default:1"`
 	Name                 string     `json:"name" form:"name" gorm:"index"`
-	Weight               *uint      `json:"weight" gorm:"default:1"`
 	CreatedTime          int64      `json:"created_time" gorm:"bigint"`
 	TestTime             int64      `json:"test_time" gorm:"bigint"`
 	ResponseTime         int        `json:"response_time"` // in milliseconds
@@ -49,7 +48,6 @@ type Channel struct {
 	Need2ResponseModels  *string    `json:"need2response_models" gorm:"type:text"`
 	ModelHeaders         *string    `json:"model_headers" gorm:"type:varchar(1024);default:''"`
 	CustomParameter      *string    `json:"custom_parameter" gorm:"type:text"`
-	Priority             *int64     `json:"priority" gorm:"bigint;default:0"`
 	Proxy                *string    `json:"proxy" gorm:"type:varchar(255);default:''"`
 	TestModel            string     `json:"test_model" form:"test_model" gorm:"type:varchar(50);default:''"`
 	OnlyChat             bool       `json:"only_chat" form:"only_chat" gorm:"default:false"`
@@ -60,6 +58,8 @@ type Channel struct {
 	CompatibleResponse   bool       `json:"compatible_response" gorm:"default:false"`
 	AllowExtraBody       bool       `json:"allow_extra_body" form:"allow_extra_body" gorm:"default:false"`
 	AffinityEnabled      bool       `json:"affinity_enabled" form:"affinity_enabled" gorm:"default:false"`
+
+	ModelRoutes []GatewayModelRoute `json:"-" gorm:"-"`
 
 	DisabledStream *datatypes.JSONSlice[string] `json:"disabled_stream,omitempty" gorm:"type:json"`
 
@@ -86,8 +86,6 @@ var allowedChannelOrderFields = map[string]bool{
 	"response_time": true,
 	"balance":       true,
 	"used_quota":    true,
-	"priority":      true,
-	"weight":        true,
 	"cost_ratio":    true,
 }
 
@@ -686,13 +684,6 @@ func (c *Channel) GetProxy() string {
 	return *c.Proxy
 }
 
-func (channel *Channel) GetPriority() int64 {
-	if channel.Priority == nil {
-		return 0
-	}
-	return *channel.Priority
-}
-
 func (channel *Channel) GetCostRatio() float64 {
 	if channel.CostRatio == nil || *channel.CostRatio <= 0 {
 		return 0
@@ -721,12 +712,22 @@ func (channel *Channel) GetCustomParameter() string {
 	return *channel.CustomParameter
 }
 
-func (channel *Channel) Insert() error {
+func (channel *Channel) Insert() error { return channel.insert(0) }
+
+func (channel *Channel) InsertClone(sourceID int) error { return channel.insert(sourceID) }
+
+func (channel *Channel) insert(sourceID int) error {
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Omit("UsedQuota").Create(channel).Error; err != nil {
 			return err
 		}
-		return SyncGatewayChannels(tx, []int{channel.Id})
+		if err := SyncGatewayChannels(tx, []int{channel.Id}); err != nil {
+			return err
+		}
+		if sourceID > 0 {
+			return copyModelRouteScheduling(tx, sourceID, channel.Id)
+		}
+		return nil
 	})
 	if err != nil {
 		return err

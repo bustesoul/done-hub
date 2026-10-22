@@ -175,15 +175,6 @@ func ChangeChannelsTagStatus(tag string, status int) error {
 	})
 }
 
-func UpdateChannelsTagPriority(tag string, value int) error {
-	return updateChannelsTagField(tag, "priority", value)
-}
-
-// UpdateChannelsTagWeight 将整组渠道的权重统一设为同一值（权重为逐行字段，需专用入口批量设置）。
-func UpdateChannelsTagWeight(tag string, value uint) error {
-	return updateChannelsTagField(tag, "weight", value)
-}
-
 // UpdateChannelsTagCostRatio 将整组渠道的成本倍率统一设为同一值。
 func UpdateChannelsTagCostRatio(tag string, value float64) error {
 	return updateChannelsTagField(tag, "cost_ratio", value)

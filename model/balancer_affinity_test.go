@@ -28,10 +28,9 @@ func affinityTestContext(t *testing.T, protocol domain.Protocol, body string) *g
 
 func TestSelectAffinityChannelStableWithinPriorityPool(t *testing.T) {
 	c := affinityTestContext(t, domain.ProtocolOpenAIResponses, `{"prompt_cache_key":"cache-a"}`)
-	weight := uint(1)
 	candidates := []*ChannelChoice{
-		{Channel: &Channel{Id: 1, Weight: &weight, AffinityEnabled: true}},
-		{Channel: &Channel{Id: 2, Weight: &weight}},
+		{Routes: map[string]GatewayModelRoute{"gpt-test": {Weight: 1}}, Channel: &Channel{Id: 1, AffinityEnabled: true}},
+		{Routes: map[string]GatewayModelRoute{"gpt-test": {Weight: 1}}, Channel: &Channel{Id: 2}},
 	}
 	first := selectAffinityChannel(candidates, "gpt-test", c)
 	second := selectAffinityChannel(candidates, "gpt-test", c)
@@ -42,15 +41,14 @@ func TestSelectAffinityChannelStableWithinPriorityPool(t *testing.T) {
 
 func TestSelectAffinityChannelKeepsPolicyActiveAcrossRetry(t *testing.T) {
 	c := affinityTestContext(t, domain.ProtocolOpenAIResponses, `{"prompt_cache_key":"cache-a"}`)
-	weight := uint(1)
 	initial := []*ChannelChoice{
-		{Channel: &Channel{Id: 1, Weight: &weight, AffinityEnabled: true}},
-		{Channel: &Channel{Id: 2, Weight: &weight}},
+		{Routes: map[string]GatewayModelRoute{"gpt-test": {Weight: 1}}, Channel: &Channel{Id: 1, AffinityEnabled: true}},
+		{Routes: map[string]GatewayModelRoute{"gpt-test": {Weight: 1}}, Channel: &Channel{Id: 2}},
 	}
 	if selected := selectAffinityChannel(initial, "gpt-test", c); selected == nil {
 		t.Fatal("expected initial affinity selection")
 	}
-	remaining := []*ChannelChoice{{Channel: &Channel{Id: 2, Weight: &weight}}}
+	remaining := []*ChannelChoice{{Routes: map[string]GatewayModelRoute{"gpt-test": {Weight: 1}}, Channel: &Channel{Id: 2}}}
 	if selected := selectAffinityChannel(remaining, "gpt-test", c); selected == nil || selected.Id != 2 {
 		t.Fatalf("expected deterministic retry candidate, got %#v", selected)
 	}
@@ -58,10 +56,9 @@ func TestSelectAffinityChannelKeepsPolicyActiveAcrossRetry(t *testing.T) {
 
 func TestSelectAffinityChannelDisabledPoolFallsBack(t *testing.T) {
 	c := affinityTestContext(t, domain.ProtocolOpenAIChat, `{}`)
-	weight := uint(1)
 	candidates := []*ChannelChoice{
-		{Channel: &Channel{Id: 1, Weight: &weight}},
-		{Channel: &Channel{Id: 2, Weight: &weight}},
+		{Routes: map[string]GatewayModelRoute{"gpt-test": {Weight: 1}}, Channel: &Channel{Id: 1}},
+		{Routes: map[string]GatewayModelRoute{"gpt-test": {Weight: 1}}, Channel: &Channel{Id: 2}},
 	}
 	if selected := selectAffinityChannel(candidates, "gpt-test", c); selected != nil {
 		t.Fatalf("disabled pool must use legacy weighted selection, got %#v", selected)

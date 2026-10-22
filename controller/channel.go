@@ -6,6 +6,7 @@ import (
 	"done-hub/common/utils"
 	"done-hub/model"
 	"done-hub/providers"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -194,7 +195,7 @@ func CloneProviderConnection(c *gin.Context) {
 	source.BalanceUpdatedTime = 0
 	source.UsedQuota = 0
 	source.DeletedAt = gorm.DeletedAt{}
-	if err := source.Insert(); err != nil {
+	if err := source.InsertClone(id); err != nil {
 		common.APIRespondWithError(c, http.StatusInternalServerError, err)
 		return
 	}
@@ -279,8 +280,6 @@ func SetProviderConnectionStatus(c *gin.Context) {
 }
 
 type providerConnectionSchedulingRequest struct {
-	Priority        *int64   `json:"priority"`
-	Weight          *uint    `json:"weight"`
 	CostRatio       *float64 `json:"cost_ratio"`
 	AffinityEnabled *bool    `json:"affinity_enabled"`
 }
@@ -292,16 +291,14 @@ func UpdateProviderConnectionScheduling(c *gin.Context) {
 		return
 	}
 	var request providerConnectionSchedulingRequest
-	if err := c.ShouldBindJSON(&request); err != nil {
+	decoder := json.NewDecoder(c.Request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
 		common.APIRespondWithError(c, http.StatusBadRequest, err)
 		return
 	}
-	if request.Priority == nil && request.Weight == nil && request.CostRatio == nil && request.AffinityEnabled == nil {
+	if request.CostRatio == nil && request.AffinityEnabled == nil {
 		common.APIRespondWithError(c, http.StatusBadRequest, errors.New("至少提供一个调度字段"))
-		return
-	}
-	if request.Weight != nil && *request.Weight < 1 {
-		common.APIRespondWithError(c, http.StatusBadRequest, errors.New("权重必须大于等于 1"))
 		return
 	}
 	if request.CostRatio != nil && *request.CostRatio < 0 {
@@ -321,12 +318,6 @@ func UpdateProviderConnectionScheduling(c *gin.Context) {
 		}
 	}
 	updates := make(map[string]any, 4)
-	if request.Priority != nil {
-		updates["priority"] = *request.Priority
-	}
-	if request.Weight != nil {
-		updates["weight"] = *request.Weight
-	}
 	if request.CostRatio != nil {
 		updates["cost_ratio"] = *request.CostRatio
 	}

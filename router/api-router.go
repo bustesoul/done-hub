@@ -165,6 +165,8 @@ func SetApiRouter(router *gin.Engine) {
 			providerAdminRoute.GET("/models", controller.GetModelExplorer(relay.ModelExplorerProtocols))
 			providerAdminRoute.GET("/models/usage", controller.GetModelExplorerUsage)
 			providerAdminRoute.PUT("/models/binding", controller.SetModelExplorerBinding)
+			providerAdminRoute.PATCH("/models/scheduling", controller.SetModelExplorerScheduling)
+			providerAdminRoute.POST("/models/probe", controller.ProbeModelExplorerBinding)
 			providerAdminRoute.GET("/connection-profiles", controller.GetConnectionProfiles)
 			providerAdminRoute.GET("/provider-definitions", controller.GetProviderDefinitions)
 			providerAdminRoute.GET("/provider-connections", controller.GetChannelsList)
@@ -248,7 +250,7 @@ func SetApiRouter(router *gin.Engine) {
 			channelTagRoute.PUT("/:tag", controller.UpdateChannelsTag)
 			channelTagRoute.DELETE("/:tag", controller.DeleteChannelsTag)
 			channelTagRoute.DELETE("/:tag/disabled", controller.DeleteDisabledChannelsTag)
-			channelTagRoute.PUT("/:tag/priority", controller.UpdateChannelsTagPriority)
+			channelTagRoute.PUT("/:tag/cost-ratio", controller.UpdateChannelsTagCostRatio)
 			channelTagRoute.PUT("/:tag/status/:status", controller.ChangeChannelsTagStatus)
 
 		}

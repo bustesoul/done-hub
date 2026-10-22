@@ -12,8 +12,6 @@ import LinearProgress from '@mui/material/LinearProgress';
 import ButtonGroup from '@mui/material/ButtonGroup';
 import Toolbar from '@mui/material/Toolbar';
 import useMediaQuery from '@mui/material/useMediaQuery';
-import Alert from '@mui/material/Alert';
-import Collapse from '@mui/material/Collapse';
 
 import { Box, Button, Card, Container, Divider, IconButton, Stack, Typography } from '@mui/material';
 import ChannelTableRow from './component/TableRow';
@@ -79,7 +77,7 @@ export default function ChannelList() {
   const stickyShadowRef = useStickyShadow();
   const [page, setPage] = useState(0);
   const [order, setOrder] = useState(() => getTableSort('channel').order);
-  const [orderBy, setOrderBy] = useState(() => getTableSort('channel').orderBy);
+  const [orderBy, setOrderBy] = useState(() => { const value = getTableSort('channel').orderBy; return ['priority', 'weight'].includes(value) ? 'id' : value; });
   const [rowsPerPage, setRowsPerPage] = useState(() => getPageSize('channel'));
   const [listCount, setListCount] = useState(0);
   const [searching, setSearching] = useState(false);
@@ -110,8 +108,6 @@ export default function ChannelList() {
   const [selectedTestOpen, setSelectedTestOpen] = useState(false);
   const [selectedTestTargets, setSelectedTestTargets] = useState([]);
 
-  // 提示框展开状态
-  const [alertExpanded, setAlertExpanded] = useState(false);
 
   const handleSort = (event, id) => {
     const isAsc = orderBy === id && order === 'asc';
@@ -202,8 +198,6 @@ export default function ChannelList() {
               status: value
             });
           break;
-        case 'priority':
-        case 'weight':
         case 'cost_ratio':
           if (value === '') {
             return { success: false, message: '值不能为空' };
@@ -214,8 +208,8 @@ export default function ChannelList() {
               [action]: Number(value)
             });
           } else {
-            // 整组统一设置优先级/权重/成本倍率，复用同一端点，由 type 区分
-            res = await API.put(`${url + encodeURIComponent(id)}/priority`, {
+            // 整组统一设置成本倍率
+            res = await API.put(`${url + encodeURIComponent(id)}/cost-ratio`, {
               type: action,
               value: Number(value)
             });
@@ -247,9 +241,9 @@ export default function ChannelList() {
       }
       const { success, message } = res.data;
       if (success) {
-        // batch_delete 有专门成功消息；priority/weight/cost_ratio 由调用方弹更具体的提示
+        // batch_delete 有专门成功消息；cost_ratio 由调用方弹更具体的提示
         // （区分整组/单渠道），此处不再弹通用消息，避免一次操作出现两个提示
-        if (!['batch_delete', 'priority', 'weight', 'cost_ratio'].includes(action)) {
+        if (!['batch_delete', 'cost_ratio'].includes(action)) {
           showSuccess(t('userPage.operationSuccess'));
         }
         if (action === 'delete' || action === 'copy' || action == 'delete_tag' || action === 'batch_delete') {
@@ -539,40 +533,6 @@ export default function ChannelList() {
           </Button>
         </ButtonGroup>
       </Stack>
-      <Stack mb={2}>
-        <Alert
-          severity="info"
-          action={
-            <IconButton
-              size="small"
-              onClick={(e) => {
-                e.stopPropagation();
-                setAlertExpanded(!alertExpanded);
-              }}
-              sx={{ ml: 1 }}
-            >
-              <Icon icon={alertExpanded ? 'solar:alt-arrow-up-line-duotone' : 'solar:alt-arrow-down-line-duotone'} width={18} />
-            </IconButton>
-          }
-          sx={{ cursor: 'pointer' }}
-          onClick={() => setAlertExpanded(!alertExpanded)}
-        >
-          <Typography variant="body2" component="span">
-            {t('channel_index.priorityWeightExplanation')}
-          </Typography>
-          <Collapse in={alertExpanded} timeout="auto">
-            <Box sx={{ mt: 1 }}>
-              {t('channel_index.description1')}
-              <br />
-              {t('channel_index.description2')}
-              <br />
-              {t('channel_index.description3')}
-              <br />
-              {t('channel_index.description4')}
-            </Box>
-          </Collapse>
-        </Alert>
-      </Stack>
       <Card>
         <FilterCollapse>
           <Box component="form" noValidate>
@@ -814,8 +774,6 @@ export default function ChannelList() {
                 { id: 'response_time', label: t('channel_index.responseTime'), disableSort: false },
                 // { id: 'balance', label: '余额', disableSort: false },
                 { id: 'used_quota', label: t('channel_index.usedBalance'), disableSort: false },
-                { id: 'priority', label: t('channel_index.priority'), disableSort: false, width: '80px' },
-                { id: 'weight', label: t('channel_index.weight'), disableSort: false, width: '80px' },
                 { id: 'cost_ratio', label: t('channel_index.costRatio'), disableSort: false, width: '90px' },
                 { id: 'action', label: t('channel_index.actions'), disableSort: true, sticky: true }
               ]}

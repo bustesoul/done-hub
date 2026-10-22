@@ -51,21 +51,18 @@ func SetModelChannelEnabled(ctx context.Context, channelID int, publicModel stri
 	return nil
 }
 
-func (choice *ChannelChoice) modelDisabled(name string) bool {
-	if len(choice.DisabledModels) == 0 {
-		return false
-	}
+func (choice *ChannelChoice) bindingName(name string) string {
 	// Match the configured binding, including case-insensitive names and wildcard routes.
 	names := splitNonEmpty(choice.Channel.Models)
 	for _, n := range names {
 		if n == name {
-			return choice.DisabledModels[n]
+			return n
 		}
 	}
 	if config.ModelNameCaseInsensitiveEnabled {
 		for _, n := range names {
 			if strings.EqualFold(n, name) {
-				return choice.DisabledModels[n]
+				return n
 			}
 		}
 	}
@@ -77,7 +74,21 @@ func (choice *ChannelChoice) modelDisabled(name string) bool {
 	if matched == "" {
 		matched = utils.GetModelsWithMatch(&names, name)
 	}
-	return choice.DisabledModels[matched]
+	return matched
+}
+
+func (choice *ChannelChoice) modelDisabled(name string) bool {
+	return len(choice.DisabledModels) > 0 && choice.DisabledModels[choice.bindingName(name)]
+}
+
+func (choice *ChannelChoice) modelWeight(name string) int {
+	if route, ok := choice.Routes[name]; ok && route.Weight > 0 {
+		return int(route.Weight)
+	}
+	if route, ok := choice.Routes[choice.bindingName(name)]; ok && route.Weight > 0 {
+		return int(route.Weight)
+	}
+	return int(config.DefaultChannelWeight)
 }
 
 func (cc *GatewayRouteIndex) IsModelDisabled(channelID int, modelName string) bool {
@@ -152,11 +163,11 @@ func GetExplorerModels(ctx context.Context) ([]*ExplorerModel, error) {
 			}
 			models[m.ID] = m
 		}
-		weight := e.Weight
+		weight := r.Weight
 		if weight == 0 {
 			weight = config.DefaultChannelWeight
 		}
-		m.Routes = append(m.Routes, &ModelExplorerRoute{ID: e.ChannelID, Model: r.PublicModel, Name: e.Name, Upstream: strings.TrimPrefix(r.UpstreamModel, "+"), Groups: splitNonEmpty(e.Group), Profile: e.ProtocolProfileID, Protocols: []string{}, Priority: e.Priority, Weight: weight, Global: e.Status == config.ChannelStatusEnabled, Enabled: !disabled[ModelChannelOverride{e.ChannelID, r.PublicModel}], Cool: GatewayRoutes.IsInCooldown(e.ChannelID, r.PublicModel)})
+		m.Routes = append(m.Routes, &ModelExplorerRoute{ID: e.ChannelID, Model: r.PublicModel, Name: e.Name, Upstream: strings.TrimPrefix(r.UpstreamModel, "+"), Groups: splitNonEmpty(e.Group), Profile: e.ProtocolProfileID, Protocols: []string{}, Priority: r.Priority, Weight: weight, Global: e.Status == config.ChannelStatusEnabled, Enabled: !disabled[ModelChannelOverride{e.ChannelID, r.PublicModel}], Cool: GatewayRoutes.IsInCooldown(e.ChannelID, r.PublicModel)})
 	}
 	result := make([]*ExplorerModel, 0, len(models))
 	for _, m := range models {

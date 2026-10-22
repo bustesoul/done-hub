@@ -138,22 +138,12 @@ func (s *taskGatewaySelector) Next(
 		return domain.Endpoint{}, errors.New(s.lastError.Message)
 	}
 	channel := provider.GetChannel()
-	weight := 0
-	if channel.Weight != nil {
-		weight = int(*channel.Weight)
-	}
-	priority := 0
-	if channel.Priority != nil {
-		priority = int(*channel.Priority)
-	}
 	return domain.Endpoint{
 		ID:                channel.Id,
 		ProviderID:        domain.ProviderID(channel.Type),
 		Name:              channel.Name,
 		BaseURL:           channel.GetBaseURL(),
 		Group:             channel.Group,
-		Weight:            weight,
-		Priority:          priority,
 		Enabled:           channel.Status == config.ChannelStatusEnabled,
 		ProtocolProfileID: domain.ProtocolProfileID(channel.ProtocolProfileID),
 	}, nil

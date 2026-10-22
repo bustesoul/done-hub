@@ -117,17 +117,18 @@ func TestModelChannelOverridePersistsAndFiltersAllGroups(t *testing.T) {
 	t.Cleanup(func() { viper.Set("gateway_secret_key", oldKey) })
 	GatewayRoutes = GatewayRouteIndex{}
 	t.Cleanup(func() { GatewayRoutes = GatewayRouteIndex{} })
-	weight := uint(1)
-	high, low := int64(100), int64(10)
 	channels := []Channel{
-		{Type: config.ChannelTypeOpenAI, ProtocolProfileID: "openai-chat-completions", Key: "test", Name: "primary", Status: 1, Models: "model-a,model-b,wild-*", Group: "default,vip", Weight: &weight, Priority: &high},
-		{Type: config.ChannelTypeOpenAI, ProtocolProfileID: "openai-chat-completions", Key: "test", Name: "fallback", Status: 1, Models: "model-a", Group: "default,vip", Weight: &weight, Priority: &low},
+		{Type: config.ChannelTypeOpenAI, ProtocolProfileID: "openai-chat-completions", Key: "test", Name: "primary", Status: 1, Models: "model-a,model-b,wild-*", Group: "default,vip"},
+		{Type: config.ChannelTypeOpenAI, ProtocolProfileID: "openai-chat-completions", Key: "test", Name: "fallback", Status: 1, Models: "model-a", Group: "default,vip"},
 	}
 	if err := db.Create(&channels).Error; err != nil {
 		t.Fatal(err)
 	}
 	cipher, _ := secret.New("model-explorer-test")
 	if err := BackfillGatewayResources(db, cipher); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&GatewayModelRoute{}).Where("channel_id = ?", channels[0].Id).Update("priority", 100).Error; err != nil {
 		t.Fatal(err)
 	}
 	GatewayRoutes.Load()

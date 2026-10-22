@@ -136,14 +136,13 @@ func DeleteDisabledChannelsTag(c *gin.Context) {
 	})
 }
 
-// UpdateChannelsTagParams 承载整组「优先级 / 权重 / 成本倍率」的统一设置。
-// Value 用 float64 以兼容成本倍率的小数；优先级/权重在落库前转回整型。
+// UpdateChannelsTagParams 承载整组成本倍率设置。
 type UpdateChannelsTagParams struct {
 	Type  string  `json:"type"`
 	Value float64 `json:"value"`
 }
 
-func UpdateChannelsTagPriority(c *gin.Context) {
+func UpdateChannelsTagCostRatio(c *gin.Context) {
 	tag := c.Param("tag")
 	if tag == "" {
 		common.AbortWithMessage(c, http.StatusOK, "tag is required")
@@ -158,13 +157,6 @@ func UpdateChannelsTagPriority(c *gin.Context) {
 	}
 
 	switch params.Type {
-	case "priority":
-		err = model.UpdateChannelsTagPriority(tag, int(params.Value))
-	case "weight":
-		if params.Value < 1 {
-			params.Value = 1
-		}
-		err = model.UpdateChannelsTagWeight(tag, uint(params.Value))
 	case "cost_ratio":
 		if params.Value < 0 {
 			params.Value = 0

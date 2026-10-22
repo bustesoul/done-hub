@@ -158,8 +158,6 @@ type Endpoint struct {
 	ProxyRef          string
 	Group             string
 	Tags              []string
-	Weight            int
-	Priority          int
 	Enabled           bool
 	ProtocolProfileID ProtocolProfileID
 	CredentialRef     CredentialRef

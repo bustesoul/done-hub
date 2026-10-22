@@ -144,22 +144,12 @@ func endpointForMidjourney(channel *model.Channel) domain.Endpoint {
 	if channel == nil {
 		return domain.Endpoint{}
 	}
-	weight := 0
-	if channel.Weight != nil {
-		weight = int(*channel.Weight)
-	}
-	priority := 0
-	if channel.Priority != nil {
-		priority = int(*channel.Priority)
-	}
 	return domain.Endpoint{
 		ID:         channel.Id,
 		ProviderID: domain.ProviderID(channel.Type),
 		Name:       channel.Name,
 		BaseURL:    channel.GetBaseURL(),
 		Group:      channel.Group,
-		Weight:     weight,
-		Priority:   priority,
 		Enabled:    true,
 	}
 }

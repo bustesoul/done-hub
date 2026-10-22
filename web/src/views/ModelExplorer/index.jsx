@@ -40,6 +40,7 @@ import AdminContainer from 'ui-component/AdminContainer';
 import FilterCollapse from 'ui-component/FilterCollapse';
 import Label from 'ui-component/Label';
 import TableHead from 'ui-component/TableHead';
+import BindingActions from './BindingActions';
 import { normalizeModel, normalizeHistory, eligible, missingReason, estimateExplanation } from './data';
 const number = (n) => n.toLocaleString('en-US');
 const seconds = (n) => (n === null ? '—' : (n / 1000).toFixed(2) + ' 秒');
@@ -97,9 +98,22 @@ export default function ModelExplorer() {
   async function updateBinding(model, channel, enabled) {
     const response = await API.put('/api/admin/models/binding', { model, channel_id: channel, enabled });
     if (!response.data.success) throw new Error(response.data.message || '更新失败');
-    const catalog = await API.get('/api/admin/models');
-    if (!catalog.data.success) throw new Error(catalog.data.message || '刷新模型状态失败');
-    if (active.current) setData((d) => ({ ...d, models: catalog.data.data.map(normalizeModel) }));
+    await refreshCatalog();
+  }
+  async function updateScheduling(model, channel, priority, weight) {
+    const response = await API.patch('/api/admin/models/scheduling', { model, channel_id: channel, priority, weight });
+    if (!response.data.success) throw new Error(response.data.message || '更新失败');
+    await refreshCatalog();
+  }
+  async function refreshCatalog() {
+    const sequence = ++requestSequence.current;
+    try {
+      const catalog = await API.get('/api/admin/models');
+      if (!catalog.data.success) throw new Error(catalog.data.message || '刷新模型状态失败');
+      if (active.current && sequence === requestSequence.current) setData((d) => ({ ...d, models: catalog.data.data.map(normalizeModel) }));
+    } finally {
+      if (active.current && sequence === requestSequence.current) setLoading(false);
+    }
   }
   if (!isAdmin) return <Navigate to="/panel/404" replace />;
   if (!data)
@@ -135,11 +149,12 @@ export default function ModelExplorer() {
       error={error}
       reload={reload}
       updateBinding={updateBinding}
+      updateScheduling={updateScheduling}
     />
   );
 }
 
-function ModelExplorerContent({ models, usage, loading, error, reload, updateBinding }) {
+function ModelExplorerContent({ models, usage, loading, error, reload, updateBinding, updateScheduling }) {
   const [selected, setSelected] = useState(models[0].id),
     [search, setSearch] = useState(''),
     [group, setGroup] = useState('all'),
@@ -152,6 +167,7 @@ function ModelExplorerContent({ models, usage, loading, error, reload, updateBin
     [detail, setDetail] = useState(null),
     [pending, setPending] = useState(null),
     [saving, setSaving] = useState(false);
+  const [probeResults, setProbeResults] = useState({});
   const families = groupAvailableModels(Object.fromEntries(models.map((m) => [m.id, { owned_by: m.family }]))).map((g) => ({
     id: g.provider,
     name: g.provider,
@@ -216,17 +232,25 @@ function ModelExplorerContent({ models, usage, loading, error, reload, updateBin
       tooltip: '近24小时此模型在该渠道的历史计费金额与已记录成本；成本按配置倍率计算，零值不代表免费。'
     },
     { id: 'weight', label: '权重 / 参考占比', minWidth: 100 },
-    { id: 'enabled', label: '模型内启用', minWidth: 90 }
-  ].map((h) => ({ ...h, disableSort: true }));
+    { id: 'enabled', label: '模型内启用', minWidth: 90 },
+    {
+      id: 'probe',
+      label: '最近测试',
+      minWidth: 120,
+      tooltip: '本页最近一次手动测试的完整请求耗时；刷新页面后清空，与历史首响应和速度无关。'
+    },
+    { id: 'actions', label: '操作', minWidth: 85 }
+  ].map((h) => ({ ...h, align: 'center', disableSort: true }));
   function routeRow(r) {
     const obs = history.byChannel[r.id],
       reason = missingReason(obs),
       info = status(r),
       peers = ready.filter((c) => c.priority === r.priority),
       weight = peers.reduce((n, c) => n + c.weight, 0),
+      resultKey = JSON.stringify([model.id, r.id]),
       share = eligible(r) && weight ? Math.round((r.weight / weight) * 100) + '%' : '—';
     return (
-      <TableRow key={r.id} data-route={r.id} sx={!r.global ? { opacity: 0.6 } : undefined}>
+      <TableRow key={resultKey} data-route={r.id} sx={!r.global ? { opacity: 0.6 } : undefined}>
         <TableCell>
           <Stack spacing={0.5} alignItems="center">
             <Button size="small" data-detail={r.id} sx={{ p: 0, minHeight: 24, fontSize: 12 }} onClick={() => setDetail(r.id)}>
@@ -290,7 +314,10 @@ function ModelExplorerContent({ models, usage, loading, error, reload, updateBin
         </TableCell>
         <TableCell>
           <Typography variant="body1">{r.weight}</Typography>
-          <Typography variant="caption">{!r.global || !r.enabled ? '原优先级 ' + r.priority : '同层 ' + share}</Typography>
+          <Typography variant="caption" display="block">
+            优先级 {r.priority}
+          </Typography>
+          <Typography variant="caption">{'同层 ' + share}</Typography>
         </TableCell>
         <TableCell>
           <Tooltip title={!r.global ? '渠道总开关关闭，无法在此开启' : '只影响当前模型与此渠道的绑定，跨组别和协议生效'}>
@@ -308,6 +335,14 @@ function ModelExplorerContent({ models, usage, loading, error, reload, updateBin
             </Stack>
           </Tooltip>
         </TableCell>
+        <BindingActions
+          route={r}
+          model={model}
+          result={probeResults[resultKey]}
+          onResult={(value) => setProbeResults((previous) => ({ ...previous, [resultKey]: value }))}
+          onSave={updateScheduling}
+          disabled={loading || saving}
+        />
       </TableRow>
     );
   }
@@ -584,7 +619,7 @@ function ModelExplorerContent({ models, usage, loading, error, reload, updateBin
                   / {scoped.length} 条绑定
                 </Typography>
               </Typography>
-              <Typography variant="caption">优先级、权重只读</Typography>
+              <Typography variant="caption">优先级、权重仅影响当前模型</Typography>
             </Stack>
             {ready.length < 2 && (
               <Alert severity="warning" sx={{ mx: 2, mb: 2 }}>
@@ -658,7 +693,7 @@ function ModelExplorerContent({ models, usage, loading, error, reload, updateBin
             )}
             <Box sx={{ p: 2, bgcolor: (t) => t.headBackgroundColor }}>
               <Typography variant="caption" display="block">
-                模型内开关跨组别和协议生效，不修改渠道总开关，也不影响其他模型。
+                模型内开关、优先级和权重跨组别和协议生效，不影响其他模型。
               </Typography>
               <Typography variant="caption" display="block" mt={0.75}>
                 权重占比仅作同层参考，不代表实际流量。通配模型按配置的绑定规则统计和启停。冷却状态来自当前实例。

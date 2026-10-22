@@ -172,9 +172,6 @@ func TestEnablingDraftReloadsGatewayRouteIndex(t *testing.T) {
 	defer func() { logger.Logger = oldLogger }()
 	viper.Set("gateway_secret_key", "enable-draft-route-test")
 	defer viper.Set("gateway_secret_key", "")
-
-	weight := uint(1)
-	priority := int64(0)
 	baseURL := "https://example.invalid"
 	channel := Channel{
 		Type:              config.ChannelTypeOpenAI,
@@ -182,8 +179,6 @@ func TestEnablingDraftReloadsGatewayRouteIndex(t *testing.T) {
 		Key:               "candidate-secret",
 		Status:            config.ChannelStatusManuallyDisabled,
 		Name:              "draft",
-		Weight:            &weight,
-		Priority:          &priority,
 		BaseURL:           &baseURL,
 		Models:            "gpt-test",
 		TestModel:         "gpt-test",
@@ -232,8 +227,6 @@ func TestBackfillGatewayResourcesIsIdempotent(t *testing.T) {
 	baseURL := "https://example.invalid"
 	proxy := "http://proxy.invalid"
 	modelMapping := `{"public-model":"upstream-model"}`
-	priority := int64(9)
-	weight := uint(3)
 	costRatio := 1.25
 	channel := Channel{
 		Type:              1,
@@ -241,13 +234,11 @@ func TestBackfillGatewayResourcesIsIdempotent(t *testing.T) {
 		Key:               "credential-value",
 		Status:            1,
 		Name:              "test-endpoint",
-		Weight:            &weight,
 		BaseURL:           &baseURL,
 		Models:            "public-model,second-model",
 		Group:             "default",
 		Tag:               "test",
 		ModelMapping:      &modelMapping,
-		Priority:          &priority,
 		Proxy:             &proxy,
 		PreCost:           1,
 		CostRatio:         &costRatio,
@@ -278,7 +269,7 @@ func TestBackfillGatewayResourcesIsIdempotent(t *testing.T) {
 	if err := db.Where("channel_id = ?", channel.Id).First(&endpoint).Error; err != nil {
 		t.Fatalf("load endpoint: %v", err)
 	}
-	if endpoint.ProviderID != channel.Type || endpoint.ProtocolProfileID != channel.ProtocolProfileID || endpoint.ActiveCredentialID == 0 || endpoint.BaseURL != baseURL || endpoint.Priority != priority {
+	if endpoint.ProviderID != channel.Type || endpoint.ProtocolProfileID != channel.ProtocolProfileID || endpoint.ActiveCredentialID == 0 || endpoint.BaseURL != baseURL {
 		t.Fatalf("unexpected endpoint: %#v", endpoint)
 	}
 	var policy GatewayPolicy
@@ -314,6 +305,9 @@ func TestBackfillGatewayResourcesIsIdempotent(t *testing.T) {
 	var route GatewayModelRoute
 	if err := db.Where("channel_id = ? AND public_model = ?", channel.Id, "public-model").First(&route).Error; err != nil {
 		t.Fatalf("load model route: %v", err)
+	}
+	if route.Weight != 1 || route.Priority != 0 {
+		t.Fatalf("unexpected default scheduling: %+v", route)
 	}
 	if route.UpstreamModel != "upstream-model" {
 		t.Fatalf("unexpected upstream model %q", route.UpstreamModel)
@@ -700,7 +694,7 @@ func TestGatewayCutoverBackfillRunsOnlyOnce(t *testing.T) {
 		t.Fatalf("first migration: %v", err)
 	}
 	assertGatewayResourceCount(t, db, &GatewayEndpoint{}, 1)
-	assertGatewayResourceCount(t, db, &GatewayMigrationState{}, 1)
+	assertGatewayResourceCount(t, db, &GatewayMigrationState{}, 2)
 
 	// Simulate an out-of-contract legacy write after cutover. A second startup
 	// must not silently full-scan/backfill it; management writes use the

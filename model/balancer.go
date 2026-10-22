@@ -44,6 +44,7 @@ type ChannelChoice struct {
 	CooldownsTime  int64
 	Disable        bool
 	DisabledModels map[string]bool
+	Routes         map[string]GatewayModelRoute
 }
 
 type GatewayRouteIndex struct {
@@ -217,7 +218,7 @@ func (cc *GatewayRouteIndex) balancer(channelIds []int, choices map[int]*Channel
 			continue
 		}
 
-		weight := int(*choice.Channel.Weight)
+		weight := choice.modelWeight(modelName)
 		totalWeight += weight
 		validChannels = append(validChannels, choice)
 	}
@@ -236,7 +237,7 @@ func (cc *GatewayRouteIndex) balancer(channelIds []int, choices map[int]*Channel
 
 	choiceWeight := rand.Intn(totalWeight)
 	for _, choice := range validChannels {
-		weight := int(*choice.Channel.Weight)
+		weight := choice.modelWeight(modelName)
 		choiceWeight -= weight
 		if choiceWeight < 0 {
 			return choice.Channel
@@ -257,10 +258,7 @@ func selectAffinityChannel(candidates []*ChannelChoice, modelName string, ginCon
 		if candidate == nil || candidate.Channel == nil {
 			continue
 		}
-		weight := 1
-		if candidate.Channel.Weight != nil && *candidate.Channel.Weight > 0 {
-			weight = int(*candidate.Channel.Weight)
-		}
+		weight := candidate.modelWeight(modelName)
 		weighted := gatewayselection.Candidate{
 			EndpointID: candidate.Channel.Id,
 			Weight:     weight,
@@ -594,19 +592,21 @@ func (cc *GatewayRouteIndex) Load() {
 	// 处理每个channel
 	for _, channel := range channels {
 		channel.SetProxy()
-		if *channel.Weight == 0 {
-			channel.Weight = &config.DefaultChannelWeight
+		routes := make(map[string]GatewayModelRoute, len(channel.ModelRoutes))
+		for _, route := range channel.ModelRoutes {
+			routes[route.PublicModel] = route
 		}
 		newChannels[channel.Id] = &ChannelChoice{
 			Channel:        channel,
 			CooldownsTime:  0,
 			Disable:        false,
 			DisabledModels: disabled[channel.Id],
+			Routes:         routes,
 		}
 
 		// 处理groups和models
 		groups := strings.Split(channel.Group, ",")
-		models := strings.Split(channel.Models, ",")
+		models := splitNonEmpty(channel.Models)
 
 		for _, group := range groups {
 			group = strings.TrimSpace(group)
@@ -626,7 +626,7 @@ func (cc *GatewayRouteIndex) Load() {
 				}
 
 				// 按priority分组存储channelId
-				priority := *channel.Priority
+				priority := routes[model].Priority
 				channelGroups[key][priority] = append(channelGroups[key][priority], channel.Id)
 
 				// 处理通配符模型

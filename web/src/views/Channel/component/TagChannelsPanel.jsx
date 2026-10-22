@@ -56,10 +56,6 @@ const TagChannelsPanel = ({
   onPageChange,
   onRowsPerPageChange,
   onStatusChange,
-  onPriorityChange,
-  onPriorityCommit,
-  onWeightChange,
-  onWeightCommit,
   onCostRatioChange,
   onCostRatioCommit,
   onTestChannel,
@@ -80,10 +76,6 @@ const TagChannelsPanel = ({
   const handleChangeTagPage = onPageChange;
   const handleChangeTagRowsPerPage = onRowsPerPageChange;
   const handleTagChannelStatus = onStatusChange;
-  const handleTagChannelPriorityChange = onPriorityChange;
-  const commitTagChannelPriority = onPriorityCommit;
-  const handleTagChannelWeightChange = onWeightChange;
-  const commitTagChannelWeight = onWeightCommit;
   const handleTagChannelCostRatioChange = onCostRatioChange;
   const commitTagChannelCostRatio = onCostRatioCommit;
 
@@ -153,7 +145,7 @@ const TagChannelsPanel = ({
                             {/* 用原生滚动的 TableContainer（与主表格一致），保证「操作」列 position:sticky 冻结生效；
                               PerfectScrollbar 的 overflow:hidden + JS 滚动会让 sticky 失效，导致操作列无法冻结 */}
                             <TableContainer sx={{ maxHeight: 400 }}>
-                              <Table size="small" sx={{ minWidth: 1180, '& .MuiTableCell-root': { py: 1, px: 1.5 } }}>
+                              <Table size="small" sx={{ minWidth: 980, '& .MuiTableCell-root': { py: 1, px: 1.5 } }}>
                                 <KeywordTableHead
                                   order={tagOrder}
                                   orderBy={tagOrderBy}
@@ -178,8 +170,6 @@ const TagChannelsPanel = ({
                                     },
                                     { id: 'used_quota', label: t('channel_index.usedBalance'), align: 'center', minWidth: 120 },
                                     { id: 'response_time', label: t('channel_index.responseTime'), align: 'center', minWidth: 110 },
-                                    { id: 'priority', label: t('channel_index.priority'), align: 'center', minWidth: 100 },
-                                    { id: 'weight', label: t('channel_index.weight'), align: 'center', minWidth: 100 },
                                     { id: 'cost_ratio', label: t('channel_index.costRatio'), align: 'center', minWidth: 100 },
                                     {
                                       id: 'action',
@@ -281,35 +271,8 @@ const TagChannelsPanel = ({
                                         <ResponseTimeLabel test_time={channel.test_time} response_time={channel.response_time} />
                                       </TableCell>
 
-                                      <TableCell sx={{ textAlign: 'center' }}>
-                                        <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                                          <GroupInlineEditor
-                                            label={t('channel_index.priority')}
-                                            value={channel.priority ?? 0}
-                                            min="0"
-                                            onChange={(v) => handleTagChannelPriorityChange(channel.id, v)}
-                                            onCommit={() => commitTagChannelPriority(channel)}
-                                            disabled={
-                                              channel.priority ===
-                                              (tagChannelOriginals[channel.id]?.priority ?? channel.priority)
-                                            }
-                                          />
-                                        </Box>
-                                      </TableCell>
-                                      <TableCell sx={{ textAlign: 'center' }}>
-                                        <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                                          <GroupInlineEditor
-                                            label={t('channel_index.weight')}
-                                            value={channel.weight ?? 1}
-                                            min="1"
-                                            onChange={(v) => handleTagChannelWeightChange(channel.id, v)}
-                                            onCommit={() => commitTagChannelWeight(channel)}
-                                            disabled={
-                                              channel.weight === (tagChannelOriginals[channel.id]?.weight ?? channel.weight)
-                                            }
-                                          />
-                                        </Box>
-                                      </TableCell>
+
+
                                       <TableCell sx={{ textAlign: 'center' }}>
                                         <Box sx={{ display: 'flex', justifyContent: 'center' }}>
                                           <GroupInlineEditor
@@ -418,10 +381,6 @@ TagChannelsPanel.propTypes = {
   onPageChange: PropTypes.func.isRequired,
   onRowsPerPageChange: PropTypes.func.isRequired,
   onStatusChange: PropTypes.func.isRequired,
-  onPriorityChange: PropTypes.func.isRequired,
-  onPriorityCommit: PropTypes.func.isRequired,
-  onWeightChange: PropTypes.func.isRequired,
-  onWeightCommit: PropTypes.func.isRequired,
   onCostRatioChange: PropTypes.func.isRequired,
   onCostRatioCommit: PropTypes.func.isRequired,
   onTestChannel: PropTypes.func.isRequired,

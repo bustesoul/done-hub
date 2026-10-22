@@ -111,8 +111,6 @@ export default function ChannelTableRow({
   const [statusSwitch, setStatusSwitch] = useState(item.status);
   const [deleting, setDeleting] = useState(false);
 
-  const [priority, setPriority] = useState(item.priority);
-  const [weight, setWeight] = useState(item.weight);
   const [costRatio, setCostRatio] = useState(item.cost_ratio);
   const tagDeleteConfirm = useBoolean();
   const quickEdit = useBoolean();
@@ -190,7 +188,7 @@ export default function ChannelTableRow({
         setTotalTagChannels(result.total_count || 0);
         // 记录每个子渠道的优先级/权重/成本倍率原值，用于行内编辑的「无变化则不提交」判断，避免失焦时无谓请求与提示
         tagChannelOriginalsRef.current = Object.fromEntries(
-          list.map((c) => [c.id, { priority: c.priority, weight: c.weight, cost_ratio: c.cost_ratio }])
+          list.map((c) => [c.id, { cost_ratio: c.cost_ratio }])
         );
       } else {
         showError(t('channel_row.getTagChannelsError', { message: response.data.message }));
@@ -258,83 +256,10 @@ export default function ChannelTableRow({
     setTagChannels((prev) => prev.map((c) => (c.id === channelId ? { ...c, cost_ratio: value } : c)));
   };
 
-  // 处理子渠道的优先级变更
-  const handleTagChannelPriorityChange = (channelId, value) => {
-    // 更新本地UI状态
-    setTagChannels((prev) => prev.map((c) => (c.id === channelId ? { ...c, priority: value } : c)));
-  };
-
-  // 处理子渠道的权重变更（权重为逐行字段，可对组内各渠道单独设置）
-  const handleTagChannelWeightChange = (channelId, value) => {
-    setTagChannels((prev) => prev.map((c) => (c.id === channelId ? { ...c, weight: value } : c)));
-  };
-
-  // 代表行行内编辑（优先级/权重/成本倍率）在标签模式下会批量覆盖整组，提交前需二次确认。
+  // 代表行行内编辑（成本倍率）在标签模式下会批量覆盖整组，提交前需二次确认。
   // 用 useBoolean 单独控制显隐，payload 不在确认/取消时清空——否则关闭过渡动画那一帧会读到空值，导致文案里的数值闪烁消失
   const [tagFieldConfirm, setTagFieldConfirm] = useState(null);
   const tagFieldConfirmOpen = useBoolean();
-
-  // 主行优先级提交：回车 / 失焦 / 点击 ✓ 共用一份逻辑，ref 去重避免同一次操作触发重复请求
-  const committingPriorityRef = useRef(false);
-  const commitMainPriority = () => {
-    if (committingPriorityRef.current) return;
-    if (priority === item.priority) return;
-    const isTag = !!item.tag;
-    const exec = () => {
-      committingPriorityRef.current = true;
-      const channelId = isTag ? item.tag : item.id;
-      manageChannel(channelId, 'priority', priority, isTag)
-        .then(({ success }) => {
-          if (success) {
-            item.priority = priority;
-            showInfo(t('channel_row.priorityUpdateSuccess'));
-          }
-        })
-        .catch((error) => {
-          showError(t('channel_row.priorityUpdateError', { message: error.message }));
-        })
-        .finally(() => {
-          committingPriorityRef.current = false;
-        });
-    };
-    // 标签代表行：批量覆盖整组，先二次确认
-    if (isTag) {
-      setTagFieldConfirm({ field: t('channel_index.priority'), value: priority, exec });
-      tagFieldConfirmOpen.onTrue();
-      return;
-    }
-    exec();
-  };
-
-  // 权重提交：标签代表行作用于整组、普通行作用于单渠道，由 item.tag 区分；回车 / 失焦 / 点击 ✓ 共用，ref 去重
-  const committingWeightRef = useRef(false);
-  const commitWeight = () => {
-    if (committingWeightRef.current) return;
-    if (weight === item.weight) return;
-    const isTag = !!item.tag;
-    const exec = () => {
-      committingWeightRef.current = true;
-      manageChannel(isTag ? item.tag : item.id, 'weight', weight, isTag)
-        .then(({ success }) => {
-          if (success) {
-            item.weight = weight;
-            showInfo(t('channel_row.weightUpdateSuccess'));
-          }
-        })
-        .catch((error) => {
-          showError(t('channel_row.weightUpdateError', { message: error.message }));
-        })
-        .finally(() => {
-          committingWeightRef.current = false;
-        });
-    };
-    if (isTag) {
-      setTagFieldConfirm({ field: t('channel_index.weight'), value: weight, exec });
-      tagFieldConfirmOpen.onTrue();
-      return;
-    }
-    exec();
-  };
 
   // 成本倍率提交：标签代表行作用于整组、普通行作用于单渠道，由 item.tag 区分
   const committingCostRatioRef = useRef(false);
@@ -366,52 +291,8 @@ export default function ChannelTableRow({
     exec();
   };
 
-  // 子渠道行内编辑原值快照（priority/weight），用于「无变化不提交」判断
+  // 子渠道行内编辑原值快照（cost_ratio），用于「无变化不提交」判断
   const tagChannelOriginalsRef = useRef({});
-
-  // 子渠道优先级提交：回车 / 失焦 / 点击共用，按渠道 id 去重；值未变则跳过
-  const committingTagPriorityRef = useRef({});
-  const commitTagChannelPriority = (channel) => {
-    if (committingTagPriorityRef.current[channel.id]) return;
-    const orig = tagChannelOriginalsRef.current[channel.id];
-    if (orig && channel.priority === orig.priority) return;
-    committingTagPriorityRef.current[channel.id] = true;
-    manageChannel(channel.id, 'priority', channel.priority)
-      .then(({ success }) => {
-        if (success) {
-          if (orig) orig.priority = channel.priority;
-          showSuccess(t('channel_row.priorityUpdateSuccess'));
-        }
-      })
-      .catch((error) => {
-        showError(t('channel_row.priorityUpdateError', { message: error.message }));
-      })
-      .finally(() => {
-        committingTagPriorityRef.current[channel.id] = false;
-      });
-  };
-
-  // 子渠道权重提交：回车 / 失焦 / 点击共用，按渠道 id 去重；值未变则跳过
-  const committingTagWeightRef = useRef({});
-  const commitTagChannelWeight = (channel) => {
-    if (committingTagWeightRef.current[channel.id]) return;
-    const orig = tagChannelOriginalsRef.current[channel.id];
-    if (orig && channel.weight === orig.weight) return;
-    committingTagWeightRef.current[channel.id] = true;
-    manageChannel(channel.id, 'weight', channel.weight)
-      .then(({ success }) => {
-        if (success) {
-          if (orig) orig.weight = channel.weight;
-          showSuccess(t('channel_row.weightUpdateSuccess'));
-        }
-      })
-      .catch((error) => {
-        showError(t('channel_row.weightUpdateError', { message: error.message }));
-      })
-      .finally(() => {
-        committingTagWeightRef.current[channel.id] = false;
-      });
-  };
 
   // 子渠道成本倍率提交：回车 / 失焦 / 点击共用，按渠道 id 去重；值未变则跳过
   const committingTagCostRatioRef = useRef({});
@@ -557,8 +438,6 @@ export default function ChannelTableRow({
 
   useEffect(() => {
     setStatusSwitch(item.status);
-    setPriority(item.priority);
-    setWeight(item.weight);
     setCostRatio(item.cost_ratio);
     setItemBalance(item.balance);
     setResponseTimeData({ test_time: item.test_time, response_time: item.response_time });
@@ -784,29 +663,9 @@ export default function ChannelTableRow({
           )}
         </TableCell>
 
-        <TableCell>
-          <GroupInlineEditor
-            label={item.tag ? t('channel_row.groupPriorityLabel') : t('channel_index.priority')}
-            tip={item.tag ? t('channel_row.groupPriorityTip') : ''}
-            value={priority}
-            min="0"
-            onChange={(v) => setPriority(v)}
-            onCommit={commitMainPriority}
-            disabled={priority === item.priority}
-          />
-        </TableCell>
 
-        <TableCell>
-          <GroupInlineEditor
-            label={item.tag ? t('channel_row.groupWeightLabel') : t('channel_index.weight')}
-            tip={item.tag ? t('channel_row.groupWeightTip') : ''}
-            value={weight}
-            min="1"
-            onChange={(v) => setWeight(v)}
-            onCommit={commitWeight}
-            disabled={weight === item.weight}
-          />
-        </TableCell>
+
+
 
         <TableCell>
           <GroupInlineEditor
@@ -961,7 +820,7 @@ export default function ChannelTableRow({
           }
         }}
       >
-        <TableCell style={{ paddingBottom: 0, paddingTop: 0, paddingLeft: 0, paddingRight: 0, textAlign: 'left' }} colSpan={20}>
+        <TableCell style={{ paddingBottom: 0, paddingTop: 0, paddingLeft: 0, paddingRight: 0, textAlign: 'left' }} colSpan={12}>
           <Collapse in={openRow} timeout="auto" unmountOnExit>
             {/* sticky 面板：钉在主滚动视口内、宽度=主容器 clientWidth，使内部子表格成为独立的视口宽横向滚动区 */}
             <Box
@@ -1184,10 +1043,6 @@ export default function ChannelTableRow({
                     onPageChange={handleChangeTagPage}
                     onRowsPerPageChange={handleChangeTagRowsPerPage}
                     onStatusChange={handleTagChannelStatus}
-                    onPriorityChange={handleTagChannelPriorityChange}
-                    onPriorityCommit={commitTagChannelPriority}
-                    onWeightChange={handleTagChannelWeightChange}
-                    onWeightCommit={commitTagChannelWeight}
                     onCostRatioChange={handleTagChannelCostRatioChange}
                     onCostRatioCommit={commitTagChannelCostRatio}
                     onTestChannel={(channel, event) => {

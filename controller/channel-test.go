@@ -2,6 +2,7 @@ package controller
 
 import (
 	"bytes"
+	"context"
 	"done-hub/common"
 	"done-hub/common/config"
 	"done-hub/common/logger"
@@ -51,7 +52,11 @@ const (
 	reasoningVisibilityUnknown = "unknown"
 )
 
-func testChannel(channel *model.Channel, testModel string) (openaiErr *types.OpenAIErrorWithStatusCode, err error) {
+func testChannel(channel *model.Channel, testModel string) (*types.OpenAIErrorWithStatusCode, error) {
+	return testChannelWithContext(context.Background(), channel, testModel)
+}
+
+func testChannelWithContext(ctx context.Context, channel *model.Channel, testModel string) (openaiErr *types.OpenAIErrorWithStatusCode, err error) {
 	if testModel == "" {
 		testModel = channel.TestModel
 		if testModel == "" {
@@ -109,7 +114,7 @@ func testChannel(channel *model.Channel, testModel string) (openaiErr *types.Ope
 			},
 		})
 	}
-	req, err := http.NewRequest("POST", url, bytes.NewReader(requestBody))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(requestBody))
 	if err != nil {
 		return nil, err
 	}

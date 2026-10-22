@@ -31,8 +31,6 @@ type GatewayEndpoint struct {
 	Group              string         `json:"group" gorm:"index"`
 	Tags               string         `json:"tags" gorm:"type:text"`
 	Status             int            `json:"status" gorm:"index"`
-	Weight             uint           `json:"weight"`
-	Priority           int64          `json:"priority" gorm:"index"`
 	CreatedTime        int64          `json:"created_time"`
 	CreatedAt          time.Time      `json:"created_at"`
 	UpdatedAt          time.Time      `json:"updated_at"`
@@ -65,6 +63,8 @@ const (
 var gatewayResourcesMu sync.Mutex
 
 type GatewayModelRoute struct {
+	Priority      int64     `json:"priority" gorm:"not null;default:0"`
+	Weight        uint      `json:"weight" gorm:"not null;default:1"`
 	ID            uint      `json:"id" gorm:"primaryKey"`
 	ChannelID     int       `json:"channel_id" gorm:"uniqueIndex:idx_gateway_model_route,priority:1;index;not null"`
 	PublicModel   string    `json:"public_model" gorm:"uniqueIndex:idx_gateway_model_route,priority:2;type:varchar(255);not null"`
@@ -187,7 +187,7 @@ func MigrateGatewayResources(db *gorm.DB) error {
 		var marker GatewayMigrationState
 		err := tx.Where("name = ?", gatewayCoreCutoverMigration).First(&marker).Error
 		if err == nil {
-			return nil
+			return migrateModelRouteScheduling(tx)
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
@@ -198,10 +198,12 @@ func MigrateGatewayResources(db *gorm.DB) error {
 		if _, err := ValidateGatewayResourceProjection(tx); err != nil {
 			return err
 		}
-		return tx.Create(&GatewayMigrationState{
-			Name:        gatewayCoreCutoverMigration,
-			CompletedAt: time.Now(),
-		}).Error
+		if err := tx.Create(&GatewayMigrationState{
+			Name: gatewayCoreCutoverMigration, CompletedAt: time.Now(),
+		}).Error; err != nil {
+			return err
+		}
+		return migrateModelRouteScheduling(tx)
 	})
 }
 
@@ -253,15 +255,6 @@ func ValidateGatewayResourceProjection(db *gorm.DB) (GatewayProjectionReport, er
 }
 
 func backfillGatewayChannel(db *gorm.DB, secretCipher *secret.Cipher, channel *Channel) error {
-	weight := uint(1)
-	if channel.Weight != nil {
-		weight = *channel.Weight
-	}
-	priority := int64(0)
-	if channel.Priority != nil {
-		priority = *channel.Priority
-	}
-
 	var existingEndpoint GatewayEndpoint
 	if err := db.Where("channel_id = ?", channel.Id).First(&existingEndpoint).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
@@ -280,8 +273,6 @@ func backfillGatewayChannel(db *gorm.DB, secretCipher *secret.Cipher, channel *C
 		Group:              channel.Group,
 		Tags:               channel.Tag,
 		Status:             channel.Status,
-		Weight:             weight,
-		Priority:           priority,
 		CreatedTime:        channel.CreatedTime,
 	}
 	if err := upsertByChannelID(db, &endpoint); err != nil {
@@ -934,8 +925,6 @@ func LoadGatewayChannelSnapshots(db *gorm.DB) ([]*Channel, error) {
 		}
 		policy := policiesByChannel[endpoint.ChannelID]
 		health := healthByChannel[endpoint.ChannelID]
-		weight := endpoint.Weight
-		priority := endpoint.Priority
 		costRatio := policy.CostRatio
 		baseURL := endpoint.BaseURL
 		proxy := endpoint.Proxy
@@ -952,7 +941,6 @@ func LoadGatewayChannelSnapshots(db *gorm.DB) ([]*Channel, error) {
 			Key:                 key,
 			Status:              endpoint.Status,
 			Name:                endpoint.Name,
-			Weight:              &weight,
 			CreatedTime:         endpoint.CreatedTime,
 			TestTime:            health.TestTime,
 			ResponseTime:        health.ResponseTime,
@@ -962,6 +950,7 @@ func LoadGatewayChannelSnapshots(db *gorm.DB) ([]*Channel, error) {
 			Balance:             health.Balance,
 			BalanceUpdatedTime:  health.BalanceUpdatedTime,
 			Models:              joinPublicModels(routesByChannel[endpoint.ChannelID]),
+			ModelRoutes:         routesByChannel[endpoint.ChannelID],
 			Group:               endpoint.Group,
 			Tag:                 endpoint.Tags,
 			UsedQuota:           health.UsedQuota,
@@ -969,7 +958,6 @@ func LoadGatewayChannelSnapshots(db *gorm.DB) ([]*Channel, error) {
 			Need2ResponseModels: &need2ResponseModels,
 			ModelHeaders:        &modelHeaders,
 			CustomParameter:     &customParameter,
-			Priority:            &priority,
 			Proxy:               &proxy,
 			TestModel:           endpoint.TestModel,
 			OnlyChat:            policy.OnlyChat,
