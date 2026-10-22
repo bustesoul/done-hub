@@ -32,6 +32,81 @@ func explorerTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
+func TestExplorerFamilyIgnoresPricingProvider(t *testing.T) {
+	db := explorerTestDB(t)
+	oldPricing, oldOwners := PricingInstance, ModelOwnedBysInstance
+	t.Cleanup(func() { PricingInstance, ModelOwnedBysInstance = oldPricing, oldOwners })
+	PricingInstance = &Pricing{Prices: map[string]*Price{
+		"gemini-3.7-flash": {ChannelType: config.ChannelTypeGemini},
+		"gemini-3.8-flash": {ChannelType: config.ChannelTypeOpenRouter, ModelInfo: &ModelInfoResponse{Name: "Gemini 3.8 Flash"}},
+		"custom-model":     {ChannelType: config.ChannelTypeOpenRouter},
+	}}
+	ModelOwnedBysInstance = &ModelOwnedBys{ModelOwnedBy: map[int]*ModelOwnedBy{
+		config.ChannelTypeGemini:     {Name: "Google Gemini"},
+		config.ChannelTypeOpenRouter: {Name: "OpenRouter"},
+	}}
+	if err := db.Create(&GatewayEndpoint{ChannelID: 1, Status: config.ChannelStatusEnabled}).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"gemini-3.7-flash", "gemini-3.8-flash", "custom-model"} {
+		if err := db.Create(&GatewayModelRoute{ChannelID: 1, PublicModel: name, UpstreamModel: name}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	models, err := GetExplorerModels(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 3 {
+		t.Fatalf("models=%d", len(models))
+	}
+	for _, m := range models {
+		want := "Gemini"
+		if m.ID == "custom-model" {
+			want = "未分类"
+		}
+		if m.Family != want {
+			t.Errorf("%s: family=%q, want %q", m.ID, m.Family, want)
+		}
+		if m.ID == "gemini-3.8-flash" && m.Name != "Gemini 3.8 Flash" {
+			t.Error("model metadata display name lost")
+		}
+	}
+}
+
+func TestExplorerModelFamilies(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		upstreams []string
+		want      string
+	}{
+		{"google/gemini-3.8-flash", nil, "Gemini"},
+		{"openrouter/google/gemini-3.7-flash:free", nil, "Gemini"},
+		{"Gemini-3.8-Flash", nil, "Gemini"},
+		{"anthropic/claude-sonnet-4", nil, "Claude"},
+		{"openai/gpt-5", nil, "GPT"},
+		{"o3-mini", nil, "OpenAI o系列"},
+		{"qwen/qwen3-32b", nil, "Qwen"},
+		{"gemma-3", nil, "Gemma"},
+		{"geminiproxy", nil, "未分类"},
+		{"openrouter/auto", nil, "未分类"},
+		{"alias", []string{"gemini-3.7-flash", "google/gemini-3.8-flash"}, "Gemini"},
+		{"alias", []string{"gemini-3.8-flash", "claude-sonnet-4"}, "未分类"},
+		{"alias", []string{"gemini-3.8-flash", "unknown"}, "未分类"},
+		{"gemini-3.8-flash", []string{"internal-deployment"}, "Gemini"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &ExplorerModel{ID: tt.name}
+			for _, name := range tt.upstreams {
+				m.Routes = append(m.Routes, &ModelExplorerRoute{Upstream: name})
+			}
+			if got := explorerModelFamily(m); got != tt.want {
+				t.Errorf("family=%q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestModelChannelOverridePersistsAndFiltersAllGroups(t *testing.T) {
 	db := explorerTestDB(t)
 	oldLogger := logger.Logger

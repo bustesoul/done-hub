@@ -142,14 +142,10 @@ func GetExplorerModels(ctx context.Context) ([]*ExplorerModel, error) {
 		}
 		m := models[r.PublicModel]
 		if m == nil {
-			m = &ExplorerModel{ID: r.PublicModel, Name: r.PublicModel, Family: "未分类", Routes: []*ModelExplorerRoute{}}
+			m = &ExplorerModel{ID: r.PublicModel, Name: r.PublicModel, Icon: DefaultModelIcon, Routes: []*ModelExplorerRoute{}}
 			if PricingInstance != nil {
 				price := PricingInstance.GetPrice(r.PublicModel)
 				m.Info = price.ModelInfo
-				if ModelOwnedBysInstance != nil {
-					m.Family = ModelOwnedBysInstance.GetName(price.ChannelType)
-					m.Icon = ModelOwnedBysInstance.GetIcon(price.ChannelType)
-				}
 				if m.Info != nil && m.Info.Name != "" {
 					m.Name = m.Info.Name
 				}
@@ -164,6 +160,7 @@ func GetExplorerModels(ctx context.Context) ([]*ExplorerModel, error) {
 	}
 	result := make([]*ExplorerModel, 0, len(models))
 	for _, m := range models {
+		m.Family = explorerModelFamily(m)
 		sort.Slice(m.Routes, func(i, j int) bool {
 			a, b := m.Routes[i], m.Routes[j]
 			if a.Priority != b.Priority {
@@ -175,6 +172,53 @@ func GetExplorerModels(ctx context.Context) ([]*ExplorerModel, error) {
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result, nil
+}
+
+// Families describe the model series, never the pricing provider or relay channel.
+// Unknown public aliases use upstream names only when every binding agrees.
+func explorerModelFamily(m *ExplorerModel) string {
+	if family := modelSeries(m.ID); family != "" {
+		return family
+	}
+	family := ""
+	for _, r := range m.Routes {
+		candidate := modelSeries(r.Upstream)
+		if candidate == "" || (family != "" && family != candidate) {
+			return "未分类"
+		}
+		family = candidate
+	}
+	if family == "" {
+		return "未分类"
+	}
+	return family
+}
+
+func modelSeries(name string) string {
+	// Aggregators commonly namespace models, e.g. google/gemini-3.8-flash.
+	name = strings.ToLower(strings.TrimSpace(name))
+	name = name[strings.LastIndex(name, "/")+1:]
+	for _, rule := range []struct{ prefix, family string }{
+		{"gemini", "Gemini"}, {"gemma", "Gemma"},
+		{"claude", "Claude"}, {"gpt", "GPT"}, {"chatgpt", "GPT"},
+		{"o1", "OpenAI o系列"}, {"o3", "OpenAI o系列"}, {"o4", "OpenAI o系列"},
+		{"deepseek", "DeepSeek"}, {"qwen", "Qwen"}, {"qwq", "QwQ"},
+		{"llama", "Llama"}, {"grok", "Grok"}, {"glm", "GLM"},
+		{"kimi", "Kimi"}, {"moonshot", "Moonshot"},
+		{"mistral", "Mistral"}, {"mixtral", "Mixtral"}, {"codestral", "Codestral"},
+		{"doubao", "Doubao"}, {"hunyuan", "Hunyuan"}, {"ernie", "ERNIE"},
+		{"phi", "Phi"}, {"yi", "Yi"}, {"command", "Command"},
+		{"flux", "FLUX"}, {"dall-e", "DALL·E"}, {"imagen", "Imagen"}, {"veo", "Veo"},
+	} {
+		if !strings.HasPrefix(name, rule.prefix) {
+			continue
+		}
+		suffix := strings.TrimPrefix(name, rule.prefix)
+		if suffix == "" || strings.ContainsRune("-_.:", rune(suffix[0])) || (suffix[0] >= '0' && suffix[0] <= '9') {
+			return rule.family
+		}
+	}
+	return ""
 }
 
 type ExplorerError struct {
