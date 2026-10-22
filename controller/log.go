@@ -297,7 +297,7 @@ func formatLogToCSVRow(log *model.Log, isAdmin bool) []string {
 	// Format duration
 	durationStr := ""
 	if log.RequestTime > 0 {
-		durationStr = fmt.Sprintf("%.2f", float64(log.RequestTime)/1000.0)
+		durationStr = fmt.Sprintf("%.2f", float64(model.LogRequestTimeMs(log))/1000.0)
 	}
 
 	// Format quota

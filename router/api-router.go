@@ -88,6 +88,8 @@ func SetApiRouter(router *gin.Engine) {
 			{
 				selfRoute.GET("/dashboard", controller.GetUserDashboard)
 				selfRoute.GET("/dashboard/usage", controller.GetUserDashboardUsage)
+				selfRoute.GET("/dashboard/requests", controller.GetUserDashboardRequests)
+				selfRoute.GET("/dashboard/requests/export", controller.ExportUserDashboardRequests)
 				selfRoute.GET("/dashboard/rate", controller.GetRateRealtime)
 				selfRoute.GET("/dashboard/uptimekuma/status-page", controller.UptimeKumaStatusPage)
 				selfRoute.GET("/dashboard/uptimekuma/status-page/heartbeat", controller.UptimeKumaStatusPageHeartbeat)

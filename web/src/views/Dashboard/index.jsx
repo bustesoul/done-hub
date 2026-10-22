@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Box,
   Button,
@@ -9,14 +9,11 @@ import {
   LinearProgress,
   Paper,
   Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
+  Alert,
   Tooltip,
   Typography,
+  TextField,
+  MenuItem,
   useMediaQuery
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
@@ -26,14 +23,29 @@ import PropTypes from 'prop-types';
 import { useTranslation } from 'react-i18next';
 import { useSelector } from 'react-redux';
 
+import {
+  AnalyticsControls,
+  Comparison,
+  TrendExtra,
+  ModelActions,
+  ModelInline,
+  CacheBenefit,
+  QualityAdditions,
+  AnalyticsDialogs,
+  createAnalyticsTrendChart
+} from './DashboardAnalytics';
+import { AnalyticsDetails } from './DashboardRequests';
+import useDashboardAnalytics from './useDashboardAnalytics';
+import { labels, keyName, latency } from './analyticsData';
+
 import SupportModels from './component/SupportModels';
 import QuickStartCard from './component/QuickStartCard';
 import StatusPanel from './component/StatusPanel';
 import { API } from 'utils/api';
-import { calculateQuota, renderQuota, showError } from 'utils/common';
-import { exactNumber, formatCompact, formatLatency, formatPercent } from './dashboardData';
+import { renderQuota } from 'utils/common';
+import { exactNumber, formatCompact, formatPercent } from './dashboardData';
 
-const periods = [7, 30, 90];
+const periods = ['24h', 7, 30, 90];
 
 const Dashboard = () => {
   const theme = useTheme();
@@ -43,10 +55,18 @@ const Dashboard = () => {
   const siteInfo = useSelector((state) => state.siteInfo);
   const [period, setPeriod] = useState(30);
   const [metric, setMetric] = useState('quota');
-  const [usage, setUsage] = useState(null);
+  const analytics = useDashboardAnalytics(period, setPeriod, metric, setMetric);
+  const { usage, loading, updated: lastUpdated, refresh: loadDashboard } = analytics;
   const [rate, setRate] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [lastUpdated, setLastUpdated] = useState(null);
+  useEffect(() => {
+    const abort = new AbortController();
+    API.get('/api/user/dashboard/rate', { skipErrorToast: true, signal: abort.signal })
+      .then((r) => {
+        if (r.data.success) setRate(r.data.data);
+      })
+      .catch(() => {});
+    return () => abort.abort();
+  }, [lastUpdated]);
   const [currentTab, setCurrentTab] = useState(0);
 
   const copy = zh
@@ -127,37 +147,23 @@ const Dashboard = () => {
         last: 'Updated'
       };
 
-  const loadDashboard = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [usageResponse, rateResponse] = await Promise.all([
-        API.get(`/api/user/dashboard/usage?days=${period}`),
-        API.get('/api/user/dashboard/rate')
-      ]);
-      if (!usageResponse.data.success) {
-        showError(usageResponse.data.message);
-        return;
-      }
-      setUsage(usageResponse.data.data);
-      if (rateResponse.data.success) setRate(rateResponse.data.data);
-      setLastUpdated(new Date());
-    } catch (error) {
-      showError(error?.message || 'Dashboard request failed');
-    } finally {
-      setLoading(false);
-    }
-  }, [period]);
-
-  useEffect(() => {
-    loadDashboard();
-  }, [loadDashboard]);
-
   const totals = useMemo(() => usage?.totals || {}, [usage]);
-  const daily = useMemo(() => usage?.daily || [], [usage]);
-  const models = useMemo(() => usage?.models || [], [usage]);
+  const models = useMemo(
+    () =>
+      analytics.rank === 'key'
+        ? analytics.usage.keys.map((k) => ({
+            ...k,
+            model_name: keyName(k.id),
+            requests: k.success,
+            prompt_tokens: k.input,
+            completion_tokens: k.output
+          }))
+        : usage?.models || [],
+    [usage, analytics.rank, analytics.usage]
+  );
   const totalTokens = (totals.prompt_tokens || 0) + (totals.completion_tokens || 0);
 
-  const trendChart = useMemo(() => createTrendChart(daily, metric, theme), [daily, metric, theme]);
+  const trendChart = createAnalyticsTrendChart(analytics, metric, theme);
   const kpis = [
     { label: copy.spend, value: renderQuota(totals.quota || 0, 2), exact: renderQuota(totals.quota || 0, 6), icon: IconCoins },
     { label: copy.requests, value: formatCompact(totals.requests || 0), exact: exactNumber(totals.requests || 0), icon: IconActivity },
@@ -170,14 +176,14 @@ const Dashboard = () => {
     },
     {
       label: copy.latency,
-      value: formatLatency(totals.average_latency_ms),
+      value: totals.duration_samples ? latency(totals.average_latency_ms) : '—',
       exact: `${exactNumber(totals.average_latency_ms || 0)} ms`,
       icon: IconClock
     }
   ];
 
   const usageContent = (
-    <Stack spacing={2.5}>
+    <Stack spacing={2.5} sx={{ '& .MuiButton-root': { whiteSpace: 'nowrap', flexShrink: 0 }, '& .MuiButtonGroup-root': { flexShrink: 0 } }}>
       <Box
         sx={{
           display: 'flex',
@@ -193,7 +199,7 @@ const Dashboard = () => {
               {copy.title}
             </Typography>
             <Chip
-              label={`${period}D`}
+              label={labels[period]}
               size="small"
               sx={{ fontWeight: 700, bgcolor: alpha(theme.palette.primary.main, 0.1), color: 'primary.main' }}
             />
@@ -211,10 +217,13 @@ const Dashboard = () => {
           <ButtonGroup size="small" aria-label="dashboard period">
             {periods.map((value) => (
               <Button key={value} variant={period === value ? 'contained' : 'outlined'} onClick={() => setPeriod(value)}>
-                {value}D
+                {labels[value]}
               </Button>
             ))}
           </ButtonGroup>
+          <Button size="small" variant="outlined" onClick={() => analytics.setDialog({ type: 'date' })}>
+            自定义
+          </Button>
           <Tooltip title={copy.refresh}>
             <span>
               <Button aria-label={copy.refresh} variant="outlined" onClick={loadDashboard} disabled={loading} sx={{ minWidth: 38, px: 1 }}>
@@ -224,6 +233,20 @@ const Dashboard = () => {
           </Tooltip>
         </Stack>
       </Box>
+
+      <AnalyticsControls analytics={analytics} />
+      {analytics.error && (
+        <Alert
+          severity="error"
+          action={
+            <Button color="inherit" onClick={loadDashboard}>
+              重试
+            </Button>
+          }
+        >
+          {analytics.error}
+        </Alert>
+      )}
 
       <Paper variant="outlined" sx={{ overflow: 'hidden', borderRadius: 3, bgcolor: alpha(theme.palette.background.paper, 0.78) }}>
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(5, 1fr)' } }}>
@@ -248,6 +271,7 @@ const Dashboard = () => {
                   <Typography sx={{ mt: 1.1, fontSize: { xs: '1.35rem', lg: '1.55rem' }, fontWeight: 760, letterSpacing: '-0.035em' }}>
                     {item.value}
                   </Typography>
+                  <Comparison analytics={analytics} field={['cost', 'success', 'tokens', 'cache_hit_rate', 'average_latency_ms'][index]} />
                 </Box>
               </Tooltip>
             );
@@ -259,36 +283,75 @@ const Dashboard = () => {
         <Section
           title={copy.trend}
           action={
-            <ButtonGroup size="small">
-              {[
-                ['quota', copy.quota],
-                ['tokens', copy.tokenMetric],
-                ['requests', copy.requestMetric]
-              ].map(([value, label]) => (
-                <Button key={value} variant={metric === value ? 'contained' : 'text'} onClick={() => setMetric(value)}>
-                  {label}
-                </Button>
-              ))}
-            </ButtonGroup>
+            <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+              <ButtonGroup size="small">
+                {[
+                  ['quota', copy.quota],
+                  ['tokens', copy.tokenMetric],
+                  ['requests', copy.requestMetric]
+                ].map(([value, label]) => (
+                  <Button key={value} variant={metric === value ? 'contained' : 'text'} onClick={() => setMetric(value)}>
+                    {label}
+                  </Button>
+                ))}
+              </ButtonGroup>
+              <TextField
+                select
+                size="small"
+                value={['p50', 'p95', 'error', 'cache'].includes(metric) ? metric : ''}
+                onChange={(e) => setMetric(e.target.value)}
+                SelectProps={{ displayEmpty: true }}
+                inputProps={{ 'aria-label': '性能与质量指标' }}
+                sx={{ minWidth: 118, '& .MuiSelect-select': { py: 0.7, fontSize: 12 } }}
+              >
+                <MenuItem value="" disabled>
+                  性能 / 质量
+                </MenuItem>
+                {[
+                  ['p50', '首响应 P50'],
+                  ['p95', '首响应 P95'],
+                  ['error', '错误率'],
+                  ['cache', '缓存命中率']
+                ].map(([v, l]) => (
+                  <MenuItem key={v} value={v}>
+                    {l}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TrendExtra analytics={analytics} />
+            </Stack>
           }
         >
           <Box sx={{ minHeight: 330, mt: 1 }}>
             {loading ? (
               <CenteredLoader />
-            ) : daily.length ? (
-              <Chart options={trendChart.options} series={trendChart.series} type="area" height={330} />
+            ) : analytics.usage.totals.count ? (
+              <Chart
+                options={trendChart.options}
+                series={trendChart.series}
+                type={analytics.options.composition && ['quota', 'tokens', 'requests'].includes(metric) ? 'bar' : 'area'}
+                height={330}
+              />
             ) : (
               <EmptyState text={copy.noData} />
             )}
           </Box>
         </Section>
 
-        <Section title={copy.models} subtitle={copy.modelHint}>
+        <Section
+          title={analytics.rank === 'key' ? 'Key 用量' : copy.models}
+          subtitle={analytics.rank === 'performance' ? '当前个人样本 · 仍按消费排序' : copy.modelHint}
+          action={<ModelActions analytics={analytics} />}
+        >
           <Stack spacing={2.1} sx={{ mt: 2.2 }}>
             {models.slice(0, 6).map((model, index) => {
               const maximum = models[0]?.quota || 1;
               return (
-                <Box key={model.model_name}>
+                <Box
+                  key={model.model_name}
+                  sx={{ cursor: 'pointer' }}
+                  onClick={() => analytics.openLogs(analytics.rank === 'key' ? { key: model.id } : { model: model.id })}
+                >
                   <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
                     <Stack direction="row" alignItems="center" spacing={1.2} minWidth={0}>
                       <Typography variant="caption" color="text.secondary" sx={{ width: 18 }}>
@@ -307,6 +370,7 @@ const Dashboard = () => {
                     value={Math.max(2, (model.quota * 100) / maximum)}
                     sx={{ height: 4, borderRadius: 3, mt: 1, bgcolor: alpha(theme.palette.primary.main, 0.08) }}
                   />
+                  <ModelInline analytics={analytics} model={model} />
                   <Typography variant="caption" color="text.secondary">
                     {formatCompact(model.requests)} {copy.requests.toLowerCase()} ·{' '}
                     {formatCompact((model.prompt_tokens || 0) + (model.completion_tokens || 0), ' Tokens')}
@@ -351,6 +415,7 @@ const Dashboard = () => {
             value={Math.min(100, totals.cache_hit_rate || 0)}
             sx={{ height: 8, borderRadius: 8, bgcolor: alpha(theme.palette.primary.main, 0.08) }}
           />
+          <CacheBenefit analytics={analytics} />
         </Section>
 
         <Section title={copy.quality}>
@@ -361,7 +426,7 @@ const Dashboard = () => {
                   {copy.errors}
                 </Typography>
                 <Typography variant="h3" sx={{ mt: 0.5 }}>
-                  {formatPercent(totals.error_rate)}
+                  {analytics.usage.rates_tracked && totals.count ? formatPercent(totals.error_rate) : '—'}
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
                   {exactNumber(totals.errors || 0)} {copy.failedRequests} / {exactNumber((totals.requests || 0) + (totals.errors || 0))}{' '}
@@ -387,57 +452,12 @@ const Dashboard = () => {
               </Box>
               <IconActivity color={theme.palette.success.main} size={28} />
             </Stack>
+            <QualityAdditions analytics={analytics} />
           </Stack>
         </Section>
       </Box>
 
-      <Section title={copy.details} contentPadding={false}>
-        <TableContainer>
-          <Table size="small" sx={{ minWidth: 900 }}>
-            <TableHead>
-              <TableRow>
-                {[copy.date, copy.requests, copy.spend, copy.prompt, copy.output, copy.cacheRead, copy.latency, copy.errorCount].map(
-                  (label, index) => (
-                    <TableCell key={label} align={index ? 'right' : 'left'}>
-                      {label}
-                    </TableCell>
-                  )
-                )}
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {[...daily].reverse().map((row) => (
-                <TableRow key={row.date} hover>
-                  <TableCell>
-                    <Typography fontWeight={650}>{row.date}</Typography>
-                  </TableCell>
-                  <TableCell align="right">{exactNumber(row.requests)}</TableCell>
-                  <TableCell align="right">{renderQuota(row.quota, 3)}</TableCell>
-                  <TableCell align="right">
-                    <Tooltip title={exactNumber(row.prompt_tokens)}>
-                      <span>{formatCompact(row.prompt_tokens)}</span>
-                    </Tooltip>
-                  </TableCell>
-                  <TableCell align="right">
-                    <Tooltip title={exactNumber(row.completion_tokens)}>
-                      <span>{formatCompact(row.completion_tokens)}</span>
-                    </Tooltip>
-                  </TableCell>
-                  <TableCell align="right">
-                    <Tooltip title={exactNumber(row.cached_read_tokens)}>
-                      <span>{formatCompact(row.cached_read_tokens)}</span>
-                    </Tooltip>
-                  </TableCell>
-                  <TableCell align="right">{formatLatency(row.average_latency_ms)}</TableCell>
-                  <TableCell align="right">
-                    <Chip size="small" label={row.errors} color={row.errors ? 'warning' : 'default'} variant="outlined" />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </Section>
+      <AnalyticsDetails analytics={analytics} />
 
       <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: '.12em' }}>
         {copy.utility}
@@ -469,6 +489,12 @@ const Dashboard = () => {
         </Stack>
       )}
       {currentTab === 0 || !siteInfo.UptimeEnabled ? usageContent : <StatusPanel />}
+      <Stack direction="row" justifyContent="flex-end" sx={{ mt: 2 }}>
+        <Button size="small" onClick={() => analytics.setDialog({ type: 'about' })}>
+          统计口径
+        </Button>
+      </Stack>
+      <AnalyticsDialogs analytics={analytics} />
     </>
   );
 };
@@ -480,9 +506,11 @@ const Section = ({ title, subtitle, action, children, contentPadding = true }) =
       alignItems="flex-start"
       justifyContent="space-between"
       spacing={2}
+      flexWrap="wrap"
+      useFlexGap
       sx={{ px: 2.5, pt: 2.4, pb: contentPadding ? 0 : 2 }}
     >
-      <Box>
+      <Box sx={{ flex: '1 1 130px', minWidth: 0 }}>
         <Typography variant="h3" sx={{ fontWeight: 720, letterSpacing: '-.025em' }}>
           {title}
         </Typography>
@@ -538,50 +566,5 @@ Metric.propTypes = {
 EmptyState.propTypes = {
   text: PropTypes.string.isRequired
 };
-
-function createTrendChart(daily, metric, theme) {
-  const categories = daily.map((row) => row.date.slice(5));
-  let series;
-  if (metric === 'tokens') {
-    series = [
-      { name: 'Input', data: daily.map((row) => row.prompt_tokens || 0) },
-      { name: 'Output', data: daily.map((row) => row.completion_tokens || 0) },
-      { name: 'Cache read', data: daily.map((row) => row.cached_read_tokens || 0) }
-    ];
-  } else {
-    series = [
-      {
-        name: metric === 'quota' ? 'Spend' : 'Requests',
-        data: daily.map((row) => (metric === 'quota' ? Number(calculateQuota(row.quota || 0, 4)) : row.requests || 0))
-      }
-    ];
-  }
-  return {
-    series,
-    options: {
-      chart: {
-        toolbar: { show: false },
-        zoom: { enabled: false },
-        fontFamily: 'Inter, Public Sans, sans-serif',
-        background: 'transparent'
-      },
-      colors: ['#165DFF', '#7C3AED', '#14B8A6'],
-      dataLabels: { enabled: false },
-      stroke: { curve: 'smooth', width: metric === 'tokens' ? [2.5, 2, 2] : 2.5 },
-      fill: { type: 'gradient', gradient: { shadeIntensity: 0, opacityFrom: 0.25, opacityTo: 0.02, stops: [0, 90, 100] } },
-      grid: { borderColor: alpha(theme.palette.text.primary, 0.07), strokeDashArray: 4, padding: { left: 4, right: 10 } },
-      xaxis: {
-        categories,
-        axisBorder: { show: false },
-        axisTicks: { show: false },
-        labels: { style: { colors: theme.palette.text.secondary } },
-        tickAmount: Math.min(8, categories.length)
-      },
-      yaxis: { labels: { style: { colors: theme.palette.text.secondary }, formatter: (value) => formatCompact(value) } },
-      legend: { show: metric === 'tokens', position: 'top', horizontalAlign: 'right', labels: { colors: theme.palette.text.secondary } },
-      tooltip: { theme: theme.palette.mode, x: { show: true } }
-    }
-  };
-}
 
 export default Dashboard;

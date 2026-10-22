@@ -67,7 +67,7 @@ function requestTSLabelOptions(request_ts) {
 export default function LogTableRow({ item, userIsAdmin, userGroup, columnVisibility }) {
   const { t } = useTranslation()
   const LogType = useLogType()
-  let request_time = item.request_time / 1000
+  let request_time = item.type === 5 && item.metadata?.request_time_unit !== 'ms' ? item.request_time : item.request_time / 1000
   let request_time_str = request_time.toFixed(2) + ' S'
 
   let first_time = item.metadata?.first_response ? item.metadata.first_response / 1000 : 0

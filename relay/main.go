@@ -83,13 +83,14 @@ func Relay(c *gin.Context) {
 		errorSource = "local"
 	}
 	errorMetadata := map[string]any{
-		"status_code":   apiErr.StatusCode,
-		"error_type":    apiErr.OpenAIError.Type,
-		"error_message": utils.TruncateBase64InMessage(apiErr.OpenAIError.Message),
-		"local_error":   apiErr.LocalError,
-		"error_source":  errorSource,
-		"attempt_count": finalAttempt,
-		"channel_type":  selection.ChannelType,
+		"request_time_unit": "ms",
+		"status_code":       apiErr.StatusCode,
+		"error_type":        apiErr.OpenAIError.Type,
+		"error_message":     utils.TruncateBase64InMessage(apiErr.OpenAIError.Message),
+		"local_error":       apiErr.LocalError,
+		"error_source":      errorSource,
+		"attempt_count":     finalAttempt,
+		"channel_type":      selection.ChannelType,
 	}
 	if reasoningEffort := c.GetString(config.GinReasoningEffortKey); reasoningEffort != "" {
 		errorMetadata["reasoning_effort"] = reasoningEffort
@@ -102,7 +103,7 @@ func Relay(c *gin.Context) {
 		modelName,
 		c.GetString("token_name"),
 		fmt.Sprintf("[%d] %s", apiErr.StatusCode, apiErr.OpenAIError.Type),
-		int(time.Since(startTime).Seconds()),
+		int(time.Since(startTime).Milliseconds()),
 		relay.IsStream(),
 		errorMetadata,
 		c.ClientIP(),
