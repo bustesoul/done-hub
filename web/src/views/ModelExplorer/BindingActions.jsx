@@ -45,12 +45,14 @@ export default function BindingActions({ route, model, result, onResult, onSave,
         { model: model.id, channel_id: route.id },
         { timeout: 65000, validateStatus: () => true, skipErrorToast: true }
       );
-      onResult({
-        success: data.success,
-        latency: data.data?.latency_ms ?? data.error?.latency_ms,
-        message: data.message || (data.success ? '测试成功' : '测试失败'),
-        at: Date.now()
-      });
+      onResult(
+        data.data?.last_probe || {
+          success: data.success,
+          latency: data.data?.latency_ms ?? data.error?.latency_ms,
+          message: data.message || (data.success ? '测试成功' : '测试失败'),
+          at: Date.now()
+        }
+      );
     } catch (e) {
       onResult({
         success: false,
@@ -84,11 +86,14 @@ export default function BindingActions({ route, model, result, onResult, onSave,
             <Typography variant="caption">测试中…</Typography>
           </Stack>
         ) : result ? (
-          <Tooltip title={`${result.message} · ${new Date(result.at).toLocaleString()} · 本页最近一次手动测试`}>
+          <Tooltip title={`${result.message} · ${new Date(result.at).toLocaleString()} · 最近一次手动测试`}>
             <Stack alignItems="center" spacing={0.5}>
               <Label color={result.success ? 'success' : 'error'}>{result.success ? '成功' : '失败'}</Label>
               <Typography variant="caption">
                 {result.latency != null ? `${(result.latency / 1000).toFixed(2)} 秒 · 总耗时` : '悬停查看原因'}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {new Date(result.at).toLocaleString(undefined, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
               </Typography>
             </Stack>
           </Tooltip>

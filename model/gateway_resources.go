@@ -75,6 +75,8 @@ type GatewayModelRoute struct {
 	PriceVersion  string    `json:"price_version" gorm:"type:varchar(64)"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
+
+	LastProbe ModelProbeResult `json:"-" gorm:"embedded;embeddedPrefix:last_probe_"`
 }
 
 type GatewayPolicy struct {

@@ -111,6 +111,8 @@ type ModelExplorerRoute struct {
 	Global    bool     `json:"global"`
 	Enabled   bool     `json:"enabled"`
 	Cool      bool     `json:"cool"`
+
+	LastProbe *ModelProbeResult `json:"lastProbe,omitempty"`
 }
 
 type ExplorerModel struct {
@@ -167,7 +169,12 @@ func GetExplorerModels(ctx context.Context) ([]*ExplorerModel, error) {
 		if weight == 0 {
 			weight = config.DefaultChannelWeight
 		}
-		m.Routes = append(m.Routes, &ModelExplorerRoute{ID: e.ChannelID, Model: r.PublicModel, Name: e.Name, Upstream: strings.TrimPrefix(r.UpstreamModel, "+"), Groups: splitNonEmpty(e.Group), Profile: e.ProtocolProfileID, Protocols: []string{}, Priority: r.Priority, Weight: weight, Global: e.Status == config.ChannelStatusEnabled, Enabled: !disabled[ModelChannelOverride{e.ChannelID, r.PublicModel}], Cool: GatewayRoutes.IsInCooldown(e.ChannelID, r.PublicModel)})
+		var lastProbe *ModelProbeResult
+		if r.LastProbe.At > 0 {
+			probe := r.LastProbe
+			lastProbe = &probe
+		}
+		m.Routes = append(m.Routes, &ModelExplorerRoute{ID: e.ChannelID, Model: r.PublicModel, Name: e.Name, Upstream: strings.TrimPrefix(r.UpstreamModel, "+"), Groups: splitNonEmpty(e.Group), Profile: e.ProtocolProfileID, Protocols: []string{}, Priority: r.Priority, Weight: weight, Global: e.Status == config.ChannelStatusEnabled, Enabled: !disabled[ModelChannelOverride{e.ChannelID, r.PublicModel}], Cool: GatewayRoutes.IsInCooldown(e.ChannelID, r.PublicModel), LastProbe: lastProbe})
 	}
 	result := make([]*ExplorerModel, 0, len(models))
 	for _, m := range models {

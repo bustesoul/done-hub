@@ -237,7 +237,7 @@ function ModelExplorerContent({ models, usage, loading, error, reload, updateBin
       id: 'probe',
       label: '最近测试',
       minWidth: 120,
-      tooltip: '本页最近一次手动测试的完整请求耗时；刷新页面后清空，与历史首响应和速度无关。'
+      tooltip: '保留此模型与渠道最近一次完成的手动测试，刷新后仍可查看；展示完整请求耗时，与历史首响应和速度无关。'
     },
     { id: 'actions', label: '操作', minWidth: 85 }
   ].map((h) => ({ ...h, align: 'center', disableSort: true }));
@@ -248,6 +248,8 @@ function ModelExplorerContent({ models, usage, loading, error, reload, updateBin
       peers = ready.filter((c) => c.priority === r.priority),
       weight = peers.reduce((n, c) => n + c.weight, 0),
       resultKey = JSON.stringify([model.id, r.id]),
+      localResult = probeResults[resultKey],
+      probeResult = localResult?.testing || (localResult && (!r.lastProbe || localResult.at >= r.lastProbe.at)) ? localResult : r.lastProbe,
       share = eligible(r) && weight ? Math.round((r.weight / weight) * 100) + '%' : '—';
     return (
       <TableRow key={resultKey} data-route={r.id} sx={!r.global ? { opacity: 0.6 } : undefined}>
@@ -338,7 +340,7 @@ function ModelExplorerContent({ models, usage, loading, error, reload, updateBin
         <BindingActions
           route={r}
           model={model}
-          result={probeResults[resultKey]}
+          result={probeResult}
           onResult={(value) => setProbeResults((previous) => ({ ...previous, [resultKey]: value }))}
           onSave={updateScheduling}
           disabled={loading || saving}
@@ -619,7 +621,7 @@ function ModelExplorerContent({ models, usage, loading, error, reload, updateBin
                   / {scoped.length} 条绑定
                 </Typography>
               </Typography>
-              <Typography variant="caption">优先级、权重仅影响当前模型</Typography>
+              <Typography variant="caption">数值越大越优先（10 先于 0）；同层按权重分流，仅影响当前模型</Typography>
             </Stack>
             {ready.length < 2 && (
               <Alert severity="warning" sx={{ mx: 2, mb: 2 }}>

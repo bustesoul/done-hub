@@ -100,6 +100,23 @@ func TestModelBindingProbeUsesMappingWithoutMutatingHealth(t *testing.T) {
 		if !reflect.DeepEqual(before, snapshot()) {
 			t.Fatal("manual probe changed persisted channel health/credentials/logs/switches")
 		}
+		catalog, err := model.GetExplorerModels(c.Request.Context())
+		if err != nil || len(catalog) != 1 || len(catalog[0].Routes) != 1 {
+			t.Fatal("cannot reload probe from catalog", catalog, err)
+		}
+		probe := catalog[0].Routes[0].LastProbe
+		if probe == nil || probe.At == 0 || probe.Success != !failed || probe.Message == "" {
+			t.Fatal("completed probe not persisted", probe)
+		}
+		responseProbe := result["data"].(map[string]any)["last_probe"]
+		wantJSON, _ := json.Marshal(probe)
+		gotJSON, _ := json.Marshal(responseProbe)
+		var want, got map[string]any
+		json.Unmarshal(wantJSON, &want)
+		json.Unmarshal(gotJSON, &got)
+		if !reflect.DeepEqual(want, got) {
+			t.Fatal("response differs from persisted result", want, got)
+		}
 	}
 	if calls.Load() != 2 {
 		t.Fatal("probe issued extra requests", calls.Load())

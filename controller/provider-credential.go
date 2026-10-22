@@ -183,6 +183,21 @@ func writeProviderProbeError(
 	latency int64,
 	stage string,
 ) {
+	status, code, message := providerProbeErrorDetails(openaiErr, testErr)
+	c.JSON(status, gin.H{
+		"success": false,
+		"message": message,
+		"error": gin.H{
+			"code":       code,
+			"message":    message,
+			"stage":      stage,
+			"latency_ms": latency,
+			"request_id": c.GetString("request_id"),
+		},
+	})
+}
+
+func providerProbeErrorDetails(openaiErr *types.OpenAIErrorWithStatusCode, testErr error) (int, string, string) {
 	message := "连接探测失败"
 	code := "UPSTREAM_PROBE_FAILED"
 	status := http.StatusBadGateway
@@ -198,15 +213,5 @@ func writeProviderProbeError(
 	} else if testErr != nil {
 		message = utils.MaskSensitiveInfo(testErr.Error())
 	}
-	c.JSON(status, gin.H{
-		"success": false,
-		"message": message,
-		"error": gin.H{
-			"code":       code,
-			"message":    message,
-			"stage":      stage,
-			"latency_ms": latency,
-			"request_id": c.GetString("request_id"),
-		},
-	})
+	return status, code, message
 }

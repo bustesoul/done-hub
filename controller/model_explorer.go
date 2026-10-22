@@ -106,7 +106,8 @@ func ProbeModelExplorerBinding(c *gin.Context) {
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
 	defer cancel()
-	if _, err := model.GetModelChannelRoute(ctx, body.ChannelID, body.Model); err != nil {
+	route, err := model.GetModelChannelRoute(ctx, body.ChannelID, body.Model)
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "模型渠道绑定不存在"})
 		return
 	}
@@ -118,9 +119,24 @@ func ProbeModelExplorerBinding(c *gin.Context) {
 	started := time.Now()
 	apiErr, testErr := testChannelWithContext(ctx, channel, body.Model)
 	latency := time.Since(started).Milliseconds()
+	result := model.ModelProbeResult{At: time.Now().UnixMilli(), Success: apiErr == nil && testErr == nil, Latency: latency, Message: "测试成功"}
+	status, code := http.StatusOK, ""
 	if apiErr != nil || testErr != nil {
-		writeProviderProbeError(c, apiErr, testErr, latency, "inference")
+		status, code, result.Message = providerProbeErrorDetails(apiErr, testErr)
+	}
+	// Save even when the client navigates away or the upstream request times out.
+	saveCtx, saveCancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 5*time.Second)
+	defer saveCancel()
+	if err := model.SaveModelChannelProbe(saveCtx, route.ID, result); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "测试已完成，但保存结果失败，请重试"})
 		return
 	}
-	writeProviderProbeSuccess(c, latency, channel.ProtocolProfileID, nil, "")
+	response := gin.H{
+		"success": result.Success, "message": result.Message,
+		"data": gin.H{"latency_ms": latency, "last_probe": result},
+	}
+	if !result.Success {
+		response["error"] = gin.H{"code": code, "message": result.Message, "stage": "inference", "latency_ms": latency}
+	}
+	c.JSON(status, response)
 }
