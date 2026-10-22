@@ -25,6 +25,7 @@ import QuotaWithDetailContent from '../Log/component/QuotaWithDetailContent';
 import { calculateTokenBilling } from '../Log/component/tokenBilling';
 import { useDashboardRequests } from './useDashboardAnalytics';
 import { requestParams, datetime, money, compact, latency, csv } from './analyticsData';
+import { outputSpeed, outputSpeedDetail } from 'utils/outputSpeed';
 
 function RequestStatus({ row }) {
   return (
@@ -249,8 +250,7 @@ function OpenRequestDrawer({ analytics: p }) {
   const data = useDashboardRequests(params, d.type === 'logs'),
     r = d.request,
     first = r ? firstTime(r) : null;
-  const speed =
-    first != null && r.request_time > first && r.completion_tokens > 0 ? (r.completion_tokens * 1000) / (r.request_time - first) : null;
+  const speed = outputSpeed(r)?.tps;
   const update = (value) => p.setDrawer((v) => ({ ...v, ...value }));
   return (
     <Drawer
@@ -346,7 +346,8 @@ function OpenRequestDrawer({ analytics: p }) {
             <Stack direction="row" spacing={3} flexWrap="wrap" useFlexGap sx={{ py: 3 }}>
               {[
                 ['首响应', latency(first)],
-                ['估算输出速度', speed == null ? '—' : speed.toFixed(1) + ' t/s'],
+                ['输出 TPS', speed == null ? '—' : speed.toFixed(2) + ' t/s'],
+                ['TPS 口径', outputSpeedDetail(r)],
                 ['总耗时', r.request_time > 0 ? latency(r.request_time) : '—']
               ].map(([label, value]) => (
                 <Box key={label}>

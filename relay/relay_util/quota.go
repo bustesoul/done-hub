@@ -223,6 +223,12 @@ func (q *Quota) completedQuotaConsumption(usage *types.Usage, tokenName string, 
 	}
 
 	// 无论配额操作是否成功，都要记录日志，避免上游已计费但本地无记录
+	metadata := q.GetLogMeta(usage)
+	if started, last, duration := requeststate.From(ctx).UpstreamResponseTiming(); started > 0 {
+		metadata["upstream_started_at"] = started
+		metadata["upstream_last_byte_at"] = last
+		metadata["upstream_response_ms"] = duration
+	}
 	model.RecordConsumeLog(
 		ctx,
 		q.userId,
@@ -236,7 +242,7 @@ func (q *Quota) completedQuotaConsumption(usage *types.Usage, tokenName string, 
 		"",
 		q.getRequestTime(),
 		isStream,
-		q.GetLogMeta(usage),
+		metadata,
 		sourceIp,
 	)
 	model.UpdateUserUsedQuotaAndRequestCount(q.userId, quota)

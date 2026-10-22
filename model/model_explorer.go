@@ -247,22 +247,23 @@ type ExplorerError struct {
 }
 
 type ExplorerStats struct {
-	ConsumeCount                                                   int64           `json:"consumeCount"`
-	ErrorCount                                                     int64           `json:"errorCount"`
-	Quota                                                          int64           `json:"quota"`
-	CostQuota                                                      int64           `json:"costQuota"`
-	CostSampleCount                                                int64           `json:"costSampleCount"`
-	FirstResponseMs                                                *float64        `json:"firstResponseMs"`
-	FirstSampleCount                                               int64           `json:"firstSampleCount"`
-	TPS                                                            *float64        `json:"tps"`
-	SpeedSampleCount                                               int64           `json:"speedSampleCount"`
-	LatencyMs                                                      *float64        `json:"latencyMs"`
-	PromptTokens                                                   int64           `json:"promptTokens"`
-	CompletionTokens                                               int64           `json:"completionTokens"`
-	Ratio                                                          *float64        `json:"ratio"`
-	Ambiguous                                                      int64           `json:"ambiguous"`
-	RecentErrors                                                   []ExplorerError `json:"recentErrors"`
-	firstTotal, speedMs, speedTokens, latencyTotal, latencySamples int64
+	ConsumeCount                                          int64           `json:"consumeCount"`
+	ErrorCount                                            int64           `json:"errorCount"`
+	Quota                                                 int64           `json:"quota"`
+	CostQuota                                             int64           `json:"costQuota"`
+	CostSampleCount                                       int64           `json:"costSampleCount"`
+	FirstResponseMs                                       *float64        `json:"firstResponseMs"`
+	FirstSampleCount                                      int64           `json:"firstSampleCount"`
+	TPS                                                   *float64        `json:"tps"`
+	SpeedSampleCount                                      int64           `json:"speedSampleCount"`
+	LatencyMs                                             *float64        `json:"latencyMs"`
+	PromptTokens                                          int64           `json:"promptTokens"`
+	CompletionTokens                                      int64           `json:"completionTokens"`
+	Ratio                                                 *float64        `json:"ratio"`
+	Ambiguous                                             int64           `json:"ambiguous"`
+	RecentErrors                                          []ExplorerError `json:"recentErrors"`
+	firstTotal, speedTokens, latencyTotal, latencySamples int64
+	speedMs                                               float64
 }
 
 func (s *ExplorerStats) add(l *Log) {
@@ -293,11 +294,11 @@ func (s *ExplorerStats) add(l *Log) {
 	if l.IsStream && first > 0 && first <= int64(l.RequestTime) {
 		s.FirstSampleCount++
 		s.firstTotal += first
-		if l.CompletionTokens > 0 && first < int64(l.RequestTime) {
-			s.SpeedSampleCount++
-			s.speedTokens += int64(l.CompletionTokens)
-			s.speedMs += int64(l.RequestTime) - first
-		}
+	}
+	if tokens, duration := LogOutputSpeedSample(l); duration > 0 {
+		s.SpeedSampleCount++
+		s.speedTokens += tokens
+		s.speedMs += duration
 	}
 }
 func (s *ExplorerStats) finish(consumeTracked, errorsTracked bool) {
@@ -310,7 +311,10 @@ func (s *ExplorerStats) finish(consumeTracked, errorsTracked bool) {
 	}
 	s.FirstResponseMs = avg(s.firstTotal, s.FirstSampleCount)
 	s.LatencyMs = avg(s.latencyTotal, s.latencySamples)
-	s.TPS = avg(s.speedTokens*1000, s.speedMs)
+	if s.speedMs > 0 {
+		speed := float64(s.speedTokens) * 1000 / s.speedMs
+		s.TPS = &speed
+	}
 	if consumeTracked && errorsTracked && s.Ambiguous == 0 {
 		s.Ratio = avg(s.ConsumeCount*100, s.ConsumeCount+s.ErrorCount)
 	}

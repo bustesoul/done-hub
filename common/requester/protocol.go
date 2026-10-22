@@ -47,18 +47,19 @@ func ProtocolForPath(path string) string {
 	return ""
 }
 
-func observeRequestProtocol(req *http.Request) {
+func observeRequestProtocol(req *http.Request) bool {
 	if req.Method != http.MethodPost {
-		return
+		return false
 	}
 	protocol, _ := req.Context().Value(wireProtocolKey{}).(string)
 	if protocol == "" {
 		protocol = ProtocolForPath(req.URL.Path)
 	}
 	if protocol == "" {
-		return
+		return false
 	} // Do not overwrite with OAuth, quota or discovery requests.
 	requeststate.From(req.Context()).ObserveUpstreamProtocol(protocol)
+	return true
 }
 
 // WithRequestProtocol tags a constructed request without emitting an observation until send.

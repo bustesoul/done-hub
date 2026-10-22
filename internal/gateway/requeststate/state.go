@@ -34,6 +34,7 @@ type State struct {
 	values           map[string]any
 	params           map[string]string
 	upstreamObserver func(string)
+	upstreamTiming   *UpstreamTiming
 }
 
 func Ensure(request *http.Request) (*http.Request, *State) {
@@ -161,6 +162,7 @@ func (s *State) SetStreamSession(session *stream.Session) {
 	}
 	s.mu.Lock()
 	s.streamSession = session
+	s.upstreamTiming = nil
 	observer := s.upstreamObserver
 	s.mu.Unlock()
 	if observer != nil {

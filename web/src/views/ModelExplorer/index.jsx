@@ -41,6 +41,7 @@ import FilterCollapse from 'ui-component/FilterCollapse';
 import Label from 'ui-component/Label';
 import TableHead from 'ui-component/TableHead';
 import BindingActions from './BindingActions';
+import { outputSpeedExplanation } from 'utils/outputSpeed';
 import { normalizeModel, normalizeHistory, eligible, missingReason, estimateExplanation } from './data';
 const number = (n) => n.toLocaleString('en-US');
 const seconds = (n) => (n === null ? '—' : (n / 1000).toFixed(2) + ' 秒');
@@ -293,7 +294,9 @@ function ModelExplorerContent({ models, usage, loading, error, reload, updateBin
             <Label color={obs.firstResponseMs === null ? 'default' : obs.firstResponseMs <= 1000 ? 'success' : 'primary'}>
               {seconds(obs.firstResponseMs)}
             </Label>
-            <Typography variant="caption">{obs.tps === null ? '速度 —' : '约 ' + obs.tps.toFixed(1) + ' tok/s'}</Typography>
+            <Tooltip title={outputSpeedExplanation}>
+              <Typography variant="caption">{obs.tps === null ? '速度 —' : obs.tps.toFixed(2) + ' tok/s'}</Typography>
+            </Tooltip>
             <Typography variant="caption">
               {obs.firstSampleCount
                 ? '首响应样本 ' + number(obs.firstSampleCount)
@@ -831,9 +834,9 @@ function ModelExplorerContent({ models, usage, loading, error, reload, updateBin
                 ],
                 ['平均首响应', seconds(detailStats.firstResponseMs), `有效流式样本 ${number(detailStats.firstSampleCount)}`],
                 [
-                  '近似输出速度',
-                  detailStats.tps === null ? '—' : detailStats.tps.toFixed(1) + ' tok/s',
-                  `有效样本 ${number(detailStats.speedSampleCount)}`
+                  '输出 TPS',
+                  detailStats.tps === null ? '—' : detailStats.tps.toFixed(2) + ' tok/s',
+                  `有效样本 ${number(detailStats.speedSampleCount)}；${outputSpeedExplanation}`
                 ],
                 ['平均请求耗时', seconds(detailStats.latencyMs), '仅计费日志，含等待及可能的重试'],
                 [
@@ -904,7 +907,7 @@ function ModelExplorerContent({ models, usage, loading, error, reload, updateBin
               首响应：仅取流式计费记录中有效的 first_response，表示首个数据帧到达，不保证已有可见文本。未采集不计为 0。
             </Typography>
             <Typography variant="body1">
-              输出速度：有效样本的输出 Token 总数 ÷ 首响应后剩余时长总和。仅使用流式记录，且输出 Token 大于 0、总耗时大于首响应时间。
+              {outputSpeedExplanation} 模型汇总使用有效样本的非推理输出 Token 总数 ÷ 耗时总和，支持流式和非流式请求。
             </Typography>
             <Typography variant="body1">
               历史范围：模型 ×

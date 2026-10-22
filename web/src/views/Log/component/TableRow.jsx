@@ -16,6 +16,7 @@ import QuotaWithDetailContent, { calculatePrice } from './QuotaWithDetailContent
 import { calculateTokenBilling, formatTokenCount } from './tokenBilling'
 import { styled } from '@mui/material/styles'
 import { stickyCellSx } from 'ui-component/stickyCellSx';
+import { outputSpeed, outputSpeedDetail } from 'utils/outputSpeed';
 
 function renderType(type, logTypes, t) {
   const typeOption = logTypes[type]
@@ -77,15 +78,9 @@ export default function LogTableRow({ item, userIsAdmin, userGroup, columnVisibi
   let first_time = item.metadata?.first_response ? item.metadata.first_response / 1000 : 0
   let first_time_str = first_time ? `${first_time.toFixed(2)} S` : ''
 
-  const stream_time = request_time - first_time
-
-  let request_ts = 0
-  let request_ts_str = ''
-  if (first_time > 0 && item.completion_tokens > 0) {
-    // Using the completion_tokens directly since we already checked it's > 0
-    request_ts = item.completion_tokens / stream_time
-    request_ts_str = `${request_ts.toFixed(2)} t/s`
-  }
+  const speed = outputSpeed(item)
+  const request_ts = speed?.tps ?? 0
+  const request_ts_str = speed ? `${request_ts.toFixed(2)} t/s` : ''
 
   const tokenBilling = useMemo(() => calculateTokenBilling(item), [item])
 
@@ -179,7 +174,7 @@ export default function LogTableRow({ item, userIsAdmin, userGroup, columnVisibi
                 {item.request_time === 0 ? '无' : request_time_str} {first_time_str ? ' / ' + first_time_str : ''}
               </Label>
 
-              {request_ts_str && <Label color={requestTSLabelOptions(request_ts)}>{request_ts_str}</Label>}
+              {request_ts_str && <Tooltip title={outputSpeedDetail(item)}><Label color={requestTSLabelOptions(request_ts)}>{request_ts_str}</Label></Tooltip>}
             </Stack>}
           </TableCell>
         )}

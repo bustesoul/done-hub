@@ -340,9 +340,9 @@ func (s *DashboardUsageTotals) add(l *Log) {
 	first := metadataNumber(m, "first_response")
 	if l.IsStream && first > 0 && first <= float64(l.RequestTime) {
 		s.firsts = append(s.firsts, first)
-		if l.CompletionTokens > 0 && float64(l.RequestTime) > first {
-			s.speeds = append(s.speeds, float64(l.CompletionTokens)*1000/(float64(l.RequestTime)-first))
-		}
+	}
+	if tokens, duration := LogOutputSpeedSample(l); duration > 0 {
+		s.speeds = append(s.speeds, float64(tokens)*1000/duration)
 	}
 	if sRead := metadataCachedReadTokens(m) + metadataInt64(m, "cached_write_tokens") + metadataInt64(m, "cached_write_1h_tokens") + metadataInt64(m, "openai_cache_write_tokens"); sRead > 0 {
 		s.CacheRequests++

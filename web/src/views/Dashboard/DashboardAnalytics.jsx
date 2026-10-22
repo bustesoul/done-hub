@@ -30,6 +30,7 @@ import { IconX, IconDownload, IconBookmark } from '@tabler/icons-react';
 import { DAY, labels, money, compact, latency, datetime, dateinput, modelName, keyName, csv } from './analyticsData';
 import { RequestDrawer } from './DashboardRequests';
 import { showSuccess } from 'utils/common';
+import { outputSpeedExplanation } from 'utils/outputSpeed';
 
 export const AnalyticsSection = ({ title, subtitle, action, children, pad = true }) => (
   <Paper variant="outlined" sx={{ borderRadius: 3, overflow: 'hidden', height: '100%' }}>
@@ -214,10 +215,13 @@ export function ModelInline({ analytics: p, model }) {
         </Box>
       </Typography>
       <Typography variant="caption" color="text.secondary">
-        {model.tps == null ? '—' : model.tps.toFixed(1) + ' t/s'}
+        {model.tps == null ? '—' : model.tps.toFixed(2) + ' t/s'}
       </Typography>
       <Typography variant="caption" color={model.samples < 20 ? 'warning.main' : 'text.secondary'}>
-        {model.samples} 样本
+        首响应 {model.samples} 样本
+      </Typography>
+      <Typography variant="caption" color={model.speedSamples < 20 ? 'warning.main' : 'text.secondary'}>
+        TPS {model.speedSamples} 样本
       </Typography>
     </Stack>
   );
@@ -284,9 +288,9 @@ export function QualityAdditions({ analytics: p }) {
         </Box>
         <Box sx={{ textAlign: 'right' }}>
           <Typography variant="caption" color="text.secondary">
-            估算输出速度 · 中位数
+            输出 TPS · 中位数
           </Typography>
-          <Typography fontWeight={650}>{p.usage.totals.tps == null ? '—' : p.usage.totals.tps.toFixed(1) + ' t/s'}</Typography>
+          <Typography fontWeight={650}>{p.usage.totals.tps == null ? '—' : p.usage.totals.tps.toFixed(2) + ' t/s'}</Typography>
         </Box>
       </Stack>
       <Stack direction="row" justifyContent="space-between">
@@ -439,7 +443,8 @@ export function AnalyticsDialogs({ analytics: p }) {
         '首响应P95ms',
         '总耗时P95ms',
         '输出tokens/s',
-        '性能样本',
+        '首响应样本',
+        'TPS样本',
         '输入',
         '输出',
         '缓存命中率%',
@@ -455,6 +460,7 @@ export function AnalyticsDialogs({ analytics: p }) {
         m.duration95,
         m.tps,
         m.samples,
+        m.speedSamples,
         m.input,
         m.output,
         m.cache,
@@ -665,7 +671,8 @@ export function AnalyticsDialogs({ analytics: p }) {
         {type === 'models' && (
           <Stack spacing={2}>
             <Typography variant="body2" color="text.secondary">
-              点击列标题排序；点击模型查看请求。首响应与输出速度仅统计成功流式请求，少于 20 个样本仅供参考。
+              点击列标题排序；点击模型查看请求。首响应仅统计成功流式请求；TPS 统计有有效输出和耗时的成功请求。两项分别统计样本数，少于 20
+              个样本仅供参考。
             </Typography>
             <TableContainer>
               <Table size="small">
@@ -700,14 +707,19 @@ export function AnalyticsDialogs({ analytics: p }) {
                           {m.model_name}
                         </Button>
                         <Typography variant="caption" color={m.samples < 20 ? 'warning.main' : 'text.secondary'} display="block">
-                          {m.samples} 个性能样本{m.samples < 20 ? ' · 样本不足' : ''}
+                          首响应 {m.samples} 个样本{m.samples < 20 ? ' · 样本不足' : ''}
                         </Typography>
                       </TableCell>
                       <TableCell align="right">{m.count}</TableCell>
                       <TableCell align="right">{p.usage.rates_tracked && m.rate != null ? m.rate.toFixed(1) + '%' : '—'}</TableCell>
                       <TableCell align="right">{latency(m.p50)}</TableCell>
                       <TableCell align="right">{latency(m.p95)}</TableCell>
-                      <TableCell align="right">{m.tps?.toFixed(1) || '—'}</TableCell>
+                      <TableCell align="right">
+                        {m.tps?.toFixed(2) || '—'}
+                        <Typography variant="caption" color={m.speedSamples < 20 ? 'warning.main' : 'text.secondary'} display="block">
+                          {m.speedSamples} 个 TPS 样本{m.speedSamples < 20 ? ' · 样本不足' : ''}
+                        </Typography>
+                      </TableCell>
                       <TableCell align="right">{latency(m.duration95)}</TableCell>
                       <TableCell align="right">{m.cache.toFixed(1)}%</TableCell>
                       <TableCell align="right">{money(m.cost)}</TableCell>
@@ -802,9 +814,7 @@ export function AnalyticsDialogs({ analytics: p }) {
               首响应表示首次收到上游数据，并非严格的首个文本 Token。P50/P95
               仅使用成功流式请求的有效计时样本；总耗时和平均延迟仅使用成功请求。
             </Typography>
-            <Typography variant="body2">
-              输出速度 = 输出 Tokens ÷（总耗时 − 首响应），是基于请求计时的估算，中位数用于减少长请求干扰。
-            </Typography>
+            <Typography variant="body2">{outputSpeedExplanation} 仪表盘展示有效请求的 TPS 中位数，支持流式和非流式请求。</Typography>
             <Typography variant="body2">
               24h 对比前一个 24h；7/30/90D
               对比上个周期同时段，自定义对比相邻等长时段。当前小时或日期可能尚未结束。缓存收益是计价快照推算的估值，不是返还金额。

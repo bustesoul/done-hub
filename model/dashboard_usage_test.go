@@ -110,7 +110,7 @@ func TestDashboardAnalysisFiltersPercentilesAndDrilldown(t *testing.T) {
 	if s.Requests != 2 || s.Errors != 1 || s.Quota != 200 || s.AverageLatencyMs != 1500 {
 		t.Fatalf("wrong isolated/filter totals: %+v", s)
 	}
-	if s.FirstP50 == nil || *s.FirstP50 != 200 || *s.FirstP95 != 290 || *s.DurationP95 != 1950 || *s.OutputSpeed != 100 || s.PerformanceSamples != 2 {
+	if s.FirstP50 == nil || *s.FirstP50 != 200 || *s.FirstP95 != 290 || *s.DurationP95 != 1950 || *s.OutputSpeed != 87.5 || s.PerformanceSamples != 2 {
 		t.Fatalf("wrong performance: %+v", s)
 	}
 	if s.CacheSavingsQuota != 86 || s.CachePricedRequests != 2 || s.CachedReadTokens != 100 {

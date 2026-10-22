@@ -69,6 +69,7 @@ export function normalizeStats(s = {}) {
     duration95: s.duration_p95_ms ?? null,
     tps: s.output_tokens_per_second ?? null,
     samples: s.performance_samples || 0,
+    speedSamples: s.speed_samples || 0,
     saved: s.cache_requests && !s.cache_priced_requests ? null : s.cache_savings_quota || 0,
     baseline: s.cache_requests === s.cache_priced_requests ? (s.quota || 0) + (s.cache_savings_quota || 0) : null,
     previous: s.previous ? normalizeStats(s.previous) : null
