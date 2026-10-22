@@ -33,6 +33,7 @@ type State struct {
 	selection        Selection
 	values           map[string]any
 	params           map[string]string
+	upstreamObserver func(string)
 }
 
 func Ensure(request *http.Request) (*http.Request, *State) {
@@ -160,6 +161,29 @@ func (s *State) SetStreamSession(session *stream.Session) {
 	}
 	s.mu.Lock()
 	s.streamSession = session
+	observer := s.upstreamObserver
+	s.mu.Unlock()
+	if observer != nil {
+		observer("") // A new attempt must not inherit the previous upstream protocol.
+	}
+}
+
+// ObserveUpstreamProtocol runs outside the state lock: the observer may read Selection.
+func (s *State) ObserveUpstreamProtocol(protocol string) {
+	if s == nil {
+		return
+	}
+	s.mu.RLock()
+	observer := s.upstreamObserver
+	s.mu.RUnlock()
+	if observer != nil {
+		observer(protocol)
+	}
+}
+
+func (s *State) SetUpstreamObserver(observer func(string)) {
+	s.mu.Lock()
+	s.upstreamObserver = observer
 	s.mu.Unlock()
 }
 

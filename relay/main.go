@@ -55,6 +55,7 @@ func Relay(c *gin.Context) {
 		return
 	}
 
+	model.UpdateRequestLog(c.Request.Context(), relay.getOriginalModel(), relay.IsStream())
 	c.Set("is_stream", relay.IsStream())
 	if serviceTier := relay_util.NormalizeServiceTier(relay.GetServiceTier()); serviceTier != "" {
 		c.Set("service_tier", serviceTier)
@@ -69,6 +70,7 @@ func Relay(c *gin.Context) {
 		return
 	}
 
+	model.MarkRequestLogFailed(c.Request.Context())
 	state := gatewayRequestState(c)
 	selection := state.Selection()
 	modelName := selection.UpstreamModel

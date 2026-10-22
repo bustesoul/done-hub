@@ -274,7 +274,8 @@ func (h *ClaudeRelayStreamHandler) HandlerStream(rawLine *[]byte, dataChan chan 
 //
 // 这条路径只在 CreateClaudeChat / CreateClaudeChatStream 里被调用，
 // 与 OpenAI→Claude 转换路径完全隔离。
-func (p *ClaudeProvider) getClaudeNativeRequest(request *ClaudeRequest) (*http.Request, *types.OpenAIErrorWithStatusCode) {
+func (p *ClaudeProvider) getClaudeNativeRequest(request *ClaudeRequest) (outbound *http.Request, outboundErr *types.OpenAIErrorWithStatusCode) {
+	defer func() { outbound = requester.WithRequestProtocol(outbound, "anthropic_messages") }()
 	url, errWithCode := p.GetSupportedAPIUri(config.RelayModeChatCompletions)
 	if errWithCode != nil {
 		return nil, errWithCode

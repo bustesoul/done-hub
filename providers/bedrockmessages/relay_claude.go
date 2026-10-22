@@ -86,7 +86,8 @@ func (p *BedrockMessagesProvider) CreateClaudeChatStream(request *claude.ClaudeR
 }
 
 // getClaudeRequest 构建到 mantle 端点的请求：字节透传优先，签名收尾。
-func (p *BedrockMessagesProvider) getClaudeRequest(request *claude.ClaudeRequest) (*http.Request, *types.OpenAIErrorWithStatusCode) {
+func (p *BedrockMessagesProvider) getClaudeRequest(request *claude.ClaudeRequest) (outbound *http.Request, outboundErr *types.OpenAIErrorWithStatusCode) {
+	defer func() { outbound = requester.WithRequestProtocol(outbound, "anthropic_messages") }()
 	url, errWithCode := p.GetSupportedAPIUri(config.RelayModeChatCompletions)
 	if errWithCode != nil {
 		return nil, common.StringErrorWrapperLocal("bedrock messages config error", "invalid_bedrock_config", http.StatusInternalServerError)

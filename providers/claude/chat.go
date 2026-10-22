@@ -84,7 +84,8 @@ func (p *ClaudeProvider) CreateChatCompletionStream(request *types.ChatCompletio
 	return requester.RequestStream(p.Requester, resp, chatHandler.HandlerStream)
 }
 
-func (p *ClaudeProvider) getChatRequest(claudeRequest *ClaudeRequest) (*http.Request, *types.OpenAIErrorWithStatusCode) {
+func (p *ClaudeProvider) getChatRequest(claudeRequest *ClaudeRequest) (outbound *http.Request, outboundErr *types.OpenAIErrorWithStatusCode) {
+	defer func() { outbound = requester.WithRequestProtocol(outbound, "anthropic_messages") }()
 	url, errWithCode := p.GetSupportedAPIUri(config.RelayModeChatCompletions)
 	if errWithCode != nil {
 		return nil, errWithCode

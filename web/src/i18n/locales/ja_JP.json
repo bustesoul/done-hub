@@ -639,6 +639,20 @@
     "summary": "概要"
   },
   "logPage": {
+    "protocolLabel": "プロトコル",
+    "protocolUnknown": "不明または未送信",
+    "protocolDirect": "クライアントと上流",
+    "protocolInbound": "クライアント要求",
+    "protocolUpstream": "実際の上流要求",
+    "autoRefresh": "自動更新 · 3秒",
+    "startedAt": "リクエスト開始時刻",
+    "recordedAt": "過去のログ記録時刻（開始時刻不明）",
+    "requestStatus": {
+      "processing": "処理中",
+      "succeeded": "成功",
+      "failed": "失敗",
+      "canceled": "キャンセル済み"
+    },
     "cachedTokens": "Cache Tokens (* {{ ratio }})",
     "cacheReadShort": "キャッシュ読み取り",
     "cacheWriteShort": "キャッシュ書き込み",
@@ -690,7 +704,8 @@
       "consumption": "消費",
       "management": "管理",
       "system": "システム",
-      "error": "エラー"
+      "error": "エラー",
+      "request": "リクエスト"
     },
     "errorDetail": {
       "source": "発生元",

@@ -94,5 +94,6 @@ func (p *VertexAIProvider) getChatRequest(request *types.ChatCompletionRequest) 
 	if errWithCode != nil {
 		return nil, errWithCode
 	}
-	return req, nil
+	protocol := map[string]string{"claude": "anthropic_messages", "gemini": "google_gemini"}[p.Category.Category]
+	return requester.WithRequestProtocol(req, protocol), nil
 }

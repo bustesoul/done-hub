@@ -4,6 +4,7 @@ import (
 	"done-hub/common"
 	"done-hub/common/config"
 	"done-hub/common/requester"
+	"done-hub/internal/gateway/requeststate"
 	"done-hub/providers/bedrock/category"
 	"done-hub/providers/claude"
 	"done-hub/types"
@@ -33,6 +34,7 @@ func (p *BedrockProvider) CreateClaudeChat(request *claude.ClaudeRequest) (*clau
 		return nil, common.ErrorWrapper(err, "aws_client_error", http.StatusInternalServerError)
 	}
 
+	requeststate.From(p.invokeContext()).ObserveUpstreamProtocol("anthropic_messages")
 	out, err := client.InvokeModel(p.invokeContext(), &bedrockruntime.InvokeModelInput{
 		ModelId:     aws.String(modelID),
 		Accept:      aws.String(awsAccept),
@@ -85,6 +87,7 @@ func (p *BedrockProvider) CreateClaudeChatStream(request *claude.ClaudeRequest) 
 		SkipModelUnify: config.FingerprintPassThroughEnabled,
 	}
 
+	requeststate.From(p.invokeContext()).ObserveUpstreamProtocol("anthropic_messages")
 	out, err := client.InvokeModelWithResponseStream(p.invokeContext(), &bedrockruntime.InvokeModelWithResponseStreamInput{
 		ModelId:     aws.String(modelID),
 		Accept:      aws.String(awsAccept),

@@ -213,7 +213,7 @@ func ExportLogsList(c *gin.Context) {
 	// Write CSV headers
 	headers := []string{
 		"时间", "渠道", "用户", "分组", "令牌", "类型", "模型",
-		"耗时(秒)", "输入Token", "输出Token", "额度", "来源IP", "详情",
+		"耗时(秒)", "输入Token", "输出Token", "额度", "来源IP", "详情", "发起时间", "状态", "协议", "结束时间",
 	}
 	if err := writer.Write(headers); err != nil {
 		common.APIRespondWithError(c, http.StatusOK, err)
@@ -262,7 +262,7 @@ func ExportUserLogsList(c *gin.Context) {
 	// Write CSV headers (without admin-only columns)
 	headers := []string{
 		"时间", "分组", "令牌", "类型", "模型",
-		"耗时(秒)", "输入Token", "输出Token", "额度", "来源IP", "详情",
+		"耗时(秒)", "输入Token", "输出Token", "额度", "来源IP", "详情", "发起时间", "状态", "协议", "结束时间",
 	}
 	if err := writer.Write(headers); err != nil {
 		common.APIRespondWithError(c, http.StatusOK, err)
@@ -332,9 +332,13 @@ func formatLogToCSVRow(log *model.Log, isAdmin bool) []string {
 	// Format detail content
 	detailStr := formatLogDetail(log)
 
+	if log.RequestStatus == "processing" {
+		durationStr, inputTokensStr, outputTokensStr, quotaStr, detailStr = "-", "-", "-", "-", "-"
+	}
+	requestFields := requestLogCSVFields(log)
 	if isAdmin {
 		// Admin view includes channel and user columns
-		return []string{
+		return append([]string{
 			timeStr,
 			channelStr,
 			log.Username,
@@ -348,10 +352,10 @@ func formatLogToCSVRow(log *model.Log, isAdmin bool) []string {
 			quotaStr,
 			log.SourceIp,
 			detailStr,
-		}
+		}, requestFields...)
 	} else {
 		// User view excludes admin-only columns
-		return []string{
+		return append([]string{
 			timeStr,
 			groupStr,
 			log.TokenName,
@@ -363,7 +367,7 @@ func formatLogToCSVRow(log *model.Log, isAdmin bool) []string {
 			quotaStr,
 			log.SourceIp,
 			detailStr,
-		}
+		}, requestFields...)
 	}
 }
 
@@ -379,6 +383,8 @@ func getLogTypeText(logType int) string {
 		return "系统"
 	case model.LogTypeError:
 		return "错误"
+	case model.LogTypeRequest:
+		return "请求"
 	default:
 		return "未知"
 	}
@@ -472,4 +478,36 @@ func calculatePrice(ratio, groupDiscount float64, isTimes bool) string {
 	priceStr = strings.TrimRight(priceStr, ".")
 
 	return priceStr
+}
+
+func requestLogCSVFields(log *model.Log) []string {
+	start, end, status := "-", "-", "-"
+	if log.StartedAt > 0 {
+		start = time.UnixMilli(log.StartedAt).Format("2006-01-02 15:04:05.000")
+	}
+	if log.CompletedAt > 0 {
+		end = time.UnixMilli(log.CompletedAt).Format("2006-01-02 15:04:05.000")
+	}
+	statuses := map[string]string{"processing": "处理中", "succeeded": "成功", "failed": "失败", "canceled": "已取消"}
+	if value := statuses[log.RequestStatus]; value != "" {
+		status = value
+	}
+	names := map[string]string{
+		"openai_chat": "Chat", "openai_completions": "Completions", "openai_responses": "Responses", "openai_responses_compact": "Compact",
+		"anthropic_messages": "Claude", "google_gemini": "Gemini", "openai_embeddings": "Embeddings", "openai_images": "Images",
+		"openai_image_edits": "Image edits", "openai_image_variations": "Variations", "openai_transcription": "Transcription",
+		"openai_translation": "Translation", "openai_speech": "Speech", "openai_moderations": "Moderations", "openai_realtime": "Realtime",
+	}
+	source, target := names[log.InboundProtocol], names[log.UpstreamProtocol]
+	if source == "" {
+		source = "-"
+	}
+	if target == "" {
+		target = "-"
+	}
+	protocol := source
+	if source != target {
+		protocol += " → " + target
+	}
+	return []string{start, status, protocol, end}
 }

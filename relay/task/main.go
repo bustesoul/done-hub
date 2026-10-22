@@ -58,10 +58,12 @@ func RelayTaskSubmit(c *gin.Context) {
 	}
 
 	if taskErr := taskAdaptor.Init(); taskErr != nil {
+		model.MarkRequestLogFailed(c.Request.Context())
 		taskAdaptor.HandleError(taskErr)
 		return
 	}
 
+	model.UpdateRequestLog(c.Request.Context(), taskAdaptor.GetModelName(), false)
 	plan := domain.RoutePlan{
 		Request: domain.RequestContext{
 			RequestID:      c.GetString(logger.RequestIdKey),
@@ -101,6 +103,7 @@ func RelayTaskSubmit(c *gin.Context) {
 		metrics.RecordProvider(c, http.StatusOK)
 		return
 	}
+	model.MarkRequestLogFailed(c.Request.Context())
 	if runner.gatewayBilling != nil {
 		if billingErr := runner.gatewayBilling.RefundIfReserved(c.Request.Context(), "task_attempts_failed"); billingErr != nil {
 			logger.LogError(c.Request.Context(), "gateway billing refund: "+billingErr.Error())

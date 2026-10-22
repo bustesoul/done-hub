@@ -5,6 +5,7 @@ import (
 	"done-hub/common/config"
 	"done-hub/common/logger"
 	"done-hub/common/requester"
+	"done-hub/internal/gateway/requeststate"
 	"done-hub/types"
 	"encoding/json"
 	"fmt"
@@ -32,6 +33,7 @@ func (p *OpenAIProvider) CreateChatRealtime(modelName string) (*websocket.Conn, 
 
 	wsRequester := requester.NewWSRequester(p.Channel.GetProxy())
 
+	requeststate.From(p.Requester.Context).ObserveUpstreamProtocol("openai_realtime")
 	wsConn, err := wsRequester.NewRequest(fullRequestURL, httpHeaders)
 	if err != nil {
 		return nil, nil, common.ErrorWrapper(err, "ws_request_failed", http.StatusInternalServerError)

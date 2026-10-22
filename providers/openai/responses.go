@@ -129,7 +129,8 @@ func (p *OpenAIProvider) CreateResponsesStream(request *types.OpenAIResponsesReq
 //
 // 当客户端走的是 chat→responses 兼容路径（ConvertChat=true）或拿不到原始字节时，
 // 回退到结构体序列化路径 GetRequestTextBody。
-func (p *OpenAIProvider) getResponsesRequest(request *types.OpenAIResponsesRequest) (*http.Request, *types.OpenAIErrorWithStatusCode) {
+func (p *OpenAIProvider) getResponsesRequest(request *types.OpenAIResponsesRequest) (outbound *http.Request, outboundErr *types.OpenAIErrorWithStatusCode) {
+	defer func() { outbound = requester.WithRequestProtocol(outbound, "openai_responses") }()
 	if p.canReuseRequestBody(request) {
 		if patched, ok := p.patchResponsesRequestBody(request); ok {
 			url, errWithCode := p.GetSupportedAPIUri(config.RelayModeResponses)
@@ -243,7 +244,8 @@ func (p *OpenAIProvider) CreateResponsesCompaction(request *types.OpenAIResponse
 
 // getResponsesCompactRequest 构造发往上游 /v1/responses/compact 的请求。
 // URL 在 responses URL 末尾追加 /compact；body 优先字节透传，否则回退结构体序列化。
-func (p *OpenAIProvider) getResponsesCompactRequest(request *types.OpenAIResponsesRequest) (*http.Request, *types.OpenAIErrorWithStatusCode) {
+func (p *OpenAIProvider) getResponsesCompactRequest(request *types.OpenAIResponsesRequest) (outbound *http.Request, outboundErr *types.OpenAIErrorWithStatusCode) {
+	defer func() { outbound = requester.WithRequestProtocol(outbound, "openai_responses_compact") }()
 	url, errWithCode := p.GetSupportedAPIUri(config.RelayModeResponses)
 	if errWithCode != nil {
 		return nil, errWithCode

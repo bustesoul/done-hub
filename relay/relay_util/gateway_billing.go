@@ -8,6 +8,7 @@ import (
 	"done-hub/common/logger"
 	"done-hub/internal/gateway/billing"
 	"done-hub/internal/gateway/domain"
+	"done-hub/model"
 	"done-hub/types"
 
 	"github.com/gin-gonic/gin"
@@ -143,6 +144,12 @@ func (l *quotaLedger) Settle(_ context.Context, _ string, charge billing.FinalCh
 
 	if firstResponseTime != nil {
 		quota.SetFirstResponseTime(firstResponseTime())
+	}
+	if charge.Outcome == domain.OutcomeCanceled {
+		model.SetRequestLogOutcome(snapshot.Ctx, "canceled")
+	}
+	if charge.Outcome == domain.OutcomeFailed {
+		model.MarkRequestLogFailed(snapshot.Ctx)
 	}
 	return quota.ConsumeWithSnapshot(snapshot, usage, stream)
 }

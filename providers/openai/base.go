@@ -366,7 +366,20 @@ func (p *OpenAIProvider) canReuseRequestBody(request any) bool {
 	return true
 }
 
-func (p *OpenAIProvider) GetRequestTextBody(relayMode int, ModelName string, request any) (*http.Request, *types.OpenAIErrorWithStatusCode) {
+func (p *OpenAIProvider) GetRequestTextBody(relayMode int, ModelName string, request any) (outbound *http.Request, outboundErr *types.OpenAIErrorWithStatusCode) {
+	defer func() {
+		protocol := ""
+		switch relayMode {
+		case config.RelayModeChatCompletions:
+			protocol = "openai_chat"
+		case config.RelayModeCompletions:
+			protocol = "openai_completions"
+		case config.RelayModeResponses:
+			protocol = "openai_responses"
+		}
+		outbound = requester.WithRequestProtocol(outbound, protocol)
+	}()
+
 	url, errWithCode := p.GetSupportedAPIUri(relayMode)
 	if errWithCode != nil {
 		return nil, errWithCode

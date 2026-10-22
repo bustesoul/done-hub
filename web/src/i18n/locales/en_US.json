@@ -659,6 +659,20 @@
     "summary": "Summary"
   },
   "logPage": {
+    "protocolLabel": "Protocol",
+    "protocolUnknown": "Unknown or not sent upstream yet",
+    "protocolDirect": "Client and upstream",
+    "protocolInbound": "Client request",
+    "protocolUpstream": "Actual upstream request",
+    "autoRefresh": "Auto refresh · 3s",
+    "startedAt": "Request start time",
+    "recordedAt": "Historical log time (start time unknown)",
+    "requestStatus": {
+      "processing": "Processing",
+      "succeeded": "Succeeded",
+      "failed": "Failed",
+      "canceled": "Canceled"
+    },
     "cachedTokens": "Cache Tokens (* {{ ratio }})",
     "cacheReadShort": "Cache read",
     "cacheWriteShort": "Cache write",
@@ -711,7 +725,8 @@
       "consumption": "Consumption",
       "management": "Management",
       "system": "System",
-      "error": "Error"
+      "error": "Error",
+      "request": "Request"
     },
     "errorDetail": {
       "source": "Source",

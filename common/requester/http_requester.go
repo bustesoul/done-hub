@@ -81,6 +81,7 @@ func (r *HTTPRequester) SendRequest(req *http.Request, response any, outputResp 
 		req = req.WithContext(ctx)
 	}
 
+	observeRequestProtocol(req)
 	resp, err := HTTPClient.Do(req)
 	if err != nil {
 		return nil, common.ErrorWrapper(err, "http_request_failed", http.StatusInternalServerError)
@@ -133,6 +134,7 @@ func (r *HTTPRequester) SendRequest(req *http.Request, response any, outputResp 
 // 发送请求 RAW
 func (r *HTTPRequester) SendRequestRaw(req *http.Request) (*http.Response, *types.OpenAIErrorWithStatusCode) {
 	// 发送请求
+	observeRequestProtocol(req)
 	resp, err := HTTPClient.Do(req)
 	if err != nil {
 		return nil, common.ErrorWrapper(err, "http_request_failed", http.StatusInternalServerError)

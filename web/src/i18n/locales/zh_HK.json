@@ -631,6 +631,20 @@
   },
   "log": "日誌",
   "logPage": {
+    "protocolLabel": "協議",
+    "protocolUnknown": "未知或尚未發送上游",
+    "protocolDirect": "客戶端與上游",
+    "protocolInbound": "客戶端請求",
+    "protocolUpstream": "實際上游請求",
+    "autoRefresh": "自動刷新 · 3 秒",
+    "startedAt": "請求發起時間",
+    "recordedAt": "歷史日誌記錄時間（發起時間未知）",
+    "requestStatus": {
+      "processing": "處理中",
+      "succeeded": "成功",
+      "failed": "失敗",
+      "canceled": "已取消"
+    },
     "cachedTokens": "緩存Tokens (* {{ ratio }})",
     "cacheReadShort": "緩存讀取",
     "cacheWriteShort": "緩存寫入",
@@ -682,7 +696,8 @@
       "consumption": "消費",
       "management": "管理",
       "system": "系統",
-      "error": "錯誤"
+      "error": "錯誤",
+      "request": "請求"
     },
     "errorDetail": {
       "source": "來源",

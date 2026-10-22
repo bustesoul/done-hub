@@ -503,7 +503,8 @@ func extractJSONFromSSE(sseData string) string {
 }
 
 // getResponsesRequest 构建 Responses 请求
-func (p *CodexProvider) getResponsesRequest(request *types.OpenAIResponsesRequest) (*http.Request, *types.OpenAIErrorWithStatusCode) {
+func (p *CodexProvider) getResponsesRequest(request *types.OpenAIResponsesRequest) (outbound *http.Request, outboundErr *types.OpenAIErrorWithStatusCode) {
+	defer func() { outbound = requester.WithRequestProtocol(outbound, "openai_responses") }()
 	// 获取完整的请求 URL
 	fullRequestURL := p.GetFullRequestURL(p.Config.Responses, request.Model)
 

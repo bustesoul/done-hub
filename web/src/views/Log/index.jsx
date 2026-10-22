@@ -16,6 +16,8 @@ import {
   Button,
   Card,
   Checkbox,
+  FormControlLabel,
+  Switch,
   Container,
   ListItemText,
   Menu,
@@ -54,7 +56,7 @@ export default function Log() {
     token_name: '',
     model_name: '',
     start_timestamp: dayjs().startOf('day').unix(),
-    end_timestamp: dayjs().unix() + 3600,
+    end_timestamp: 0,
     log_type: '0',
     channel_id: '',
     source_ip: ''
@@ -69,6 +71,8 @@ export default function Log() {
   const [toolBarValue, setToolBarValue] = useState(originalKeyword)
   const [searchKeyword, setSearchKeyword] = useState(originalKeyword)
   const [refreshFlag, setRefreshFlag] = useState(false)
+  const [autoRefresh, setAutoRefresh] = useState(true)
+  const dataInFlight = useRef(0)
   const { userGroup } = useSelector((state) => state.account)
   const theme = useTheme()
   const matchUpMd = useMediaQuery(theme.breakpoints.up('sm'))
@@ -96,6 +100,7 @@ export default function Log() {
     token_name: true,
     type: true,
     model_name: true,
+    protocol: true,
     reasoning_effort: true,
     duration: true,
     message: true,
@@ -177,10 +182,12 @@ export default function Log() {
   }
 
   const fetchData = useCallback(
-    async(page, rowsPerPage, keyword, order, orderBy) => {
+    async(page, rowsPerPage, keyword, order, orderBy, silent = false) => {
+      if (silent && dataInFlight.current) return
+      dataInFlight.current += 1
       const reqId = ++dataReqIdRef.current
-      setSearching(true)
-      keyword = trims(keyword)
+      if (!silent) setSearching(true)
+      keyword = trims({ ...keyword })
 
       // 移除仅用于触发状态更新的时间戳字段
       if (keyword._timestamp) {
@@ -218,6 +225,7 @@ export default function Log() {
         if (reqId !== dataReqIdRef.current) return
         console.error(error)
       } finally {
+        dataInFlight.current -= 1
         // 仅当当前请求仍是最新请求时才清掉 searching；
         // 否则后到的旧响应会把刚刚因新请求设的 searching=true 错误地清零。
         if (reqId === dataReqIdRef.current) {
@@ -229,7 +237,7 @@ export default function Log() {
   )
 
   const fetchStat = useCallback(
-    async(keyword) => {
+    async(keyword, silent = false) => {
       const cleaned = trims(keyword)
       if (cleaned._timestamp) delete cleaned._timestamp
       if (!isCostLogType(cleaned.log_type)) {
@@ -244,7 +252,7 @@ export default function Log() {
       // 请求前清零（避免显示旧值），同时用 reqId 防 race：
       // 快速切 Tab / 连点搜索时，仅最后一次发出的请求结果会被采纳
       const reqId = ++statReqIdRef.current
-      setTotalQuota(null)
+      if (!silent) setTotalQuota(null)
       try {
         const url = userIsAdmin ? '/api/log/stat' : '/api/log/self/stat'
         const res = await API.get(url, { params: cleaned })
@@ -356,6 +364,21 @@ export default function Log() {
   useEffect(() => {
     fetchStat(searchKeyword)
   }, [searchKeyword, refreshFlag, fetchStat])
+
+  useEffect(() => {
+    if (!autoRefresh) return
+    let stopped = false
+    let timer
+    const poll = async () => {
+      if (!stopped && document.visibilityState === 'visible') {
+        await fetchData(page, rowsPerPage, searchKeyword, order, orderBy, true)
+        if (!stopped) await fetchStat(searchKeyword, true)
+      }
+      if (!stopped) timer = window.setTimeout(poll, 3000)
+    }
+    timer = window.setTimeout(poll, 3000)
+    return () => { stopped = true; window.clearTimeout(timer) }
+  }, [autoRefresh, fetchData, fetchStat, page, rowsPerPage, searchKeyword, order, orderBy])
 
   return (
     <>
@@ -545,6 +568,7 @@ export default function Log() {
               </Stack>
             )}
 
+            <FormControlLabel sx={{ ml: 1 }} control={<Switch size="small" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)}/>} label={t('logPage.autoRefresh')}/>
             <Menu
               anchorEl={columnMenuAnchor}
               open={Boolean(columnMenuAnchor)}
@@ -578,6 +602,7 @@ export default function Log() {
                 { id: 'token_name', label: t('logPage.tokenLabel') },
                 { id: 'type', label: t('logPage.typeLabel') },
                 { id: 'model_name', label: t('logPage.modelLabel') },
+                { id: 'protocol', label: t('logPage.protocolLabel') },
                 { id: 'reasoning_effort', label: t('logPage.reasoningEffortLabel') },
                 { id: 'duration', label: t('logPage.durationLabel') },
                 { id: 'message', label: t('logPage.inputLabel') },
@@ -648,6 +673,7 @@ export default function Log() {
                     disableSort: false,
                     hide: !columnVisibility.model_name
                   },
+                  { id: 'protocol', label: t('logPage.protocolLabel'), disableSort: true, hide: !columnVisibility.protocol },
                   {
                     id: 'reasoning_effort',
                     label: t('logPage.reasoningEffortLabel'),
@@ -698,7 +724,7 @@ export default function Log() {
                 {logs.map((row, index) => (
                   <LogTableRow
                     item={row}
-                    key={`${row.id}_${index}`}
+                    key={row.request_id || row.id || index}
                     userIsAdmin={userIsAdmin}
                     userGroup={userGroup}
                     columnVisibility={columnVisibility}

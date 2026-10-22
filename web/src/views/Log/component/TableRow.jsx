@@ -2,6 +2,8 @@ import PropTypes from 'prop-types';
 import { useMemo, useState } from 'react';
 import { ArrowForward } from '@mui/icons-material';
 
+import RequestProtocol from './RequestProtocol'
+
 import Badge from '@mui/material/Badge'
 import { Box, Collapse, Stack, TableCell, TableRow, Tooltip, Typography } from '@mui/material'
 
@@ -67,6 +69,8 @@ function requestTSLabelOptions(request_ts) {
 export default function LogTableRow({ item, userIsAdmin, userGroup, columnVisibility }) {
   const { t } = useTranslation()
   const LogType = useLogType()
+  const processing = item.request_status === 'processing'
+  const requestStatus = { processing: ['info', 'processing'], succeeded: ['success', 'succeeded'], failed: ['error', 'failed'], canceled: ['warning', 'canceled'] }[item.request_status]
   let request_time = item.type === 5 && item.metadata?.request_time_unit !== 'ms' ? item.request_time : item.request_time / 1000
   let request_time_str = request_time.toFixed(2) + ' S'
 
@@ -100,17 +104,17 @@ export default function LogTableRow({ item, userIsAdmin, userGroup, columnVisibi
             p: '10px 8px',
             whiteSpace: 'nowrap',
             textAlign: 'center'
-          }}>{timestamp2string(item.created_at)}</TableCell>}
+          }}>{<Tooltip title={item.started_at ? t('logPage.startedAt') : t('logPage.recordedAt')}><span>{timestamp2string(item.started_at ? item.started_at / 1000 : item.created_at)}</span></Tooltip>}</TableCell>}
 
         {userIsAdmin && columnVisibility.channel_id && (
           <TableCell sx={{ p: '10px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
-            {(item.channel_id || '') + ' ' + (item.channel?.name ? '(' + item.channel.name + ')' : '')}
+            {item.channel_id ? item.channel_id + ' ' + (item.channel?.name ? '(' + item.channel.name + ')' : '') : '-'}
           </TableCell>
         )}
         {userIsAdmin && columnVisibility.user_id && (
           <TableCell sx={{ p: '10px 8px', textAlign: 'center' }}>
             <Label color="default" variant="outlined" copyText={item.username}>
-              {item.username}
+              {item.username || '-'}
             </Label>
           </TableCell>
         )}
@@ -135,26 +139,27 @@ export default function LogTableRow({ item, userIsAdmin, userGroup, columnVisibi
                   {userGroup[item.metadata.group_name || item.metadata.backup_group_name]?.name || '跟随用户'}
                 </Label>
               ) : (
-                ''
+                '-'
               )
             )}
           </TableCell>
         )}
         {columnVisibility.token_name && (
           <TableCell sx={{ p: '10px 8px', textAlign: 'center' }}>
-            {item.token_name && (
+            {item.token_name ? (
               <Label color="default" variant="soft" copyText={item.token_name}>
                 {item.token_name}
               </Label>
-            )}
+            ) : '-'}
           </TableCell>
         )}
         {columnVisibility.type &&
-          <TableCell sx={{ p: '10px 8px', textAlign: 'center' }}>{renderType(item.type, LogType, t)}</TableCell>}
+          <TableCell sx={{ p: '10px 8px', textAlign: 'center' }}>{requestStatus ? <Tooltip title={LogType[item.type]?.text || ''}><span><Label color={requestStatus[0]}>{t(`logPage.requestStatus.${requestStatus[1]}`)}</Label></span></Tooltip> : renderType(item.type, LogType, t)}</TableCell>}
         {columnVisibility.model_name &&
           <TableCell
             sx={{ p: '10px 8px', textAlign: 'center' }}>{viewModelName(item.model_name, item.is_stream, item.metadata?.service_tier)}</TableCell>}
 
+        {columnVisibility.protocol && <TableCell sx={{ p: '10px 8px' }}><RequestProtocol item={item}/></TableCell>}
         {columnVisibility.reasoning_effort && (
           <TableCell sx={{ p: '10px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
             {item.metadata?.reasoning_effort ? (
@@ -162,20 +167,20 @@ export default function LogTableRow({ item, userIsAdmin, userGroup, columnVisibi
                 {item.metadata.reasoning_effort}
               </Label>
             ) : (
-              <Typography component="span" color="text.secondary">—</Typography>
+              <Typography component="span" color="text.secondary">-</Typography>
             )}
           </TableCell>
         )}
 
         {columnVisibility.duration && (
           <TableCell sx={{ p: '10px 8px', textAlign: 'center' }}>
-            <Stack direction="column" spacing={0.5}>
+            {processing ? '-' : <Stack direction="column" spacing={0.5}>
               <Label color={requestTimeLabelOptions(request_time)}>
                 {item.request_time === 0 ? '无' : request_time_str} {first_time_str ? ' / ' + first_time_str : ''}
               </Label>
 
               {request_ts_str && <Label color={requestTSLabelOptions(request_ts)}>{request_ts_str}</Label>}
-            </Stack>
+            </Stack>}
           </TableCell>
         )}
         {columnVisibility.message && (
@@ -183,15 +188,15 @@ export default function LogTableRow({ item, userIsAdmin, userGroup, columnVisibi
             sx={{
               p: '10px 8px',
               textAlign: 'center'
-            }}>{viewInput(item, t, tokenBilling)}</TableCell>
+            }}>{processing ? '-' : viewInput(item, t, tokenBilling)}</TableCell>
         )}
         {columnVisibility.completion && <TableCell sx={{
           p: '10px 8px',
           textAlign: 'center'
-        }}>{item.completion_tokens !== undefined && item.completion_tokens !== null ? item.completion_tokens : ''}</TableCell>}
+        }}>{processing ? '-' : (item.completion_tokens ?? '-')}</TableCell>}
         {columnVisibility.quota && (
           <TableCell sx={{ p: '10px 8px', textAlign: 'center' }}>
-            {item.type === 2 ? (
+            {processing ? '-' : item.type === 2 ? (
               <QuotaWithDetailRow item={item} open={open} setOpen={setOpen}/>
             ) : item.quota ? (
               renderQuota(item.quota, 6)
@@ -201,10 +206,10 @@ export default function LogTableRow({ item, userIsAdmin, userGroup, columnVisibi
           </TableCell>
         )}
         {columnVisibility.source_ip &&
-          <TableCell sx={{ p: '10px 8px', textAlign: 'center' }}>{item.source_ip || ''}</TableCell>}
+          <TableCell sx={{ p: '10px 8px', textAlign: 'center' }}>{item.source_ip || '-'}</TableCell>}
         {columnVisibility.detail && (
           <TableCell sx={{ p: '10px 8px', textAlign: 'center', ...stickyCellSx }}>
-            {item.type === 5
+            {processing ? '-' : item.type === 5
               ? viewErrorDetail(item, t)
               : viewLogContent(item, t, tokenBilling.billableInputTokens, tokenBilling.billableOutputTokens)}
           </TableCell>
@@ -239,7 +244,7 @@ LogTableRow.propTypes = {
 
 function viewModelName(model_name, isStream, serviceTier) {
   if (!model_name) {
-    return ''
+    return '-'
   }
 
   const isFast = String(serviceTier || '').toLowerCase() === 'priority'

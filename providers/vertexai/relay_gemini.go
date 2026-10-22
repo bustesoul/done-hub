@@ -69,7 +69,8 @@ func (p *VertexAIProvider) CreateGeminiChatStream(request *gemini.GeminiChatRequ
 	return stream, nil
 }
 
-func (p *VertexAIProvider) getGeminiRequest(request *gemini.GeminiChatRequest) (*http.Request, *types.OpenAIErrorWithStatusCode) {
+func (p *VertexAIProvider) getGeminiRequest(request *gemini.GeminiChatRequest) (outbound *http.Request, outboundErr *types.OpenAIErrorWithStatusCode) {
+	defer func() { outbound = requester.WithRequestProtocol(outbound, "google_gemini") }()
 	var err error
 	p.Category, err = category.GetCategory(request.Model)
 	if err != nil || p.Category.ChatComplete == nil || p.Category.ResponseChatComplete == nil {

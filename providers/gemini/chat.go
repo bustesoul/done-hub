@@ -91,7 +91,8 @@ func (p *GeminiProvider) CreateChatCompletionStream(request *types.ChatCompletio
 	return requester.RequestStream(p.Requester, resp, chatHandler.HandlerStream)
 }
 
-func (p *GeminiProvider) getChatRequest(geminiRequest *GeminiChatRequest, isRelay bool) (*http.Request, *types.OpenAIErrorWithStatusCode) {
+func (p *GeminiProvider) getChatRequest(geminiRequest *GeminiChatRequest, isRelay bool) (outbound *http.Request, outboundErr *types.OpenAIErrorWithStatusCode) {
+	defer func() { outbound = requester.WithRequestProtocol(outbound, "google_gemini") }()
 	// 根据 Action 确定正确的 URL
 	url := p.getActionURL(geminiRequest)
 	// 获取请求地址

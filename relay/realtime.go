@@ -12,6 +12,7 @@ import (
 	gatewayretry "done-hub/internal/gateway/retry"
 	gatewaystream "done-hub/internal/gateway/stream"
 	"done-hub/metrics"
+	"done-hub/model"
 	providersBase "done-hub/providers/base"
 	"done-hub/relay/relay_util"
 	"done-hub/types"
@@ -48,6 +49,7 @@ func ChatRealtime(c *gin.Context) {
 		return
 	}
 
+	model.UpdateRequestLog(c.Request.Context(), modelName, true)
 	userConn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		fmt.Println("upgrade failed", err)
@@ -66,6 +68,7 @@ func ChatRealtime(c *gin.Context) {
 	relay.billedUsage = &types.Usage{}
 
 	if !relay.connectProvider() {
+		model.MarkRequestLogFailed(c.Request.Context())
 		if relay.gatewayBilling != nil {
 			if billingErr := relay.gatewayBilling.Refund(context.Background(), "realtime_provider_unavailable"); billingErr != nil {
 				logger.LogError(c.Request.Context(), "gateway billing refund: "+billingErr.Error())
@@ -82,7 +85,9 @@ func ChatRealtime(c *gin.Context) {
 	// 就会 return，gin 会把 *gin.Context 归还 pool 并可能被新请求 Reset。闭包持有值不持指针，
 	// 彻底消除 c-pool 复用的数据竞争窗口。
 	snap := relay_util.NewConsumeSnapshot(relay.c)
+	settlementDone := make(chan struct{})
 	common.TrackedGoroutine(func() {
+		defer close(settlementDone)
 		var closedBy string
 		select {
 		case <-wsProxy.UserClosed():
@@ -104,6 +109,8 @@ func ChatRealtime(c *gin.Context) {
 	})
 
 	wsProxy.Wait()
+	// Keep request-log finalization after the terminal billing outcome, including cancellation.
+	<-settlementDone
 }
 
 func (r *RelayModeChatRealtime) abortWithMessage(message string) {

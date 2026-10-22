@@ -31,6 +31,12 @@ type Log struct {
 	IsStream         bool                               `json:"is_stream" gorm:"default:false"`
 	SourceIp         string                             `json:"source_ip" gorm:"default:''"`
 	Metadata         datatypes.JSONType[map[string]any] `json:"metadata" gorm:"type:json"`
+	RequestId        string                             `json:"request_id,omitempty" gorm:"index"`
+	StartedAt        int64                              `json:"started_at,omitempty"`
+	CompletedAt      int64                              `json:"completed_at,omitempty"`
+	RequestStatus    string                             `json:"request_status,omitempty"`
+	InboundProtocol  string                             `json:"inbound_protocol,omitempty"`
+	UpstreamProtocol string                             `json:"upstream_protocol,omitempty"`
 
 	Channel *Channel `json:"channel" gorm:"foreignKey:Id;references:ChannelId"`
 }
@@ -42,6 +48,7 @@ const (
 	LogTypeManage
 	LogTypeSystem
 	LogTypeError
+	LogTypeRequest
 )
 
 func RecordQuotaLog(userId int, logType int, quota int, ip string, content string) {
@@ -154,6 +161,9 @@ func RecordConsumeLog(
 	if metadata != nil {
 		log.Metadata = datatypes.NewJSONType(metadata)
 	}
+	if recordRequestLogResult(ctx, log) {
+		return
+	}
 
 	if config.BatchUpdateEnabled {
 		AddLogToBatch(log)
@@ -204,6 +214,9 @@ func RecordErrorLog(
 
 	if metadata != nil {
 		log.Metadata = datatypes.NewJSONType(metadata)
+	}
+	if recordRequestLogResult(ctx, log) {
+		return
 	}
 
 	if config.BatchUpdateEnabled {
@@ -335,7 +348,7 @@ func GetAllLogsList(params *LogsListParams) ([]*Log, error) {
 func GetUserLogsList(userId int, params *LogsListParams) (*DataResult[Log], error) {
 	var logs []*Log
 
-	tx := DB.Where("user_id = ?", userId).Omit("id", "cost_quota")
+	tx := DB.Where("user_id = ?", userId).Omit("cost_quota")
 
 	if params.LogType != LogTypeUnknown {
 		tx = tx.Where("type = ?", params.LogType)
@@ -371,7 +384,7 @@ func GetUserLogsList(userId int, params *LogsListParams) (*DataResult[Log], erro
 func GetAllUserLogsList(userId int, params *LogsListParams) ([]*Log, error) {
 	var logs []*Log
 
-	tx := DB.Where("user_id = ?", userId).Omit("id", "cost_quota")
+	tx := DB.Where("user_id = ?", userId).Omit("cost_quota")
 
 	if params.LogType != LogTypeUnknown {
 		tx = tx.Where("type = ?", params.LogType)

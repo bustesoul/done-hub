@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"done-hub/common"
 	"done-hub/common/requester"
+	"done-hub/internal/gateway/requeststate"
 	"done-hub/providers/bedrock/category"
 	"done-hub/types"
 	"encoding/json"
+	"github.com/tidwall/gjson"
 	"io"
 	"net/http"
 
@@ -27,6 +29,9 @@ func (p *BedrockProvider) CreateChatCompletion(request *types.ChatCompletionRequ
 		return nil, common.ErrorWrapper(err, "aws_client_error", http.StatusInternalServerError)
 	}
 
+	if gjson.GetBytes(body, "anthropic_version").Exists() {
+		requeststate.From(p.invokeContext()).ObserveUpstreamProtocol("anthropic_messages")
+	}
 	out, err := client.InvokeModel(p.invokeContext(), &bedrockruntime.InvokeModelInput{
 		ModelId:     aws.String(modelID),
 		Accept:      aws.String(awsAccept),
@@ -60,6 +65,9 @@ func (p *BedrockProvider) CreateChatCompletionStream(request *types.ChatCompleti
 		return nil, common.ErrorWrapper(err, "aws_client_error", http.StatusInternalServerError)
 	}
 
+	if gjson.GetBytes(body, "anthropic_version").Exists() {
+		requeststate.From(p.invokeContext()).ObserveUpstreamProtocol("anthropic_messages")
+	}
 	out, err := client.InvokeModelWithResponseStream(p.invokeContext(), &bedrockruntime.InvokeModelWithResponseStreamInput{
 		ModelId:     aws.String(modelID),
 		Accept:      aws.String(awsAccept),

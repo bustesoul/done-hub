@@ -79,7 +79,8 @@ func (p *GeminiCliProvider) CreateChatCompletionStream(request *types.ChatComple
 }
 
 // getChatRequest 构建内部API请求
-func (p *GeminiCliProvider) getChatRequest(geminiRequest *gemini.GeminiChatRequest, isStream bool, isRelay bool) (*http.Request, *types.OpenAIErrorWithStatusCode) {
+func (p *GeminiCliProvider) getChatRequest(geminiRequest *gemini.GeminiChatRequest, isStream bool, isRelay bool) (outbound *http.Request, outboundErr *types.OpenAIErrorWithStatusCode) {
+	defer func() { outbound = requester.WithRequestProtocol(outbound, "google_gemini") }()
 	// 确定请求URL
 	action := "generateContent"
 	if isStream {
