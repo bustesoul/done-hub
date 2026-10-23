@@ -25,7 +25,7 @@ const defaultConfig = {
     allow_extra_body: false,
     pass_through_body: false,
     affinity_enabled: false,
-    cost_ratio: 0
+    cost_ratio: 1
   },
   inputLabel: {
     name: '渠道名称',
@@ -51,7 +51,7 @@ const defaultConfig = {
     compatible_response: '兼容Response API',
     allow_extra_body: '允许额外字段透传',
     pass_through_body: '请求体完整透传',
-    cost_ratio: '成本倍率'
+    cost_ratio: '渠道计费倍率'
   },
   prompt: {
     type: '请选择渠道类型',
@@ -83,7 +83,7 @@ const defaultConfig = {
     allow_extra_body: '开启后，将会透传用户请求中的额外字段（如OpenAI SDK的extra_body参数），适用于需要传递自定义参数到上游API的场景',
     pass_through_body:
       '开启后，将客户端请求体原样转发至上游，仅改写映射后的模型名，保留未知字段与原始字节；适用于同协议透明代理场景。注意：仅对 OpenAI 协议渠道生效（Claude、Gemini 等自建请求体的渠道不读取该项）；开启后将跳过额外字段合并（仅渠道额外参数仍以字节方式生效）。',
-    cost_ratio: '上游成本倍率，相对模型基础价的折扣，例如 0.5 表示成本为基础价的 5 折。仅用于成本与利润统计，不影响用户扣费。未配置或为 0 时不计成本。'
+    cost_ratio: '按模型基础价乘此倍率实际扣费，例如 0.5 表示五折；不叠加用户组加价。留空或 0 按 1 计费，修改仅影响之后发起的请求。'
   },
   modelGroup: 'OpenAI'
 }

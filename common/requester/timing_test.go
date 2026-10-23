@@ -40,6 +40,9 @@ func TestUpstreamTimingIncludesInitialWaitAndStopsAtLastData(t *testing.T) {
 		t.Fatal(n, readErr)
 	}
 	_, last, duration := state.UpstreamResponseTiming()
+	if state.UpstreamFirstResponseMs() != duration {
+		t.Fatal("first/body duration clocks differ")
+	}
 	if duration < 20 {
 		t.Fatalf("initial upstream wait excluded: %v", duration)
 	}

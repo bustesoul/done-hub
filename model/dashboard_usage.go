@@ -155,8 +155,8 @@ func dashboardMatches(l *Log, q DashboardQuery) bool {
 	if q.Status != "" && q.Status != "success" && q.Status != "error" && fmt.Sprint(metadataInt64(l.Metadata.Data(), "status_code")) != q.Status {
 		return false
 	}
-	first := metadataNumber(l.Metadata.Data(), "first_response")
-	if q.MinFirst > 0 && (!l.IsStream || l.Type != LogTypeConsume || first < q.MinFirst || first > float64(l.RequestTime)) {
+	first := LogFirstResponseMs(l)
+	if q.MinFirst > 0 && (l.Type != LogTypeConsume || first < q.MinFirst) {
 		return false
 	}
 	if q.Search != "" && q.Search != fmt.Sprint(l.Id) {
@@ -334,11 +334,11 @@ func (s *DashboardUsageTotals) add(l *Log) {
 	m := l.Metadata.Data()
 	s.CachedReadTokens += metadataCachedReadTokens(m)
 	s.CachedWriteTokens += metadataInt64(m, "cached_write_tokens") + metadataInt64(m, "cached_write_1h_tokens") + metadataInt64(m, "openai_cache_write_tokens")
-	if l.RequestTime > 0 {
-		s.durations = append(s.durations, float64(l.RequestTime))
+	if duration := LogResponseDurationMs(l); duration > 0 {
+		s.durations = append(s.durations, duration)
 	}
-	first := metadataNumber(m, "first_response")
-	if l.IsStream && first > 0 && first <= float64(l.RequestTime) {
+	first := LogFirstResponseMs(l)
+	if first > 0 {
 		s.firsts = append(s.firsts, first)
 	}
 	if tokens, duration := LogOutputSpeedSample(l); duration > 0 {
@@ -394,11 +394,11 @@ func dashboardCacheSavings(l *Log) (float64, bool) {
 	if _, ok := m["input_ratio"]; !ok {
 		return 0, false
 	}
-	if _, ok := m["group_ratio"]; !ok {
+	if _, ok := m["group_ratio"]; !ok && m["effective_ratio"] == nil {
 		return 0, false
 	}
-	ratio := metadataNumber(m, "input_ratio") * metadataNumber(m, "group_ratio")
-	for _, key := range []string{"service_tier_ratio", "long_context_input_ratio"} {
+	ratio := metadataNumber(m, "input_ratio") * LogBillingRatio(m)
+	for _, key := range []string{"long_context_input_ratio"} {
 		if _, ok := m[key]; ok {
 			ratio *= metadataNumber(m, key)
 		}

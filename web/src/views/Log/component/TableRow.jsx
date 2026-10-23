@@ -1,3 +1,4 @@
+import { billingRatio } from 'utils/billingRatio';
 import PropTypes from 'prop-types';
 import { useMemo, useState } from 'react';
 import { ArrowForward } from '@mui/icons-material';
@@ -16,7 +17,7 @@ import QuotaWithDetailContent, { calculatePrice } from './QuotaWithDetailContent
 import { calculateTokenBilling, formatTokenCount } from './tokenBilling'
 import { styled } from '@mui/material/styles'
 import { stickyCellSx } from 'ui-component/stickyCellSx';
-import { outputSpeed, outputSpeedDetail } from 'utils/outputSpeed';
+import { outputSpeed, outputSpeedDetail, responseDuration, firstResponse, responseTimeExplanation } from 'utils/outputSpeed';
 
 function renderType(type, logTypes, t) {
   const typeOption = logTypes[type]
@@ -73,9 +74,11 @@ export default function LogTableRow({ item, userIsAdmin, userGroup, columnVisibi
   const processing = item.request_status === 'processing'
   const requestStatus = { processing: ['info', 'processing'], succeeded: ['success', 'succeeded'], failed: ['error', 'failed'], canceled: ['warning', 'canceled'] }[item.request_status]
   let request_time = item.type === 5 && item.metadata?.request_time_unit !== 'ms' ? item.request_time : item.request_time / 1000
-  let request_time_str = request_time.toFixed(2) + ' S'
+  const timingRow = { ...item, request_time: request_time * 1000 }
+  const duration = responseDuration(timingRow)
+  let request_time_str = duration == null ? '—' : `${(duration / 1000).toFixed(2)} S`
 
-  let first_time = item.metadata?.first_response ? item.metadata.first_response / 1000 : 0
+  let first_time = (firstResponse(timingRow) || 0) / 1000
   let first_time_str = first_time ? `${first_time.toFixed(2)} S` : ''
 
   const speed = outputSpeed(item)
@@ -170,9 +173,12 @@ export default function LogTableRow({ item, userIsAdmin, userGroup, columnVisibi
         {columnVisibility.duration && (
           <TableCell sx={{ p: '10px 8px', textAlign: 'center' }}>
             {processing ? '-' : <Stack direction="column" spacing={0.5}>
-              <Label color={requestTimeLabelOptions(request_time)}>
-                {item.request_time === 0 ? '无' : request_time_str} {first_time_str ? ' / ' + first_time_str : ''}
-              </Label>
+              <Tooltip title={`${responseTimeExplanation} 请求总耗时 ${request_time.toFixed(3)} 秒。${item.metadata?.response_metrics_version >= 2 ? '' : '此记录首响应以请求入口计时。'}`}>
+                <Stack alignItems="center" spacing={0.3}>
+                  <Label color={requestTimeLabelOptions((duration || 0) / 1000)}>耗时 {request_time_str}</Label>
+                  {first_time_str && <Typography variant="caption">首响应 {first_time_str}</Typography>}
+                </Stack>
+              </Tooltip>
 
               {request_ts_str && <Tooltip title={outputSpeedDetail(item)}><Label color={requestTSLabelOptions(request_ts)}>{request_ts_str}</Label></Tooltip>}
             </Stack>}
@@ -445,7 +451,7 @@ function viewLogContent(item, t) {
   }
 
   // Ensure we have valid values with appropriate defaults
-  const groupDiscount = item?.metadata?.group_ratio || 1
+  const groupDiscount = billingRatio(item?.metadata)
   const priceType = item?.metadata?.price_type || ''
   const originalCompletionRatio = item?.metadata?.output_ratio || 0
   const originalInputRatio = item?.metadata?.input_ratio || 0

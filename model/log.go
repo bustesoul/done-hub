@@ -212,9 +212,11 @@ func RecordErrorLog(
 		SourceIp:    sourceIp,
 	}
 
-	if metadata != nil {
-		log.Metadata = datatypes.NewJSONType(metadata)
+	if metadata == nil {
+		metadata = make(map[string]any)
 	}
+	SetLogResponseMetrics(ctx, metadata)
+	log.Metadata = datatypes.NewJSONType(metadata)
 	if recordRequestLogResult(ctx, log) {
 		return
 	}

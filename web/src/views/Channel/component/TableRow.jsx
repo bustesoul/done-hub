@@ -433,7 +433,9 @@ export default function ChannelTableRow({
       } else {
         showError(message);
       }
-    } catch (error) {}
+    } catch (error) {
+      // API interceptor already reports request failures.
+    }
   };
 
   useEffect(() => {
@@ -670,7 +672,7 @@ export default function ChannelTableRow({
         <TableCell>
           <GroupInlineEditor
             label={item.tag ? t('channel_row.groupCostRatioLabel') : t('channel_index.costRatio')}
-            tip={item.tag ? t('channel_row.groupCostRatioTip') : ''}
+            tip={item.tag ? t('channel_row.groupCostRatioTip') : '按基础价乘此倍率实际扣费；0 或留空按 1 计费。'}
             value={costRatio}
             min="0"
             step="0.1"

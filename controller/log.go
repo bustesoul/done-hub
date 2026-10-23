@@ -213,7 +213,7 @@ func ExportLogsList(c *gin.Context) {
 	// Write CSV headers
 	headers := []string{
 		"时间", "渠道", "用户", "分组", "令牌", "类型", "模型",
-		"耗时(秒)", "输入Token", "输出Token", "额度", "来源IP", "详情", "发起时间", "状态", "协议", "结束时间",
+		"请求总耗时(秒)", "输入Token", "输出Token", "额度", "来源IP", "详情", "发起时间", "状态", "协议", "结束时间",
 	}
 	if err := writer.Write(headers); err != nil {
 		common.APIRespondWithError(c, http.StatusOK, err)
@@ -262,7 +262,7 @@ func ExportUserLogsList(c *gin.Context) {
 	// Write CSV headers (without admin-only columns)
 	headers := []string{
 		"时间", "分组", "令牌", "类型", "模型",
-		"耗时(秒)", "输入Token", "输出Token", "额度", "来源IP", "详情", "发起时间", "状态", "协议", "结束时间",
+		"请求总耗时(秒)", "输入Token", "输出Token", "额度", "来源IP", "详情", "发起时间", "状态", "协议", "结束时间",
 	}
 	if err := writer.Write(headers); err != nil {
 		common.APIRespondWithError(c, http.StatusOK, err)
@@ -404,13 +404,7 @@ func formatLogDetail(log *model.Log) string {
 				}
 			}
 
-			// Get group discount ratio
-			groupRatio := 1.0
-			if groupRatioVal, ok := metadataData["group_ratio"]; ok {
-				if groupRatioFloat, ok := groupRatioVal.(float64); ok {
-					groupRatio = groupRatioFloat
-				}
-			}
+			groupRatio := model.LogBillingRatio(metadataData)
 
 			// Get price type
 			priceType := ""

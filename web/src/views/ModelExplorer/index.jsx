@@ -41,7 +41,7 @@ import FilterCollapse from 'ui-component/FilterCollapse';
 import Label from 'ui-component/Label';
 import TableHead from 'ui-component/TableHead';
 import BindingActions from './BindingActions';
-import { outputSpeedExplanation } from 'utils/outputSpeed';
+import { outputSpeedExplanation, responseTimeExplanation } from 'utils/outputSpeed';
 import { normalizeModel, normalizeHistory, eligible, missingReason, estimateExplanation } from './data';
 const number = (n) => n.toLocaleString('en-US');
 const seconds = (n) => (n === null ? '—' : (n / 1000).toFixed(2) + ' 秒');
@@ -832,13 +832,13 @@ function ModelExplorerContent({ models, usage, loading, error, reload, updateBin
                     : `${number(detailStats.consumeCount)} / ${detailStats.errorLogDisabled ? '—' : number(detailStats.errorCount)}`,
                   '非去重请求数'
                 ],
-                ['平均首响应', seconds(detailStats.firstResponseMs), `有效流式样本 ${number(detailStats.firstSampleCount)}`],
+                ['平均首响应', seconds(detailStats.firstResponseMs), `有效样本 ${number(detailStats.firstSampleCount)}`],
                 [
                   '输出 TPS',
                   detailStats.tps === null ? '—' : detailStats.tps.toFixed(2) + ' tok/s',
                   `有效样本 ${number(detailStats.speedSampleCount)}；${outputSpeedExplanation}`
                 ],
-                ['平均请求耗时', seconds(detailStats.latencyMs), '仅计费日志，含等待及可能的重试'],
+                ['平均耗时', seconds(detailStats.latencyMs), '发起请求至收到最后数据；旧记录缺少计时时按请求总耗时估算'],
                 [
                   '输入 / 输出 Token',
                   !detailStats.consumeCount ? '—' : `${number(detailStats.promptTokens)} / ${number(detailStats.completionTokens)}`,
@@ -901,13 +901,11 @@ function ModelExplorerContent({ models, usage, loading, error, reload, updateBin
             </Typography>
             <Typography variant="body1">
               渠道成本由配置的成本倍率计算，不是上游账单。零成本记录无法区分未配置或真实零成本；
-              没有正成本记录显示「—」，存在零值时标注「部分成本」，不据此推算利润。
+              没有正成本记录显示「—」，存在零值时标注「部分成本」。新请求的计费金额与成本相同。
             </Typography>
+            <Typography variant="body1">{responseTimeExplanation} 未采集不计为 0。</Typography>
             <Typography variant="body1">
-              首响应：仅取流式计费记录中有效的 first_response，表示首个数据帧到达，不保证已有可见文本。未采集不计为 0。
-            </Typography>
-            <Typography variant="body1">
-              {outputSpeedExplanation} 模型汇总使用有效样本的非推理输出 Token 总数 ÷ 耗时总和，支持流式和非流式请求。
+              {outputSpeedExplanation} 模型汇总使用有效样本的输出 Token 总数（扣除已记录的推理部分） ÷ 耗时总和，支持流式和非流式请求。
             </Typography>
             <Typography variant="body1">
               历史范围：模型 ×

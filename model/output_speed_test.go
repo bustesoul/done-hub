@@ -50,3 +50,46 @@ func TestOutputSpeedUsesTotalDurationAndExcludesReasoning(t *testing.T) {
 		})
 	}
 }
+
+func TestResponseMetricsUseSameAttemptClock(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		l := Log{Type: LogTypeConsume, IsStream: stream, RequestTime: 8552, CompletionTokens: 188, Metadata: datatypes.NewJSONType(map[string]any{"response_metrics_version": 2, "response_first_ms": 4820.0, "first_response": 4837, "upstream_response_ms": 8480.628079})}
+		if got := LogFirstResponseMs(&l); got != 4820 {
+			t.Fatal(got)
+		}
+		s := ExplorerStats{}
+		s.add(&l)
+		s.finish(true, true)
+		d := DashboardUsageTotals{}
+		d.add(&l)
+		d.finish()
+		if *s.FirstResponseMs != 4820 || math.Abs(*s.LatencyMs-8480.628079) > 1e-6 || *d.FirstP50 != 4820 || d.AverageLatencyMs != 8480.6 {
+			t.Fatal("metric consumers disagree")
+		}
+		if !dashboardMatches(&l, DashboardQuery{MinFirst: 4800}) || dashboardMatches(&l, DashboardQuery{MinFirst: 4830}) {
+			t.Fatal("first-response filter uses old clock")
+		}
+	}
+	legacy := Log{Type: LogTypeConsume, IsStream: true, RequestTime: 8552, Metadata: datatypes.NewJSONType(map[string]any{"first_response": 4837, "upstream_response_ms": 8480.628079})}
+	if LogFirstResponseMs(&legacy) != 4837 {
+		t.Fatal("legacy timing changed")
+	}
+	invalid := legacy
+	invalid.Metadata = datatypes.NewJSONType(map[string]any{"response_metrics_version": 2, "response_first_ms": 9000, "first_response": 4837, "upstream_response_ms": 8480})
+	if LogFirstResponseMs(&invalid) != 0 {
+		t.Fatal("invalid measured first response fell back to legacy")
+	}
+}
+
+func TestBillingSnapshotOverridesSalesGroupForSavings(t *testing.T) {
+	m := map[string]any{"price_type": "tokens", "input_ratio": 2., "group_ratio": 9., "service_tier_ratio": 1.5, "effective_ratio": .75, "channel_ratio": .5, "cached_read_tokens": 100, "cached_read_tokens_ratio": .1}
+	l := Log{Type: LogTypeConsume, Quota: 100, Metadata: datatypes.NewJSONType(m)}
+	if got, ok := dashboardCacheSavings(&l); !ok || got != 135 {
+		t.Fatalf("new savings=%v valid=%v", got, ok)
+	}
+	delete(m, "effective_ratio")
+	l.Metadata = datatypes.NewJSONType(m)
+	if got, ok := dashboardCacheSavings(&l); !ok || got != 2430 {
+		t.Fatalf("legacy savings=%v valid=%v", got, ok)
+	}
+}

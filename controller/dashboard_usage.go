@@ -152,16 +152,16 @@ func ExportUserDashboardRequests(c *gin.Context) {
 	var b bytes.Buffer
 	b.WriteString("\xef\xbb\xbf")
 	w := csv.NewWriter(&b)
-	_ = w.Write([]string{"日志ID", "时间 (" + q.Start.Location().String() + ")", "分组", "Key 名称", "类型", "模型", "耗时(秒)", "输入Token", "输出Token", "额度USD", "详情", "首响应毫秒", "流式", "思考档位", "已记录HTTP状态码", "错误信息"})
+	_ = w.Write([]string{"日志ID", "时间 (" + q.Start.Location().String() + ")", "分组", "Key 名称", "类型", "模型", "请求总耗时(秒)", "输入Token", "输出Token", "额度USD", "详情", "首响应毫秒", "流式", "思考档位", "已记录HTTP状态码", "错误信息"})
 	_, err = model.GetDashboardRequests(c.Request.Context(), c.GetInt("id"), q, 0, 100, func(l *model.Log) error {
-		row := formatLogToCSVRow(l, false)
+		row := formatLogToCSVRow(l, false)[:11] // This export has its own timing/status columns.
 		row[0] = time.Unix(l.CreatedAt, 0).In(q.Start.Location()).Format("2006-01-02 15:04:05")
 		row = append(row[:9], row[10:]...) // Source IP is intentionally not queried by the dashboard.
 		row = append([]string{strconv.Itoa(l.Id)}, row...)
 		m := l.Metadata.Data()
 		first := ""
-		if v, ok := m["first_response"]; ok {
-			first = fmt.Sprint(v)
+		if v := model.LogFirstResponseMs(l); v > 0 {
+			first = strconv.FormatFloat(v, 'f', 3, 64)
 		}
 		effort, _ := m["reasoning_effort"].(string)
 		status, message := "", ""

@@ -109,26 +109,50 @@ func NewQuota(c *gin.Context, modelName string, promptTokens int) *Quota {
 		quota.backupGroupName = ""
 	}
 
-	quota.groupRatio = c.GetFloat64("group_ratio") // 这里的倍率已经在 common.go 中正确设置了
-	quota.inputRatio = quota.price.GetInput() * quota.groupRatio * quota.serviceTierRatio
-	quota.outputRatio = quota.price.GetOutput() * quota.groupRatio * quota.serviceTierRatio
-
-	// 成本倍率：仅用于成本/利润统计，不参与用户扣费。未配置或取不到渠道时为 0（不计成本）。
-	quota.costRatio = 0
+	quota.groupRatio = c.GetFloat64("group_ratio") // Retained for route/history context, not a sales markup.
+	channelRatio := 0.0
 	if channel := model.GatewayRoutes.GetChannel(quota.channelId); channel != nil {
-		quota.costRatio = channel.GetCostRatio()
+		channelRatio = channel.GetCostRatio()
 	}
+	quota.applyChannelPricing(channelRatio)
 
 	return quota
 
 }
 
-func (q *Quota) PreQuotaConsumption() *types.OpenAIErrorWithStatusCode {
-	if q.price.Type == model.TimesPriceType {
-		q.preConsumedQuota = common.QuotaFromFloat(1000 * q.inputRatio)
-	} else if q.price.Input != 0 || q.price.Output != 0 {
-		q.preConsumedQuota = common.QuotaFromFloat(float64(q.promptTokens)*q.inputRatio) + config.PreConsumedQuota
+// Existing nil/zero cost ratios mean unconfigured, never a free request.
+func (q *Quota) applyChannelPricing(ratio float64) {
+	if ratio <= 0 {
+		ratio = 1
 	}
+	q.costRatio = ratio
+	q.inputRatio = q.price.GetInput() * q.billingRatio()
+	q.outputRatio = q.price.GetOutput() * q.billingRatio()
+}
+
+func (q *Quota) billingRatio() float64 {
+	ratio, tier := q.costRatio, q.serviceTierRatio
+	if ratio <= 0 {
+		ratio = 1
+	}
+	if tier <= 0 {
+		tier = 1
+	}
+	return ratio * tier
+}
+
+func (q *Quota) estimatedQuota() int {
+	if q.price.Type == model.TimesPriceType {
+		return common.QuotaFromFloat(1000 * q.inputRatio)
+	}
+	if q.price.Input != 0 || q.price.Output != 0 {
+		return common.QuotaFromFloat(float64(q.promptTokens)*q.inputRatio) + common.QuotaFromFloat(float64(config.PreConsumedQuota)*q.billingRatio())
+	}
+	return 0
+}
+
+func (q *Quota) PreQuotaConsumption() *types.OpenAIErrorWithStatusCode {
+	q.preConsumedQuota = q.estimatedQuota()
 
 	if q.preConsumedQuota == 0 {
 		return nil
@@ -173,7 +197,7 @@ func (q *Quota) UpdateUserRealtimeQuota(usage *types.UsageEvent, nowUsage *types
 	// 长上下文分档：实时路径逐增量结算，用累计输入 token（而非单次增量）判断档位，
 	// 与最终结算按整次请求原始输入判档的效果保持收敛；对本次增量套用分档倍率。
 	inRatio, outRatio := q.price.GetLongContextMultiplier(usage.InputTokens)
-	increaseQuota := q.calcQuota(promptTokens, completionTokens, q.inputRatio*inRatio, q.outputRatio*outRatio, q.groupRatio)
+	increaseQuota := q.calcQuota(promptTokens, completionTokens, q.inputRatio*inRatio, q.outputRatio*outRatio, q.billingRatio())
 
 	cacheQuota, err := model.CacheIncreaseUserRealtimeQuota(q.userId, increaseQuota)
 	if err != nil {
@@ -201,7 +225,7 @@ func (q *Quota) completedQuotaConsumption(usage *types.Usage, tokenName string, 
 	}()
 
 	quota := q.GetTotalQuotaByUsage(usage)
-	costQuota := q.GetCostQuotaByUsage(usage)
+	costQuota := quota // Personal accounting: the charge is also the recorded cost.
 
 	quotaDelta := quota - q.preConsumedQuota
 	var quotaErr error
@@ -224,11 +248,7 @@ func (q *Quota) completedQuotaConsumption(usage *types.Usage, tokenName string, 
 
 	// 无论配额操作是否成功，都要记录日志，避免上游已计费但本地无记录
 	metadata := q.GetLogMeta(usage)
-	if started, last, duration := requeststate.From(ctx).UpstreamResponseTiming(); started > 0 {
-		metadata["upstream_started_at"] = started
-		metadata["upstream_last_byte_at"] = last
-		metadata["upstream_response_ms"] = duration
-	}
+	model.SetLogResponseMetrics(ctx, metadata)
 	model.RecordConsumeLog(
 		ctx,
 		q.userId,
@@ -351,6 +371,9 @@ func (q *Quota) GetLogMeta(usage *types.Usage) map[string]any {
 		"is_backup_group":   q.isBackupGroup, // 添加是否使用备用分组的标识
 		"price_type":        q.price.Type,
 		"group_ratio":       q.groupRatio,
+		"billing_version":   2,
+		"channel_ratio":     q.costRatio,
+		"effective_ratio":   q.billingRatio(),
 		"input_ratio":       q.price.GetInput(),
 		"output_ratio":      q.price.GetOutput(),
 	}
@@ -399,7 +422,7 @@ func (q *Quota) getRequestTime() int {
 // 通过 token 数获取消费配额
 func (q *Quota) GetTotalQuota(promptTokens, completionTokens int, extraBilling map[string]types.ExtraBilling) (quota int) {
 	q.GetExtraBillingData(extraBilling)
-	return q.calcQuota(promptTokens, completionTokens, q.inputRatio, q.outputRatio, q.groupRatio*q.serviceTierRatio)
+	return q.calcQuota(promptTokens, completionTokens, q.inputRatio, q.outputRatio, q.billingRatio())
 }
 
 // calcQuota 按给定倍率计算配额。inputRatio/outputRatio 已含对应倍率（分组倍率或成本倍率），
@@ -489,19 +512,12 @@ func (q *Quota) GetTotalQuotaByUsage(usage *types.Usage) (quota int) {
 	// 长上下文分档：按原始输入 token（未经缓存折算）判断档位，超阈值时整次请求套用分档倍率。
 	inRatio, outRatio := q.price.GetLongContextMultiplier(usage.PromptTokens)
 	q.GetExtraBillingData(usage.ExtraBilling)
-	return q.calcQuota(promptTokens, completionTokens, q.inputRatio*inRatio, q.outputRatio*outRatio, q.groupRatio*q.serviceTierRatio)
+	return q.calcQuota(promptTokens, completionTokens, q.inputRatio*inRatio, q.outputRatio*outRatio, q.billingRatio())
 }
 
-// GetCostQuotaByUsage 按渠道成本倍率计算本次请求的上游成本配额，仅用于成本/利润统计，不参与扣费。
-func (q *Quota) GetCostQuotaByUsage(usage *types.Usage) (costQuota int) {
-	// 未配置成本倍率时不计成本，省去无谓计算。
-	if q.costRatio <= 0 {
-		return 0
-	}
-	promptTokens, completionTokens := q.getComputeTokensByUsage(usage)
-	inRatio, outRatio := q.price.GetLongContextMultiplier(usage.PromptTokens)
-	q.GetExtraBillingData(usage.ExtraBilling)
-	return q.calcQuota(promptTokens, completionTokens, q.price.GetInput()*q.costRatio*inRatio, q.price.GetOutput()*q.costRatio*outRatio, q.costRatio)
+// GetCostQuotaByUsage shares the exact charged amount and rounding for new requests.
+func (q *Quota) GetCostQuotaByUsage(usage *types.Usage) int {
+	return q.GetTotalQuotaByUsage(usage)
 }
 
 func (q *Quota) GetFirstResponseTime() int64 {

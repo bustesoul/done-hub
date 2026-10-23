@@ -10,6 +10,7 @@ import (
 type UpstreamTiming struct {
 	mu      sync.RWMutex
 	started time.Time
+	first   time.Time
 	last    time.Time
 }
 
@@ -30,6 +31,9 @@ func (t *UpstreamTiming) RecordData() {
 	}
 	t.mu.Lock()
 	t.last = time.Now()
+	if t.first.IsZero() {
+		t.first = t.last
+	}
 	t.mu.Unlock()
 }
 
@@ -51,4 +55,23 @@ func (s *State) UpstreamResponseTiming() (startedAt, lastByteAt int64, durationM
 		durationMs = float64(t.last.Sub(t.started)) / float64(time.Millisecond)
 	}
 	return
+}
+
+// UpstreamFirstResponseMs uses the same attempt and monotonic start as total duration.
+func (s *State) UpstreamFirstResponseMs() float64 {
+	if s == nil {
+		return 0
+	}
+	s.mu.RLock()
+	t := s.upstreamTiming
+	s.mu.RUnlock()
+	if t == nil {
+		return 0
+	}
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if t.first.IsZero() {
+		return 0
+	}
+	return float64(t.first.Sub(t.started)) / float64(time.Millisecond)
 }

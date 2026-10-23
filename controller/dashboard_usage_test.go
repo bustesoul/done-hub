@@ -2,6 +2,7 @@ package controller
 
 import (
 	"done-hub/model"
+	"encoding/csv"
 	"encoding/json"
 	"net/http/httptest"
 	"strings"
@@ -54,7 +55,7 @@ func TestDashboardRequestsAndCSVStayWithinAuthenticatedUser(t *testing.T) {
 	model.DB = db
 	defer func() { model.DB = old }()
 	at := time.Now().Add(-time.Hour).Unix()
-	logs := []model.Log{{UserId: 8, CreatedAt: at, Type: model.LogTypeConsume, ModelName: "=evil", TokenName: "mine", RequestTime: 1234, Quota: 10, Metadata: datatypes.NewJSONType(map[string]any{"reasoning_effort": "high"})}, {UserId: 9, CreatedAt: at, Type: model.LogTypeConsume, ModelName: "private-model", TokenName: "other", Quota: 999}}
+	logs := []model.Log{{UserId: 8, CreatedAt: at, Type: model.LogTypeConsume, ModelName: "=evil", TokenName: "mine", RequestTime: 1234, Quota: 10, Metadata: datatypes.NewJSONType(map[string]any{"reasoning_effort": "high", "response_metrics_version": 2, "response_first_ms": 450, "upstream_response_ms": 1200})}, {UserId: 9, CreatedAt: at, Type: model.LogTypeConsume, ModelName: "private-model", TokenName: "other", Quota: 999}}
 	if err = db.Create(&logs).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -79,5 +80,12 @@ func TestDashboardRequestsAndCSVStayWithinAuthenticatedUser(t *testing.T) {
 	body := w.Body.String()
 	if !strings.Contains(body, "'=evil") || strings.Contains(body, "private-model") || !strings.Contains(body, "1.23") {
 		t.Fatalf("bad export: %s", body)
+	}
+	rows, err := csv.NewReader(strings.NewReader(strings.TrimPrefix(body, "\xef\xbb\xbf"))).ReadAll()
+	if err != nil || len(rows) != 2 || len(rows[0]) != 16 || len(rows[1]) != 16 {
+		t.Fatalf("CSV columns differ: %v %v", rows, err)
+	}
+	if rows[1][11] != "450.000" || rows[1][12] != "false" || rows[1][13] != "high" {
+		t.Fatalf("CSV timing/status columns are misplaced: %v", rows[1])
 	}
 }

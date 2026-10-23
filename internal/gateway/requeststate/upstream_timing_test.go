@@ -23,3 +23,24 @@ func TestUpstreamTimingTracksFinalAttemptOnly(t *testing.T) {
 		t.Fatal(start, end, ms)
 	}
 }
+
+func TestFirstResponseIsPinnedWhileDurationAdvances(t *testing.T) {
+	s := &State{}
+	timer := s.BeginUpstreamRequest()
+	timer.RecordData()
+	first := s.UpstreamFirstResponseMs()
+	time.Sleep(time.Millisecond)
+	timer.RecordData()
+	_, _, duration := s.UpstreamResponseTiming()
+	if first <= 0 || first != s.UpstreamFirstResponseMs() || duration <= first {
+		t.Fatal(first, duration)
+	}
+	s.BeginUpstreamRequest()
+	if s.UpstreamFirstResponseMs() != 0 {
+		t.Fatal("retry inherited first response")
+	}
+	timer.RecordData()
+	if s.UpstreamFirstResponseMs() != 0 {
+		t.Fatal("old body overwrote retry")
+	}
+}

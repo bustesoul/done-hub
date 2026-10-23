@@ -1,3 +1,4 @@
+import { billingRatio } from 'utils/billingRatio';
 import { Box, Divider, Stack, Typography } from '@mui/material';
 import Decimal from 'decimal.js';
 import PropTypes from 'prop-types';
@@ -40,10 +41,9 @@ export default function QuotaWithDetailContent({ item, userGroup, userIsAdmin, t
   const showCost = userIsAdmin && costQuota > 0;
   const originalQuota = calculateOriginalQuota(item);
 
-  const groupRatio = metadata.group_ratio || 1;
   const serviceTier = metadata.service_tier || '';
   const serviceTierRatio = metadata.service_tier_ratio || 1;
-  const finalRatio = groupRatio * serviceTierRatio;
+  const finalRatio = billingRatio(metadata);
   const longContextInputRatio = metadata.long_context_input_ratio || 1;
   const longContextOutputRatio = metadata.long_context_output_ratio || 1;
   const groupKey = metadata.is_backup_group ? metadata.backup_group_name : metadata.group_name;
@@ -185,6 +185,7 @@ export default function QuotaWithDetailContent({ item, userGroup, userIsAdmin, t
             <ContextValue label={t('logPage.quotaDetail.perRequestBilling')} value={timesPrice} />
           )}
           <ContextValue label={t('logPage.groupLabel')} value={groupName} />
+          {metadata.billing_version >= 2 && <ContextValue label="渠道计费倍率" value={`${metadata.channel_ratio}×`} />}
           {serviceTierRatio !== 1 && <ContextValue label={serviceTier || t('logPage.quotaDetail.serviceTierRatioValue')} value={`${serviceTierRatio}×`} />}
           {(longContextInputRatio !== 1 || longContextOutputRatio !== 1) && (
             <ContextValue label={t('logPage.quotaDetail.longContextRatio')} value={`${longContextInputRatio}× / ${longContextOutputRatio}×`} />
@@ -250,7 +251,6 @@ export default function QuotaWithDetailContent({ item, userGroup, userIsAdmin, t
           <Divider sx={{ my: 2 }} />
           <Stack direction="row" spacing={1.5}>
             <Typography sx={{ color: 'warning.main', fontSize: 12 }}>{t('logPage.quotaDetail.cost')}: {renderQuota(costQuota, 6)}</Typography>
-            <Typography sx={{ color: 'primary.main', fontSize: 12 }}>{t('logPage.quotaDetail.profit')}: {renderQuota(quota - costQuota, 6)}</Typography>
           </Stack>
         </>
       )}

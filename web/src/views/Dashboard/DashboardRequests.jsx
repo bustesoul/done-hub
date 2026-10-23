@@ -25,7 +25,7 @@ import QuotaWithDetailContent from '../Log/component/QuotaWithDetailContent';
 import { calculateTokenBilling } from '../Log/component/tokenBilling';
 import { useDashboardRequests } from './useDashboardAnalytics';
 import { requestParams, datetime, money, compact, latency, csv } from './analyticsData';
-import { outputSpeed, outputSpeedDetail } from 'utils/outputSpeed';
+import { outputSpeed, outputSpeedDetail, responseDuration, firstResponse } from 'utils/outputSpeed';
 
 function RequestStatus({ row }) {
   return (
@@ -38,8 +38,7 @@ function RequestStatus({ row }) {
   );
 }
 function firstTime(row) {
-  const t = Number(row.metadata?.first_response);
-  return row.type === 2 && row.is_stream && t > 0 && t <= row.request_time ? t : null;
+  return firstResponse(row);
 }
 function RequestTable({ data, options, onSelect }) {
   return (
@@ -348,7 +347,8 @@ function OpenRequestDrawer({ analytics: p }) {
                 ['首响应', latency(first)],
                 ['输出 TPS', speed == null ? '—' : speed.toFixed(2) + ' t/s'],
                 ['TPS 口径', outputSpeedDetail(r)],
-                ['总耗时', r.request_time > 0 ? latency(r.request_time) : '—']
+                ['耗时', latency(responseDuration(r))],
+                ['请求总耗时', r.request_time > 0 ? latency(r.request_time) : '—']
               ].map(([label, value]) => (
                 <Box key={label}>
                   <Typography variant="caption" color="text.secondary">

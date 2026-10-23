@@ -8,7 +8,6 @@ import dayjs from 'dayjs';
 import { API } from 'utils/api';
 import { generateBarChartOptions, renderChartNumber } from 'utils/chart';
 import { useTranslation } from 'react-i18next';
-import { minWidth } from '@mui/system';
 
 export default function Overview() {
   const { t } = useTranslation();
@@ -148,15 +147,7 @@ export default function Overview() {
           decimal={3}
         />
       </Grid>
-      <Grid item xs={12}>
-        <ApexCharts
-          id="profit"
-          isLoading={channelLoading}
-          chartDatas={channelData?.profit || {}}
-          title={t('analytics_index.profitStatistics')}
-          decimal={3}
-        />
-      </Grid>
+
       <Grid item xs={12}>
         <ApexCharts
           id="token"
@@ -218,7 +209,6 @@ function calculateDailyData(item, dateMap) {
     name: item.Channel,
     costs: calculateQuota(item.Quota, 3),
     cost: calculateQuota(item.CostQuota, 3),
-    profit: calculateQuota(item.Quota - item.CostQuota, 3),
     tokens: item.PromptTokens + item.CompletionTokens,
     requests: item.RequestCount,
     latency: Number(item.RequestTime / 1000 / item.RequestCount).toFixed(3),
@@ -232,7 +222,6 @@ function getBarDataGroup(data, dates) {
   const result = {
     costs: { total: 0, data: new Map() },
     cost: { total: 0, data: new Map() },
-    profit: { total: 0, data: new Map() },
     tokens: { total: 0, data: new Map() },
     requests: { total: 0, data: new Map() },
     latency: { total: 0, data: new Map() }
@@ -268,8 +257,6 @@ function getBarChartOptions(data, dateRange) {
   channelData.cost = generateBarChartOptions(dates, Array.from(result.cost.data.values()), '美元', 3);
   channelData.cost.options.title.text = '总成本：$' + renderChartNumber(result.cost.total, 3);
 
-  channelData.profit = generateBarChartOptions(dates, Array.from(result.profit.data.values()), '美元', 3);
-  channelData.profit.options.title.text = '总利润：$' + renderChartNumber(result.profit.total, 3);
 
   channelData.tokens = generateBarChartOptions(dates, Array.from(result.tokens.data.values()), '', 0);
   channelData.tokens.options.title.text = '总Tokens：' + renderChartNumber(result.tokens.total, 0);

@@ -537,7 +537,7 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
     const modelsStr = allUniqueModelIds.join(',');
     values.group = values.groups.join(',');
 
-    // cost_ratio 经 type=number 输入后为字符串，后端字段为 *float64，需转回数字；未配置或非法值按 0 处理（不计成本）
+    // cost_ratio 经 type=number 输入后为字符串，后端字段为 *float64，需转回数字；未配置或非法值保存为 0，计费时兼容为倍率 1
     values.cost_ratio = parseFloat(values.cost_ratio);
     if (isNaN(values.cost_ratio) || values.cost_ratio <= 0) {
       values.cost_ratio = 0;

@@ -1,3 +1,4 @@
+import { billingRatio } from 'utils/billingRatio'
 import { Box, IconButton, Typography } from '@mui/material'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import { renderQuota } from 'utils/common'
@@ -6,14 +7,12 @@ import PropTypes from 'prop-types'
 // Helper function to calculate the original quota based on actual price and group ratio
 export function calculateOriginalQuota(item) {
   // If we don't have the necessary data, return the metadata value or 0
-  if (!item?.quota || !item?.metadata?.group_ratio) {
+  if (!item?.quota || !item?.metadata) {
     return item.metadata?.original_quota || item.metadata?.origin_quota || 0
   }
 
   const quota = item.quota || 0
-  const groupRatio = item.metadata?.group_ratio || 1
-  const serviceTierRatio = item.metadata?.service_tier_ratio || 1
-  const totalRatio = groupRatio * serviceTierRatio
+  const totalRatio = billingRatio(item.metadata)
 
   // Simple formula: original price = actual price / final ratio
   // Avoid division by zero
@@ -30,8 +29,7 @@ export function calculateOriginalQuota(item) {
 
 // QuotaWithDetailRow is only responsible for the price in the main row and the small triangle
 export default function QuotaWithDetailRow({ item, open, setOpen }) {
-  const groupRatio = item?.metadata?.group_ratio || 1
-  const serviceTierRatio = item?.metadata?.service_tier_ratio || 1
+  const finalRatio = billingRatio(item?.metadata)
   // Calculate the original quota based on the formula
   const originalQuota = calculateOriginalQuota(item)
   // Ensure quota has a fallback value
@@ -40,7 +38,7 @@ export default function QuotaWithDetailRow({ item, open, setOpen }) {
     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <Box onClick={() => setOpen((o) => !o)}
            sx={{ display: 'flex', flexDirection: 'column', mr: 1, cursor: 'pointer' }}>
-        {groupRatio < 1 || serviceTierRatio !== 1 ? (
+        {finalRatio !== 1 ? (
           <>
             <Typography
               variant="caption"

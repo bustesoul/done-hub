@@ -156,6 +156,7 @@ func (s *RequestLog) Finish(ctx context.Context, statusCode int, panicked bool) 
 	if metadata == nil {
 		metadata = map[string]any{}
 	}
+	SetLogResponseMetrics(ctx, metadata)
 	metadata["request_time_unit"] = "ms"
 	if _, exists := metadata["status_code"]; !exists {
 		metadata["status_code"] = statusCode

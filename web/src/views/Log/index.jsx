@@ -1,3 +1,4 @@
+import { outputSpeedExplanation, responseTimeExplanation } from 'utils/outputSpeed'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { renderQuota, showError, showSuccess, trims, useIsAdmin } from 'utils/common'
 
@@ -683,7 +684,7 @@ export default function Log() {
                   {
                     id: 'duration',
                     label: t('logPage.durationLabel'),
-                    tooltip: t('logPage.durationTooltip'),
+                    tooltip: `${responseTimeExplanation} ${outputSpeedExplanation}`,
                     disableSort: true,
                     hide: !columnVisibility.duration
                   },

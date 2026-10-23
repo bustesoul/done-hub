@@ -30,7 +30,7 @@ import { IconX, IconDownload, IconBookmark } from '@tabler/icons-react';
 import { DAY, labels, money, compact, latency, datetime, dateinput, modelName, keyName, csv } from './analyticsData';
 import { RequestDrawer } from './DashboardRequests';
 import { showSuccess } from 'utils/common';
-import { outputSpeedExplanation } from 'utils/outputSpeed';
+import { outputSpeedExplanation, responseTimeExplanation } from 'utils/outputSpeed';
 
 export const AnalyticsSection = ({ title, subtitle, action, children, pad = true }) => (
   <Paper variant="outlined" sx={{ borderRadius: 3, overflow: 'hidden', height: '100%' }}>
@@ -441,7 +441,7 @@ export function AnalyticsDialogs({ analytics: p }) {
         '成功率%',
         '首响应P50ms',
         '首响应P95ms',
-        '总耗时P95ms',
+        '耗时P95ms',
         '输出tokens/s',
         '首响应样本',
         'TPS样本',
@@ -671,8 +671,7 @@ export function AnalyticsDialogs({ analytics: p }) {
         {type === 'models' && (
           <Stack spacing={2}>
             <Typography variant="body2" color="text.secondary">
-              点击列标题排序；点击模型查看请求。首响应仅统计成功流式请求；TPS 统计有有效输出和耗时的成功请求。两项分别统计样本数，少于 20
-              个样本仅供参考。
+              点击列标题排序；点击模型查看请求。首响应与 TPS 分别统计有效计时和输出样本。两项分别统计样本数，少于 20 个样本仅供参考。
             </Typography>
             <TableContainer>
               <Table size="small">
@@ -685,7 +684,7 @@ export function AnalyticsDialogs({ analytics: p }) {
                       ['p50', '首响应 P50'],
                       ['p95', '首响应 P95'],
                       ['tps', '输出 t/s'],
-                      ['duration95', '总耗时 P95'],
+                      ['duration95', '耗时 P95'],
                       ['cache', '缓存命中'],
                       ['cost', '消费']
                     ].map(([f, t]) => (
@@ -810,10 +809,7 @@ export function AnalyticsDialogs({ analytics: p }) {
         {type === 'about' && (
           <Stack spacing={2}>
             <Alert severity="info">仅统计当前账户已记录并仍保留的日志，清理历史记录或关闭采集会影响完整性。</Alert>
-            <Typography variant="body2">
-              首响应表示首次收到上游数据，并非严格的首个文本 Token。P50/P95
-              仅使用成功流式请求的有效计时样本；总耗时和平均延迟仅使用成功请求。
-            </Typography>
+            <Typography variant="body2">{responseTimeExplanation} P50/P95 和平均耗时仅使用成功请求的有效样本。</Typography>
             <Typography variant="body2">{outputSpeedExplanation} 仪表盘展示有效请求的 TPS 中位数，支持流式和非流式请求。</Typography>
             <Typography variant="body2">
               24h 对比前一个 24h；7/30/90D

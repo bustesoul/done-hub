@@ -26,3 +26,20 @@ test('no output, only reasoning and error records do not fabricate TPS', () => {
   ])
     assert.equal(outputSpeed(row), null);
 });
+
+test('duration and first response share the request-send clock; legacy keeps its clock', async () => {
+  const { responseDuration, firstResponse, responseTimeExplanation, outputSpeedExplanation } = await import('./outputSpeed.js');
+  const row = { type: 2, is_stream: true, request_time: 8552, completion_tokens: 188,
+    metadata: { first_response: 4837, upstream_response_ms: 8480.628079, response_metrics_version: 2, response_first_ms: 4820 } };
+  assert.equal(responseDuration(row), 8480.628079);
+  assert.equal(firstResponse(row), 4820);
+  assert.equal(outputSpeed(row).tps.toFixed(2), '22.17');
+  assert.match(outputSpeedDetail(row), /推理明细未提供/);
+  row.is_stream = false;
+  assert.equal(firstResponse(row), 4820);
+  delete row.metadata.response_metrics_version;
+  assert.equal(firstResponse(row), null);
+  row.is_stream = true;
+  assert.equal(firstResponse(row), 4837);
+  assert.doesNotMatch(responseTimeExplanation + outputSpeedExplanation + outputSpeedDetail(row), /上游/);
+});
