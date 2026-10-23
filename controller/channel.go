@@ -225,47 +225,6 @@ func SetProviderConnectionStatus(c *gin.Context) {
 		common.APIRespondWithError(c, http.StatusBadRequest, errors.New("只允许启用或手动停用连接"))
 		return
 	}
-	if request.Status == config.ChannelStatusEnabled {
-		var endpoint model.GatewayEndpoint
-		if err := model.DB.Where("channel_id = ?", id).First(&endpoint).Error; err != nil {
-			common.APIRespondWithError(c, http.StatusNotFound, err)
-			return
-		}
-		if endpoint.ActiveCredentialID == 0 {
-			common.APIRespondWithError(c, http.StatusConflict, errors.New("连接没有已激活凭据，不能启用"))
-			return
-		}
-		var credential model.GatewayCredential
-		if err := model.DB.Where("id = ? AND channel_id = ?", endpoint.ActiveCredentialID, id).
-			First(&credential).Error; err != nil {
-			common.APIRespondWithError(c, http.StatusConflict, errors.New("连接的活动凭据不存在，不能启用"))
-			return
-		}
-		if credential.AuthMode == "none" && !providers.AllowsEmptyCredential(endpoint.ProviderID) {
-			common.APIRespondWithError(c, http.StatusConflict, errors.New("该 Provider 不支持无凭据连接"))
-			return
-		}
-		if credential.TestedAt == nil {
-			common.APIRespondWithError(c, http.StatusConflict, errors.New("连接的活动凭据尚未通过测试，不能启用"))
-			return
-		}
-		var routeCount int64
-		if err := model.DB.Model(&model.GatewayModelRoute{}).
-			Where("channel_id = ?", id).
-			Count(&routeCount).Error; err != nil {
-			common.APIRespondWithError(c, http.StatusInternalServerError, err)
-			return
-		}
-		if routeCount == 0 {
-			common.APIRespondWithError(c, http.StatusConflict, errors.New("连接没有可用模型路由，不能启用"))
-			return
-		}
-		var health model.GatewayHealthState
-		if err := model.DB.Where("channel_id = ?", id).First(&health).Error; err != nil || health.TestTime == 0 {
-			common.APIRespondWithError(c, http.StatusConflict, errors.New("连接尚未通过探测，不能启用"))
-			return
-		}
-	}
 	if err := model.UpdateChannelStatusById(id, request.Status); err != nil {
 		common.APIRespondWithError(c, http.StatusInternalServerError, err)
 		return
@@ -393,18 +352,20 @@ func UpdateChannel(c *gin.Context) {
 			return
 		}
 	}
+	var credential *string
 	if channel.Key != "" && channel.Key != oldChannel.Key {
-		common.APIRespondWithError(c, http.StatusConflict, errors.New("普通编辑不能替换凭据，请使用“替换凭据”流程"))
-		return
+		newKey := channel.Key
+		credential = &newKey
+	} else {
+		channel.Key = oldChannel.Key
 	}
-	channel.Key = oldChannel.Key
 	channelToValidate := channel
 	if err = providers.ValidateChannelConfig(&channelToValidate, false); err != nil {
 		common.APIRespondWithError(c, http.StatusOK, err)
 		return
 	}
 	channel = channelToValidate
-	configChanged := providerConnectionProbeConfigChanged(oldChannel, &channel)
+	configChanged := credential != nil || providerConnectionProbeConfigChanged(oldChannel, &channel)
 	if configChanged {
 		if channel.SaveUnverified {
 			channel.Status = config.ChannelStatusManuallyDisabled
@@ -422,11 +383,7 @@ func UpdateChannel(c *gin.Context) {
 		channel.TestTime = oldChannel.TestTime
 		channel.ResponseTime = oldChannel.ResponseTime
 	}
-	if channel.Models == "" {
-		err = channel.Update(false)
-	} else {
-		err = channel.Update(true)
-	}
+	err = channel.UpdateWithCredential(channel.Models != "", credential)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
@@ -434,6 +391,7 @@ func UpdateChannel(c *gin.Context) {
 		})
 		return
 	}
+	channel.Key = ""
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",

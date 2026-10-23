@@ -422,7 +422,9 @@ func ProbeProviderConnection(c *gin.Context) {
 			return
 		}
 		candidate.Id = channel.Id
-		candidate.Key = channel.Key
+		if candidate.Key == "" {
+			candidate.Key = channel.Key
+		}
 		candidate.Status = channel.Status
 		if candidate.TestModel == "" {
 			candidate.TestModel = channel.TestModel

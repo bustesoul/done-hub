@@ -22,6 +22,23 @@ type createProviderCredentialRequest struct {
 	AuthMode string `json:"auth_mode"`
 }
 
+func GetActiveProviderCredentialSecret(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	channelID, ok := providerConnectionID(c)
+	if !ok {
+		return
+	}
+	_, plaintext, err := model.LoadActiveGatewayCredentialSecret(model.DB, channelID)
+	if err != nil {
+		common.APIRespondWithError(c, http.StatusNotFound, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    gin.H{"secret": plaintext},
+	})
+}
+
 func ListProviderCredentials(c *gin.Context) {
 	channelID, ok := providerConnectionID(c)
 	if !ok {

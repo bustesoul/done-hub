@@ -732,6 +732,11 @@ func ActivateGatewayCredential(db *gorm.DB, channelID int, credentialID uint) er
 }
 
 func ReplaceActiveGatewayCredential(db *gorm.DB, channelID int, plaintext string) error {
+	now := time.Now()
+	return replaceActiveGatewayCredential(db, channelID, plaintext, &now)
+}
+
+func replaceActiveGatewayCredential(db *gorm.DB, channelID int, plaintext string, testedAt *time.Time) error {
 	secretCipher, err := secret.NewFromConfig()
 	if err != nil {
 		return err
@@ -772,7 +777,7 @@ func ReplaceActiveGatewayCredential(db *gorm.DB, channelID int, plaintext string
 			SecretCiphertext: ciphertext,
 			SecretVersion:    maxVersion + 1,
 			Status:           GatewayCredentialActive,
-			TestedAt:         &now,
+			TestedAt:         testedAt,
 		}
 		if err := tx.Create(&credential).Error; err != nil {
 			return err

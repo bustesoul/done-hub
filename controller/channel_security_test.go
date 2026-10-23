@@ -263,7 +263,11 @@ func TestProviderConnectionCreateAllowsDisabledUnverifiedDraft(t *testing.T) {
 	statusContext.Request = httptest.NewRequest(http.MethodPost, "/api/admin/provider-connections/1/status", bytes.NewBufferString(`{"status":1}`))
 	statusContext.Request.Header.Set("Content-Type", "application/json")
 	SetProviderConnectionStatus(statusContext)
-	if statusRecorder.Code != http.StatusConflict || !strings.Contains(statusRecorder.Body.String(), "尚未通过") {
-		t.Fatalf("expected unverified enable rejection, got %d: %s", statusRecorder.Code, statusRecorder.Body.String())
+	if statusRecorder.Code != http.StatusOK {
+		t.Fatalf("expected unverified draft to enable, got %d: %s", statusRecorder.Code, statusRecorder.Body.String())
+	}
+	loaded := model.GatewayRoutes.GetChannel(channel.Id)
+	if loaded == nil || loaded.Status != config.ChannelStatusEnabled || loaded.TestTime != 0 || loaded.Key != "candidate-key" {
+		t.Fatal("manually enabled draft was not loaded into runtime with its untested credential")
 	}
 }

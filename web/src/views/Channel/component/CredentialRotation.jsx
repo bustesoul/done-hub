@@ -7,6 +7,8 @@ import {
   Chip,
   CircularProgress,
   Divider,
+  IconButton,
+  InputAdornment,
   Stack,
   TextField,
   Typography
@@ -26,6 +28,7 @@ const statusColor = {
 const CredentialRotation = ({ channelId, testModel, secret, onSecretChange }) => {
   const [credentials, setCredentials] = useState([]);
   const [working, setWorking] = useState('');
+  const [secretVisible, setSecretVisible] = useState(false);
 
   const loadCredentials = useCallback(async () => {
     try {
@@ -39,6 +42,7 @@ const CredentialRotation = ({ channelId, testModel, secret, onSecretChange }) =>
   }, [channelId]);
 
   useEffect(() => {
+    setSecretVisible(false);
     loadCredentials();
   }, [loadCredentials]);
 
@@ -72,11 +76,9 @@ const CredentialRotation = ({ channelId, testModel, secret, onSecretChange }) =>
     if (!candidate) return;
     setWorking('test');
     try {
-      const response = await API.post(
-        `/api/admin/provider-connections/${channelId}/credentials/${candidate.id}/test`,
-        null,
-        { params: { model: testModel } }
-      );
+      const response = await API.post(`/api/admin/provider-connections/${channelId}/credentials/${candidate.id}/test`, null, {
+        params: { model: testModel }
+      });
       if (!response.data?.success) {
         throw new Error(response.data?.message || '凭据测试失败');
       }
@@ -94,12 +96,15 @@ const CredentialRotation = ({ channelId, testModel, secret, onSecretChange }) =>
     if (!candidate) return;
     setWorking('activate');
     try {
-      const response = await API.post(
-        `/api/admin/provider-connections/${channelId}/credentials/${candidate.id}/activate`
-      );
+      const response = await API.post(`/api/admin/provider-connections/${channelId}/credentials/${candidate.id}/activate`);
       if (!response.data?.success) {
         throw new Error(response.data?.message || '激活凭据失败');
       }
+      const credentialResponse = await API.get(`/api/admin/provider-connections/${channelId}/credentials/active`);
+      if (!credentialResponse.data?.success) {
+        throw new Error(credentialResponse.data?.message || '读取当前凭据失败');
+      }
+      onSecretChange(credentialResponse.data.data.secret, true);
       await loadCredentials();
       showSuccess('新凭据已原子激活，旧凭据已退休');
     } catch (error) {
@@ -112,9 +117,7 @@ const CredentialRotation = ({ channelId, testModel, secret, onSecretChange }) =>
   const revokeCredential = async (credential) => {
     setWorking(`revoke-${credential.id}`);
     try {
-      const response = await API.post(
-        `/api/admin/provider-connections/${channelId}/credentials/${credential.id}/revoke`
-      );
+      const response = await API.post(`/api/admin/provider-connections/${channelId}/credentials/${credential.id}/revoke`);
       if (!response.data?.success) {
         throw new Error(response.data?.message || '撤销凭据失败');
       }
@@ -131,9 +134,9 @@ const CredentialRotation = ({ channelId, testModel, secret, onSecretChange }) =>
     <Box sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1.5 }}>
       <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1}>
         <Box>
-          <Typography variant="subtitle1">凭据与零中断轮换</Typography>
+          <Typography variant="subtitle1">API Key / OAuth 凭据</Typography>
           <Typography variant="caption" color="text.secondary">
-            凭据只写不回显。新凭据通过真实请求测试后才可切换，测试失败不会影响当前流量。
+            凭据默认遮盖，点击眼睛可显示。可直接修改并保存，也可通过候选凭据完成测试后切换。
           </Typography>
         </Box>
         {active && <Chip size="small" color="success" label={`当前版本 v${active.secret_version}`} />}
@@ -145,11 +148,25 @@ const CredentialRotation = ({ channelId, testModel, secret, onSecretChange }) =>
         <TextField
           fullWidth
           size="small"
-          type="password"
+          type={secretVisible ? 'text' : 'password'}
           autoComplete="new-password"
-          label="新 API Key / OAuth 凭据"
+          label="API Key / OAuth 凭据"
           value={secret || ''}
           onChange={(event) => onSecretChange(event.target.value)}
+          InputProps={{
+            endAdornment: (
+              <InputAdornment position="end">
+                <IconButton
+                  aria-label={secretVisible ? '隐藏凭据' : '显示凭据'}
+                  onClick={() => setSecretVisible((visible) => !visible)}
+                  onMouseDown={(event) => event.preventDefault()}
+                  edge="end"
+                >
+                  <Icon icon={secretVisible ? 'solar:eye-bold-duotone' : 'solar:eye-closed-bold-duotone'} />
+                </IconButton>
+              </InputAdornment>
+            )
+          }}
         />
         <Button
           variant="outlined"
@@ -173,12 +190,7 @@ const CredentialRotation = ({ channelId, testModel, secret, onSecretChange }) =>
               <Button size="small" disabled={Boolean(working)} onClick={testCandidate}>
                 {working === 'test' ? <CircularProgress size={16} /> : '测试候选'}
               </Button>
-              <Button
-                size="small"
-                variant="contained"
-                disabled={Boolean(working) || !candidate.tested_at}
-                onClick={activateCandidate}
-              >
+              <Button size="small" variant="contained" disabled={Boolean(working) || !candidate.tested_at} onClick={activateCandidate}>
                 {working === 'activate' ? <CircularProgress size={16} /> : '激活'}
               </Button>
             </Stack>
@@ -195,11 +207,7 @@ const CredentialRotation = ({ channelId, testModel, secret, onSecretChange }) =>
               variant={item.status === 'active' ? 'filled' : 'outlined'}
               color={statusColor[item.status] || 'default'}
               label={`v${item.secret_version} · ${item.status}`}
-              onDelete={
-                item.status !== 'active' && item.status !== 'revoked' && !working
-                  ? () => revokeCredential(item)
-                  : undefined
-              }
+              onDelete={item.status !== 'active' && item.status !== 'revoked' && !working ? () => revokeCredential(item) : undefined}
             />
           ))}
         </Stack>

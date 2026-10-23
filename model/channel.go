@@ -737,7 +737,22 @@ func (channel *Channel) insert(sourceID int) error {
 }
 
 func (channel *Channel) Update(overwrite bool) error {
+	return channel.UpdateWithCredential(overwrite, nil)
+}
+
+func (channel *Channel) UpdateWithCredential(overwrite bool, credential *string) error {
 	err := DB.Transaction(func(tx *gorm.DB) error {
+		if credential != nil {
+			var testedAt *time.Time
+			if channel.TestTime > 0 {
+				value := time.Unix(channel.TestTime, 0)
+				testedAt = &value
+			}
+			if err := replaceActiveGatewayCredential(tx, channel.Id, *credential, testedAt); err != nil {
+				return err
+			}
+			channel.Key = ""
+		}
 		if err := channel.updateRaw(tx, overwrite); err != nil {
 			return err
 		}
@@ -745,6 +760,9 @@ func (channel *Channel) Update(overwrite bool) error {
 	})
 	if err != nil {
 		return err
+	}
+	if credential != nil {
+		ClearChannelTokenCache(channel.Id)
 	}
 	GatewayRoutes.Load()
 	GatewayRoutes.ClearChannelCooldowns(channel.Id)

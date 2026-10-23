@@ -437,14 +437,6 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
     values = trims(values);
     const draftPayload = draftProbePayload(values);
     const saveUnverified = !isTag && draftProbeSignature !== draftProbeFingerprint(values);
-    if (channelId && !isTag && values.key) {
-      const message = '新凭据尚未进入轮换流程，请先点击“建立候选”，完成测试和激活后再保存其他配置。';
-      setSubmitting(false);
-      setStatus({ success: false });
-      setErrors({ submit: message });
-      showError(message);
-      return;
-    }
     if (values.base_url && values.base_url.endsWith('/')) {
       values.base_url = values.base_url.slice(0, values.base_url.length - 1);
     }
@@ -581,11 +573,11 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
       const { success, message } = res.data;
       if (success) {
         if (channelId && saveUnverified) {
-          showSuccess('连接配置已保存为未验证并保持停用；探测通过后才能重新启用。');
+          showSuccess('连接配置已保存为未验证并保持停用，可随时通过列表开关启用。');
         } else if (channelId) {
           showSuccess(t('channel_edit.editSuccess'));
         } else if (saveUnverified) {
-          showSuccess('连接已保存为未验证状态并保持停用；探测通过后才能启用。');
+          showSuccess('连接已保存为未验证状态并保持停用，可随时通过列表开关启用。');
         } else {
           showSuccess(t('channel_edit.addSuccess'));
         }
@@ -634,6 +626,13 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
       let res = await API.get(baseApiUrl);
       const { success, message, data } = res.data;
       if (success) {
+        if (!isTag && data.credential_configured) {
+          const credentialResponse = await API.get(`/api/admin/provider-connections/${channelId}/credentials/active`);
+          if (!credentialResponse.data?.success) {
+            throw new Error(credentialResponse.data?.message || '读取当前凭据失败');
+          }
+          data.key = credentialResponse.data.data.secret;
+        }
         if (data.models === '') {
           data.models = [];
         } else {
@@ -1243,7 +1242,10 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
                       channelId={channelId}
                       testModel={values.test_model}
                       secret={values.key}
-                      onSecretChange={(secret) => setFieldValue('key', secret)}
+                      onSecretChange={(secret, verified = false) => {
+                        setFieldValue('key', secret);
+                        if (verified) setDraftProbeSignature(draftProbeFingerprint({ ...values, key: secret }));
+                      }}
                     />
                   ) : (
                     <FormControl fullWidth error={Boolean(touched.key && errors.key)} sx={{ ...theme.typography.otherInput }}>
