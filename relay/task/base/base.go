@@ -94,12 +94,25 @@ func (t *TaskBase) HandleOriginTaskID() error {
 	}
 
 	t.C.Set("specific_channel_id", task.ChannelId)
+	t.C.Set("specific_credential_id", task.CredentialID)
 
 	return nil
 }
 
 func (t *TaskBase) GinResponse() {
 	t.C.JSON(200, t.Response)
+}
+
+func GroupTasksByCredential(taskIDs []string, tasks map[string]*model.Task) map[uint][]string {
+	groups := make(map[uint][]string)
+	for _, id := range taskIDs {
+		var credentialID uint
+		if task := tasks[id]; task != nil {
+			credentialID = task.CredentialID
+		}
+		groups[credentialID] = append(groups[credentialID], id)
+	}
+	return groups
 }
 
 type TaskError struct {

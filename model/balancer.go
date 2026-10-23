@@ -150,6 +150,12 @@ func (cc *GatewayRouteIndex) CleanupExpiredCooldowns() {
 		}
 		return true
 	})
+	credentialCooldowns.Range(func(key, value any) bool {
+		if !time.Now().Before(value.(time.Time)) {
+			credentialCooldowns.Delete(key)
+		}
+		return true
+	})
 }
 
 // ClearChannelCooldowns 清除指定渠道的所有冻结缓存
@@ -161,6 +167,13 @@ func (cc *GatewayRouteIndex) ClearChannelCooldowns(channelId int) {
 		}
 		return true
 	})
+	cc.RLock()
+	defer cc.RUnlock()
+	if choice := cc.Channels[channelId]; choice != nil {
+		for _, key := range choice.Channel.CredentialPool {
+			credentialCooldowns.Delete(key.ID)
+		}
+	}
 }
 
 func (cc *GatewayRouteIndex) Disable(channelId int) {
@@ -200,6 +213,9 @@ func (cc *GatewayRouteIndex) balancer(channelIds []int, choices map[int]*Channel
 	for _, channelId := range channelIds {
 		choice, ok := choices[channelId]
 		if !ok || choice.Disable || choice.modelDisabled(modelName) {
+			continue
+		}
+		if !choice.Channel.HasEnabledCredential() {
 			continue
 		}
 

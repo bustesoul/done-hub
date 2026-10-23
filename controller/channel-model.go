@@ -20,10 +20,25 @@ func GetModelList(c *gin.Context) {
 		})
 		return
 	}
-	keys := strings.Split(channel.Key, "\n")
-	channel.Key = keys[0]
+	if channel.Keys != nil {
+		channel.Key = ""
+		enabled := false
+		for _, key := range channel.Keys {
+			if key.Enabled {
+				channel.Key = key.Secret
+				enabled = true
+				break
+			}
+		}
+		if !enabled {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": "请先启用一个 Key"})
+			return
+		}
+	} else if !strings.HasPrefix(strings.TrimSpace(channel.Key), "{") {
+		channel.Key = strings.Split(channel.Key, "\n")[0]
+	}
 
-	if channel.Key == "" {
+	if channel.Key == "" && !providers.AllowsEmptyCredential(channel.Type) {
 		if channel.Id == 0 {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,

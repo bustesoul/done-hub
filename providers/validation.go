@@ -22,6 +22,9 @@ func ValidateChannelConfig(channel *model.Channel, creating bool) error {
 	if len(definition.Capabilities) == 0 {
 		return fmt.Errorf("provider %q has no declared capability", definition.ID)
 	}
+	if err := model.ValidateChannelKeys(channel, supportsAuthMode(definition, domain.AuthModeNone)); err != nil {
+		return err
+	}
 	if err := applyProviderDefaults(channel, definition); err != nil {
 		return err
 	}

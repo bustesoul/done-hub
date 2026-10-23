@@ -202,7 +202,7 @@ func (p *ClaudeCodeProvider) GetToken() (string, error) {
 		return p.Credentials.AccessToken, nil
 	}
 
-	cacheKey := fmt.Sprintf("%s:%d", TokenCacheKey, p.Channel.Id)
+	cacheKey := p.Channel.CredentialCacheKey(TokenCacheKey)
 	cachedToken, _ := cache.GetCache[string](cacheKey)
 	if cachedToken != "" {
 		return cachedToken, nil
@@ -245,7 +245,7 @@ func (p *ClaudeCodeProvider) saveCredentialsToDatabase(ctx context.Context) erro
 		return fmt.Errorf("failed to serialize credentials: %w", err)
 	}
 
-	if err := model.UpdateChannelKey(p.Channel.Id, credentialsJSON); err != nil {
+	if err := p.Channel.SaveRefreshedCredential(credentialsJSON); err != nil {
 		return fmt.Errorf("failed to update channel key: %w", err)
 	}
 

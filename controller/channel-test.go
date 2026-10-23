@@ -57,6 +57,10 @@ func testChannel(channel *model.Channel, testModel string) (*types.OpenAIErrorWi
 }
 
 func testChannelWithContext(ctx context.Context, channel *model.Channel, testModel string) (openaiErr *types.OpenAIErrorWithStatusCode, err error) {
+	probeChannel := *channel
+	probeChannel.CredentialPool = nil
+	probeChannel.CredentialReadOnly = true
+	channel = &probeChannel
 	if testModel == "" {
 		testModel = channel.TestModel
 		if testModel == "" {
@@ -435,6 +439,13 @@ func ProbeProviderConnection(c *gin.Context) {
 		}
 		channel = &candidate
 	}
+	if !draftProbe && channel.CredentialPool != nil {
+		channel.Keys = channel.CredentialPool
+	}
+	if channel.Keys != nil {
+		probeProviderConnectionDraft(c, *channel, !draftProbe)
+		return
+	}
 	if channel.ProtocolProfileID == "" {
 		if profileID, profileErr := providers.DefaultProtocolProfile(channel.Type); profileErr == nil {
 			channel.ProtocolProfileID = string(profileID)
@@ -493,11 +504,23 @@ func ProbeProviderConnectionDraft(c *gin.Context) {
 		common.APIRespondWithError(c, http.StatusBadRequest, err)
 		return
 	}
+	probeProviderConnectionDraft(c, channel, false)
+}
+
+func probeProviderConnectionDraft(c *gin.Context, channel model.Channel, saveResult bool) {
 	if err := providers.ValidateChannelConfig(&channel, true); err != nil {
 		common.APIRespondWithError(c, http.StatusBadRequest, err)
 		return
 	}
 	keys := strings.Split(channel.Key, "\n")
+	if channel.Keys != nil {
+		keys = nil
+		for _, key := range channel.Keys {
+			if key.Enabled {
+				keys = append(keys, key.Secret)
+			}
+		}
+	}
 	baseURLs := strings.Split(channel.GetBaseURL(), "\n")
 	allowEmptyCredential := providers.AllowsEmptyCredential(channel.Type)
 	tested := 0
@@ -509,6 +532,8 @@ func ProbeProviderConnectionDraft(c *gin.Context) {
 			continue
 		}
 		candidate := channel
+		candidate.CredentialPool = nil
+		candidate.CredentialReadOnly = true
 		candidate.Key = key
 		proxy := channel.GetProxy()
 		candidate.Proxy = &proxy
@@ -538,6 +563,9 @@ func ProbeProviderConnectionDraft(c *gin.Context) {
 		common.APIRespondWithError(c, http.StatusBadRequest, errors.New("没有可探测的连接凭据"))
 		return
 	}
+	if saveResult {
+		channel.UpdateResponseTime(maxLatency)
+	}
 	validationToken, err := issueProviderValidationToken(&channel)
 	if err != nil {
 		common.APIRespondWithError(c, http.StatusInternalServerError, err)
@@ -561,6 +589,10 @@ func ProbeProviderConnectionDraft(c *gin.Context) {
 }
 
 func probeChannelReasoningCapability(channel *model.Channel, testModel string) *reasoningProbeReport {
+	probeChannel := *channel
+	probeChannel.CredentialPool = nil
+	probeChannel.CredentialReadOnly = true
+	channel = &probeChannel
 	profileID := domain.ProtocolProfileID(channel.ProtocolProfileID)
 	if profileID != domain.ProfileOpenAIChat && profileID != domain.ProfileOpenAIResponses {
 		return nil

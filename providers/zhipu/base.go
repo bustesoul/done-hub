@@ -86,7 +86,7 @@ func (p *ZhipuProvider) GetFullRequestURL(requestURL string) string {
 }
 
 func (p *ZhipuProvider) getZhipuToken() string {
-	cacheKey := fmt.Sprintf("%s:%d", zhiPuCacheKey, p.Channel.Id)
+	cacheKey := p.Channel.CredentialCacheKey(zhiPuCacheKey)
 	tokenStr, err := cache.GetCache[string](cacheKey)
 	if err != nil {
 		logger.SysError("get zhipu token error: " + err.Error())

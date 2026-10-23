@@ -4,6 +4,8 @@ const defaultConfig = {
     type: 1,
     protocol_profile_id: 'openai-chat-completions',
     key: '',
+    keys: [{ secret: '', enabled: true, client_id: 'initial' }],
+    key_strategy: 'round_robin',
     base_url: '',
     other: '',
     remark: '',

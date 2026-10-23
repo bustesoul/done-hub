@@ -303,7 +303,7 @@ func (p *GeminiCliProvider) GetToken() (string, error) {
 		ctx = context.Background()
 	}
 
-	cacheKey := fmt.Sprintf("%s:%d", TokenCacheKey, p.Channel.Id)
+	cacheKey := p.Channel.CredentialCacheKey(TokenCacheKey)
 
 	cachedToken, _ := cache.GetCache[string](cacheKey)
 	if cachedToken != "" {
@@ -353,7 +353,7 @@ func (p *GeminiCliProvider) saveCredentialsToDatabase(ctx context.Context) error
 		return fmt.Errorf("failed to serialize credentials: %w", err)
 	}
 
-	if err := model.UpdateChannelKey(p.Channel.Id, credentialsJSON); err != nil {
+	if err := p.Channel.SaveRefreshedCredential(credentialsJSON); err != nil {
 		return fmt.Errorf("failed to update channel key: %w", err)
 	}
 

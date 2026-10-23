@@ -192,7 +192,7 @@ func (p *BaiduProvider) GetRequestHeaders() (headers map[string]string) {
 
 func (p *BaiduProvider) getBaiduAccessToken() (string, error) {
 	apiKey := p.Channel.Key
-	cacheKey := fmt.Sprintf("%s:%d", baiduCacheKey, p.Channel.Id)
+	cacheKey := p.Channel.CredentialCacheKey(baiduCacheKey)
 	tokenStr, err := cache.GetCache[string](cacheKey)
 	if err != nil {
 		logger.SysError("get baidu token error: " + err.Error())

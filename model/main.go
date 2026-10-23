@@ -178,6 +178,9 @@ func InitDB() (err error) {
 		if err != nil {
 			return err
 		}
+		if err = BackfillTaskCredentialReferences(db); err != nil {
+			return err
+		}
 		err = db.AutoMigrate(&Statistics{})
 		if err != nil {
 			return err

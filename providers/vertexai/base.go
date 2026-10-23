@@ -130,7 +130,7 @@ func (p *VertexAIProvider) handleTokenError(err error) *types.OpenAIErrorWithSta
 }
 
 func (p *VertexAIProvider) GetToken() (string, error) {
-	cacheKey := fmt.Sprintf("%s:%d", TokenCacheKey, p.Channel.Id)
+	cacheKey := p.Channel.CredentialCacheKey(TokenCacheKey)
 	token, err := cache.GetCache[string](cacheKey)
 	if err != nil {
 		logger.SysError("Failed to get token from cache: " + err.Error())

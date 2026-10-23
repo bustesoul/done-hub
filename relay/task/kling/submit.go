@@ -80,6 +80,7 @@ func (t *KlingTask) Relay() *base.TaskError {
 	t.InitTask()
 	t.Task.TaskID = resp.Data.TaskID
 	t.Task.ChannelId = t.Provider.Channel.Id
+	t.Task.CredentialID = t.Provider.Channel.CredentialID
 	t.Task.Action = t.Action
 
 	return nil
@@ -131,15 +132,16 @@ func (t *KlingTask) ShouldRetry(c *gin.Context, err *base.TaskError) bool {
 
 func (t *KlingTask) UpdateTaskStatus(ctx context.Context, taskChannelM map[int][]string, taskM map[string]*model.Task) error {
 	for channelId, taskIds := range taskChannelM {
-		err := updateKlingTaskAll(ctx, channelId, taskIds, taskM)
-		if err != nil {
-			logger.LogError(ctx, fmt.Sprintf("渠道 #%d 更新异步任务失败: %s", channelId, err.Error()))
+		for credentialID, ids := range base.GroupTasksByCredential(taskIds, taskM) {
+			if err := updateKlingTaskAll(ctx, channelId, credentialID, ids, taskM); err != nil {
+				logger.LogError(ctx, fmt.Sprintf("渠道 #%d 更新异步任务失败: %s", channelId, err.Error()))
+			}
 		}
 	}
 	return nil
 }
 
-func updateKlingTaskAll(ctx context.Context, channelId int, taskIds []string, taskM map[string]*model.Task) error {
+func updateKlingTaskAll(ctx context.Context, channelId int, credentialID uint, taskIds []string, taskM map[string]*model.Task) error {
 	logger.LogWarn(ctx, fmt.Sprintf("渠道 #%d 未完成的任务有: %d", channelId, len(taskIds)))
 	if len(taskIds) == 0 {
 		return nil
@@ -158,6 +160,10 @@ func updateKlingTaskAll(ctx context.Context, channelId int, taskIds []string, ta
 		return fmt.Errorf("channel not found")
 	}
 
+	channel, pinErr := model.PinGatewayCredential(channel, credentialID)
+	if pinErr != nil {
+		return pinErr
+	}
 	providers := providers.GetProvider(channel, nil)
 	KlingProvider, ok := providers.(*KlingProvider.KlingProvider)
 	if !ok {

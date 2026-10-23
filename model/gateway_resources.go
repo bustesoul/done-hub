@@ -22,6 +22,7 @@ type GatewayEndpoint struct {
 	ProviderID         int            `json:"provider_id" gorm:"index;not null"`
 	ProtocolProfileID  string         `json:"protocol_profile_id" gorm:"type:varchar(64);index"`
 	ActiveCredentialID uint           `json:"active_credential_id" gorm:"index"`
+	KeyStrategy        string         `json:"key_strategy" gorm:"type:varchar(32);not null;default:round_robin"`
 	Name               string         `json:"name" gorm:"index;not null"`
 	BaseURL            string         `json:"base_url" gorm:"type:text"`
 	Proxy              string         `json:"proxy" gorm:"type:text"`
@@ -44,6 +45,8 @@ type GatewayCredential struct {
 	SecretCiphertext string         `json:"-" gorm:"type:text"`
 	SecretVersion    int            `json:"secret_version" gorm:"uniqueIndex:idx_gateway_credential_version,priority:2;not null;default:1"`
 	Status           string         `json:"status" gorm:"type:varchar(16);index;not null;default:'active'"`
+	Disabled         bool           `json:"disabled" gorm:"not null;default:false"`
+	Position         int            `json:"position" gorm:"not null;default:0"`
 	TestedAt         *time.Time     `json:"tested_at"`
 	RetiredAt        *time.Time     `json:"retired_at"`
 	RevokedAt        *time.Time     `json:"revoked_at"`
@@ -266,6 +269,7 @@ func backfillGatewayChannel(db *gorm.DB, secretCipher *secret.Cipher, channel *C
 		ProviderID:         channel.Type,
 		ProtocolProfileID:  channel.ProtocolProfileID,
 		ActiveCredentialID: existingEndpoint.ActiveCredentialID,
+		KeyStrategy:        normalizeKeyStrategy(existingEndpoint.KeyStrategy),
 		Name:               channel.Name,
 		BaseURL:            stringValue(channel.BaseURL),
 		Proxy:              stringValue(channel.Proxy),
@@ -888,7 +892,8 @@ func LoadGatewayChannelSnapshots(db *gorm.DB) ([]*Channel, error) {
 	var routes []GatewayModelRoute
 	var policies []GatewayPolicy
 	var healthStates []GatewayHealthState
-	if err := db.Where("id IN ?", activeCredentialIDs).Find(&credentials).Error; err != nil {
+	if err := db.Where("channel_id IN ? AND (status = ? OR id IN ?)", channelIDs, GatewayCredentialActive, activeCredentialIDs).
+		Order("position ASC, id ASC").Find(&credentials).Error; err != nil {
 		return nil, err
 	}
 	if err := db.Where("channel_id IN ?", channelIDs).
@@ -904,8 +909,16 @@ func LoadGatewayChannelSnapshots(db *gorm.DB) ([]*Channel, error) {
 	}
 
 	credentialsByID := make(map[uint]GatewayCredential, len(credentials))
+	poolsByChannel := make(map[int][]ChannelKey)
 	for _, credential := range credentials {
 		credentialsByID[credential.ID] = credential
+		if credential.Status == GatewayCredentialActive {
+			plaintext, err := secretCipher.Decrypt(credential.SecretCiphertext)
+			if err != nil {
+				return nil, err
+			}
+			poolsByChannel[credential.ChannelID] = append(poolsByChannel[credential.ChannelID], ChannelKey{ID: credential.ID, Secret: plaintext, Enabled: !credential.Disabled})
+		}
 	}
 	routesByChannel := make(map[int][]GatewayModelRoute)
 	for _, route := range routes {
@@ -946,6 +959,9 @@ func LoadGatewayChannelSnapshots(db *gorm.DB) ([]*Channel, error) {
 			Type:                endpoint.ProviderID,
 			ProtocolProfileID:   endpoint.ProtocolProfileID,
 			Key:                 key,
+			CredentialID:        credential.ID,
+			CredentialPool:      append([]ChannelKey{}, poolsByChannel[endpoint.ChannelID]...),
+			KeyStrategy:         normalizeKeyStrategy(endpoint.KeyStrategy),
 			Status:              endpoint.Status,
 			Name:                endpoint.Name,
 			CreatedTime:         endpoint.CreatedTime,

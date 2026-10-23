@@ -86,6 +86,7 @@ func (t *SunoTask) Relay() *base.TaskError {
 		t.Task.TaskID = *resp.Data
 	}
 	t.Task.ChannelId = t.Provider.Channel.Id
+	t.Task.CredentialID = t.Provider.Channel.CredentialID
 	t.Task.Action = t.Action
 
 	return nil
@@ -156,15 +157,16 @@ func (t *SunoTask) ShouldRetry(c *gin.Context, err *base.TaskError) bool {
 
 func (t *SunoTask) UpdateTaskStatus(ctx context.Context, taskChannelM map[int][]string, taskM map[string]*model.Task) error {
 	for channelId, taskIds := range taskChannelM {
-		err := updateSunoTaskAll(ctx, channelId, taskIds, taskM)
-		if err != nil {
-			logger.LogError(ctx, fmt.Sprintf("渠道 #%d 更新异步任务失败: %s", channelId, err.Error()))
+		for credentialID, ids := range base.GroupTasksByCredential(taskIds, taskM) {
+			if err := updateSunoTaskAll(ctx, channelId, credentialID, ids, taskM); err != nil {
+				logger.LogError(ctx, fmt.Sprintf("渠道 #%d 更新异步任务失败: %s", channelId, err.Error()))
+			}
 		}
 	}
 	return nil
 }
 
-func updateSunoTaskAll(ctx context.Context, channelId int, taskIds []string, taskM map[string]*model.Task) error {
+func updateSunoTaskAll(ctx context.Context, channelId int, credentialID uint, taskIds []string, taskM map[string]*model.Task) error {
 	logger.LogWarn(ctx, fmt.Sprintf("渠道 #%d 未完成的任务有: %d", channelId, len(taskIds)))
 	if len(taskIds) == 0 {
 		return nil
@@ -183,6 +185,10 @@ func updateSunoTaskAll(ctx context.Context, channelId int, taskIds []string, tas
 		return fmt.Errorf("channel not found")
 	}
 
+	channel, err := model.PinGatewayCredential(channel, credentialID)
+	if err != nil {
+		return err
+	}
 	providers := providers.GetProvider(channel, nil)
 	sunoProvider, ok := providers.(*sunoProvider.SunoProvider)
 	if !ok {

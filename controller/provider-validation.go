@@ -22,13 +22,14 @@ type providerValidationClaims struct {
 }
 
 type providerValidationInput struct {
-	Type              int    `json:"type"`
-	ProtocolProfileID string `json:"protocol_profile_id"`
-	Key               string `json:"key"`
-	BaseURL           string `json:"base_url"`
-	Proxy             string `json:"proxy"`
-	Other             string `json:"other"`
-	TestModel         string `json:"test_model"`
+	Type              int                `json:"type"`
+	ProtocolProfileID string             `json:"protocol_profile_id"`
+	Key               string             `json:"key"`
+	Keys              []model.ChannelKey `json:"keys,omitempty"`
+	BaseURL           string             `json:"base_url"`
+	Proxy             string             `json:"proxy"`
+	Other             string             `json:"other"`
+	TestModel         string             `json:"test_model"`
 }
 
 func issueProviderValidationToken(channel *model.Channel) (string, error) {
@@ -84,6 +85,7 @@ func providerValidationDigest(channel *model.Channel) string {
 		Type:              channel.Type,
 		ProtocolProfileID: strings.TrimSpace(channel.ProtocolProfileID),
 		Key:               strings.TrimSpace(channel.Key),
+		Keys:              channel.Keys,
 		BaseURL:           strings.TrimSpace(channel.GetBaseURL()),
 		Proxy:             strings.TrimSpace(channel.GetProxy()),
 		Other:             strings.TrimSpace(channel.Other),

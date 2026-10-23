@@ -21,7 +21,7 @@ func (p *CopilotProvider) CreateResponses(request *types.OpenAIResponsesRequest)
 	resp, errWithCode := p.Requester.SendRequestRaw(req)
 	if errWithCode != nil {
 		if errWithCode.StatusCode == http.StatusUnauthorized {
-			invalidateToken(p.Channel.Id)
+			invalidateToken(p.Channel.Id, p.githubToken)
 		}
 		return nil, errWithCode
 	}
@@ -46,7 +46,7 @@ func (p *CopilotProvider) CreateResponsesStream(request *types.OpenAIResponsesRe
 	resp, errWithCode := p.Requester.SendRequestRaw(req)
 	if errWithCode != nil {
 		if errWithCode.StatusCode == http.StatusUnauthorized {
-			invalidateToken(p.Channel.Id)
+			invalidateToken(p.Channel.Id, p.githubToken)
 		}
 		return nil, errWithCode
 	}

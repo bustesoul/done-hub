@@ -273,6 +273,11 @@ func GetProviderWithError(channel *model.Channel, c *base.RequestContext) (base.
 	if channel == nil {
 		return nil, errors.New("channel is nil")
 	}
+	selected, err := model.SelectGatewayCredential(channel)
+	if err != nil {
+		return nil, err
+	}
+	channel = selected
 	entry, err := providerRegistry.Get(domain.ProviderID(channel.Type))
 	if err != nil {
 		return nil, err

@@ -242,6 +242,11 @@ func (s *taskCooldownStore) Cooldown(
 			duration = time.Duration(config.RetryCooldownSeconds) * time.Second
 		}
 	}
+	seconds := int64((duration + time.Second - 1) / time.Second)
+	_, pinned := s.context.Get("specific_credential_id")
+	if !pinned && model.CooldownGatewayCredential(endpoint.ID, s.context.GetUint("selected_credential_id"), seconds) {
+		return nil
+	}
 	if duration > 0 {
 		seconds := int64((duration + time.Second - 1) / time.Second)
 		model.GatewayRoutes.SetCooldownsWithDuration(endpoint.ID, modelName, seconds)

@@ -34,7 +34,7 @@ func (p *CopilotProvider) CreateChatCompletion(request *types.ChatCompletionRequ
 	if errWithCode != nil {
 		// On 401, invalidate the cached token so next request re-exchanges.
 		if errWithCode.StatusCode == http.StatusUnauthorized {
-			invalidateToken(p.Channel.Id)
+			invalidateToken(p.Channel.Id, p.githubToken)
 		}
 		return nil, errWithCode
 	}
@@ -72,7 +72,7 @@ func (p *CopilotProvider) CreateChatCompletionStream(request *types.ChatCompleti
 	resp, errWithCode := p.Requester.SendRequestRaw(req)
 	if errWithCode != nil {
 		if errWithCode.StatusCode == http.StatusUnauthorized {
-			invalidateToken(p.Channel.Id)
+			invalidateToken(p.Channel.Id, p.githubToken)
 		}
 		return nil, errWithCode
 	}

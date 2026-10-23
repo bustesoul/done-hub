@@ -187,25 +187,26 @@ func RelaySwapFace(c *gin.Context) *provider.MidjourneyResponse {
 	}
 
 	midjourneyTask := &model.Midjourney{
-		UserId:      userId,
-		TokenID:     tokenId,
-		Code:        midjResponse.Code,
-		Action:      provider.MjActionSwapFace,
-		MjId:        midjResponse.Result,
-		Prompt:      "InsightFace",
-		PromptEn:    "",
-		Description: midjResponse.Description,
-		State:       "",
-		SubmitTime:  startTime,
-		StartTime:   time.Now().UnixNano() / int64(time.Millisecond),
-		FinishTime:  0,
-		ImageUrl:    "",
-		Status:      "",
-		Progress:    "0%",
-		FailReason:  "",
-		ChannelId:   gatewayChannelID(c),
-		Quota:       quota,
-		Mode:        mjModelType,
+		UserId:       userId,
+		TokenID:      tokenId,
+		Code:         midjResponse.Code,
+		Action:       provider.MjActionSwapFace,
+		MjId:         midjResponse.Result,
+		Prompt:       "InsightFace",
+		PromptEn:     "",
+		Description:  midjResponse.Description,
+		State:        "",
+		SubmitTime:   startTime,
+		StartTime:    time.Now().UnixNano() / int64(time.Millisecond),
+		FinishTime:   0,
+		ImageUrl:     "",
+		Status:       "",
+		Progress:     "0%",
+		FailReason:   "",
+		ChannelId:    gatewayChannelID(c),
+		CredentialID: c.GetUint("selected_credential_id"),
+		Quota:        quota,
+		Mode:         mjModelType,
 	}
 	err = midjourneyTask.Insert()
 	if err != nil {
@@ -234,7 +235,7 @@ func RelayMidjourneyTaskImageSeed(c *gin.Context) *provider.MidjourneyResponse {
 		return provider.MidjourneyErrorWrapper(provider.MjRequestError, "task_no_found")
 	}
 
-	mjProvider, errWithMJ := getMJProviderWithChannelId(c, originTask.ChannelId)
+	mjProvider, errWithMJ := getMJProviderWithChannelId(c, originTask.ChannelId, originTask.CredentialID)
 	if errWithMJ != nil {
 		return errWithMJ
 	}
@@ -395,7 +396,7 @@ func RelayMidjourneySubmit(c *gin.Context, relayMode int) *provider.MidjourneyRe
 		} else if originTask.Status != "SUCCESS" && relayMode != provider.RelayModeMidjourneyModal {
 			return provider.MidjourneyErrorWrapper(provider.MjRequestError, "task_status_not_success")
 		} else { //原任务的Status=SUCCESS，则可以做放大UPSCALE、变换VARIATION等动作，此时必须使用原来的请求地址才能正确处理
-			mjProvider, errWithMJ = getMJProviderWithChannelId(c, originTask.ChannelId)
+			mjProvider, errWithMJ = getMJProviderWithChannelId(c, originTask.ChannelId, originTask.CredentialID)
 			if errWithMJ != nil {
 				return errWithMJ
 			}
@@ -484,25 +485,26 @@ func RelayMidjourneySubmit(c *gin.Context, relayMode int) *provider.MidjourneyRe
 	// 24-prompt包含敏感词 {"code":24,"description":"可能包含敏感词","properties":{"promptEn":"nude body","bannedWord":"nude"}}
 	// other: 提交错误，description为错误描述
 	midjourneyTask := &model.Midjourney{
-		UserId:      userId,
-		TokenID:     tokenId,
-		Code:        midjResponse.Code,
-		Action:      midjRequest.Action,
-		MjId:        midjResponse.Result,
-		Prompt:      midjRequest.Prompt,
-		PromptEn:    "",
-		Description: midjResponse.Description,
-		State:       "",
-		SubmitTime:  time.Now().UnixNano() / int64(time.Millisecond),
-		StartTime:   0,
-		FinishTime:  0,
-		ImageUrl:    "",
-		Status:      "",
-		Progress:    "0%",
-		FailReason:  "",
-		ChannelId:   gatewayChannelID(c),
-		Quota:       quota,
-		Mode:        mjModelType,
+		UserId:       userId,
+		TokenID:      tokenId,
+		Code:         midjResponse.Code,
+		Action:       midjRequest.Action,
+		MjId:         midjResponse.Result,
+		Prompt:       midjRequest.Prompt,
+		PromptEn:     "",
+		Description:  midjResponse.Description,
+		State:        "",
+		SubmitTime:   time.Now().UnixNano() / int64(time.Millisecond),
+		StartTime:    0,
+		FinishTime:   0,
+		ImageUrl:     "",
+		Status:       "",
+		Progress:     "0%",
+		FailReason:   "",
+		ChannelId:    gatewayChannelID(c),
+		CredentialID: c.GetUint("selected_credential_id"),
+		Quota:        quota,
+		Mode:         mjModelType,
 	}
 
 	if midjResponse.Code != 1 && midjResponse.Code != 21 && midjResponse.Code != 22 {
@@ -617,8 +619,9 @@ func getMJProviderWithRequest(c *gin.Context, relayMode int, request *provider.M
 	return getMJProvider(c, midjourneyModel)
 }
 
-func getMJProviderWithChannelId(c *gin.Context, channelId int) (*provider.MidjourneyProvider, *provider.MidjourneyResponse) {
+func getMJProviderWithChannelId(c *gin.Context, channelId int, credentialID uint) (*provider.MidjourneyProvider, *provider.MidjourneyResponse) {
 	c.Set("specific_channel_id", channelId)
+	c.Set("specific_credential_id", credentialID)
 
 	return getMJProvider(c, "")
 }

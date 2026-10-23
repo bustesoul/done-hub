@@ -20,44 +20,49 @@ import (
 )
 
 type Channel struct {
-	Id                   int        `json:"id"`
-	Type                 int        `json:"type" form:"type" gorm:"default:0"`
-	ProtocolProfileID    string     `json:"protocol_profile_id" form:"protocol_profile_id" gorm:"type:varchar(64);index"`
-	Key                  string     `json:"key" form:"key" gorm:"type:text"`
-	CredentialConfigured bool       `json:"credential_configured" gorm:"-"`
-	CredentialAuthMode   string     `json:"credential_auth_mode,omitempty" gorm:"-"`
-	CredentialStatus     string     `json:"credential_status" gorm:"-"`
-	CredentialTestedAt   *time.Time `json:"credential_tested_at,omitempty" gorm:"-"`
-	ValidationToken      string     `json:"validation_token,omitempty" gorm:"-"`
-	SaveUnverified       bool       `json:"save_unverified,omitempty" gorm:"-"`
-	Status               int        `json:"status" form:"status" gorm:"default:1"`
-	Name                 string     `json:"name" form:"name" gorm:"index"`
-	CreatedTime          int64      `json:"created_time" gorm:"bigint"`
-	TestTime             int64      `json:"test_time" gorm:"bigint"`
-	ResponseTime         int        `json:"response_time"` // in milliseconds
-	BaseURL              *string    `json:"base_url" gorm:"column:base_url;default:''"`
-	Other                string     `json:"other" form:"other"`
-	Remark               string     `json:"remark" form:"remark" gorm:"type:text"`
-	Balance              float64    `json:"balance"` // in USD
-	BalanceUpdatedTime   int64      `json:"balance_updated_time" gorm:"bigint"`
-	Models               string     `json:"models" form:"models"`
-	Group                string     `json:"group" form:"group" gorm:"type:varchar(255);default:'default'"`
-	Tag                  string     `json:"tag" form:"tag" gorm:"type:varchar(32);default:''"`
-	UsedQuota            int64      `json:"used_quota" gorm:"bigint;default:0"`
-	ModelMapping         *string    `json:"model_mapping" gorm:"type:text"`
-	Need2ResponseModels  *string    `json:"need2response_models" gorm:"type:text"`
-	ModelHeaders         *string    `json:"model_headers" gorm:"type:varchar(1024);default:''"`
-	CustomParameter      *string    `json:"custom_parameter" gorm:"type:text"`
-	Proxy                *string    `json:"proxy" gorm:"type:varchar(255);default:''"`
-	TestModel            string     `json:"test_model" form:"test_model" gorm:"type:varchar(50);default:''"`
-	OnlyChat             bool       `json:"only_chat" form:"only_chat" gorm:"default:false"`
-	PreCost              int        `json:"pre_cost" form:"pre_cost" gorm:"default:1"`
-	CostRatio            *float64   `json:"cost_ratio" form:"cost_ratio" gorm:"type:decimal(10,4);default:0"`
-	HeaderOverride       *string    `json:"header_override" gorm:"type:text"`
-	PassThroughBody      bool       `json:"pass_through_body" form:"pass_through_body" gorm:"default:false"`
-	CompatibleResponse   bool       `json:"compatible_response" gorm:"default:false"`
-	AllowExtraBody       bool       `json:"allow_extra_body" form:"allow_extra_body" gorm:"default:false"`
-	AffinityEnabled      bool       `json:"affinity_enabled" form:"affinity_enabled" gorm:"default:false"`
+	Id                   int          `json:"id"`
+	Type                 int          `json:"type" form:"type" gorm:"default:0"`
+	ProtocolProfileID    string       `json:"protocol_profile_id" form:"protocol_profile_id" gorm:"type:varchar(64);index"`
+	Key                  string       `json:"key" form:"key" gorm:"type:text"`
+	Keys                 []ChannelKey `json:"keys,omitempty" gorm:"-"`
+	KeyStrategy          string       `json:"key_strategy" gorm:"-"`
+	CredentialID         uint         `json:"-" gorm:"-"`
+	CredentialReadOnly   bool         `json:"-" gorm:"-"`
+	CredentialPool       []ChannelKey `json:"-" gorm:"-"`
+	CredentialConfigured bool         `json:"credential_configured" gorm:"-"`
+	CredentialAuthMode   string       `json:"credential_auth_mode,omitempty" gorm:"-"`
+	CredentialStatus     string       `json:"credential_status" gorm:"-"`
+	CredentialTestedAt   *time.Time   `json:"credential_tested_at,omitempty" gorm:"-"`
+	ValidationToken      string       `json:"validation_token,omitempty" gorm:"-"`
+	SaveUnverified       bool         `json:"save_unverified,omitempty" gorm:"-"`
+	Status               int          `json:"status" form:"status" gorm:"default:1"`
+	Name                 string       `json:"name" form:"name" gorm:"index"`
+	CreatedTime          int64        `json:"created_time" gorm:"bigint"`
+	TestTime             int64        `json:"test_time" gorm:"bigint"`
+	ResponseTime         int          `json:"response_time"` // in milliseconds
+	BaseURL              *string      `json:"base_url" gorm:"column:base_url;default:''"`
+	Other                string       `json:"other" form:"other"`
+	Remark               string       `json:"remark" form:"remark" gorm:"type:text"`
+	Balance              float64      `json:"balance"` // in USD
+	BalanceUpdatedTime   int64        `json:"balance_updated_time" gorm:"bigint"`
+	Models               string       `json:"models" form:"models"`
+	Group                string       `json:"group" form:"group" gorm:"type:varchar(255);default:'default'"`
+	Tag                  string       `json:"tag" form:"tag" gorm:"type:varchar(32);default:''"`
+	UsedQuota            int64        `json:"used_quota" gorm:"bigint;default:0"`
+	ModelMapping         *string      `json:"model_mapping" gorm:"type:text"`
+	Need2ResponseModels  *string      `json:"need2response_models" gorm:"type:text"`
+	ModelHeaders         *string      `json:"model_headers" gorm:"type:varchar(1024);default:''"`
+	CustomParameter      *string      `json:"custom_parameter" gorm:"type:text"`
+	Proxy                *string      `json:"proxy" gorm:"type:varchar(255);default:''"`
+	TestModel            string       `json:"test_model" form:"test_model" gorm:"type:varchar(50);default:''"`
+	OnlyChat             bool         `json:"only_chat" form:"only_chat" gorm:"default:false"`
+	PreCost              int          `json:"pre_cost" form:"pre_cost" gorm:"default:1"`
+	CostRatio            *float64     `json:"cost_ratio" form:"cost_ratio" gorm:"type:decimal(10,4);default:0"`
+	HeaderOverride       *string      `json:"header_override" gorm:"type:text"`
+	PassThroughBody      bool         `json:"pass_through_body" form:"pass_through_body" gorm:"default:false"`
+	CompatibleResponse   bool         `json:"compatible_response" gorm:"default:false"`
+	AllowExtraBody       bool         `json:"allow_extra_body" form:"allow_extra_body" gorm:"default:false"`
+	AffinityEnabled      bool         `json:"affinity_enabled" form:"affinity_enabled" gorm:"default:false"`
 
 	ModelRoutes []GatewayModelRoute `json:"-" gorm:"-"`
 
@@ -335,6 +340,7 @@ func GetChannelById(id int) (*Channel, error) {
 		// credential projection yet. GatewayCredential wins whenever present.
 		channel.CredentialConfigured = channel.Key != ""
 		if credential, plaintext, credentialErr := LoadActiveGatewayCredentialSecret(DB, id); credentialErr == nil {
+			channel.CredentialID = credential.ID
 			channel.Key = plaintext
 			channel.CredentialConfigured = true
 			channel.CredentialAuthMode = credential.AuthMode
@@ -343,6 +349,10 @@ func GetChannelById(id int) (*Channel, error) {
 			if credential.AuthMode == string(domain.AuthModeNone) {
 				channel.CredentialStatus = "keyless"
 			}
+		}
+		if keys, strategy, poolErr := LoadGatewayKeyPool(DB, id); poolErr == nil {
+			channel.CredentialPool = keys
+			channel.KeyStrategy = strategy
 		}
 	}
 	return &channel, err
@@ -419,6 +429,7 @@ func hydrateGatewayCredentials(channels []*Channel) {
 		plaintext, decryptErr := secretCipher.Decrypt(credential.SecretCiphertext)
 		if decryptErr == nil {
 			channel.Key = plaintext
+			channel.CredentialID = credential.ID
 		}
 	}
 }
@@ -472,7 +483,17 @@ func BatchInsertChannels(channels []Channel) error {
 		for index := range channels {
 			ids = append(ids, channels[index].Id)
 		}
-		return SyncGatewayChannels(tx, ids)
+		if err := SyncGatewayChannels(tx, ids); err != nil {
+			return err
+		}
+		for index := range channels {
+			if channels[index].Keys != nil {
+				if err := saveGatewayKeyPool(tx, &channels[index]); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
 	}); err != nil {
 		return err
 	}
@@ -724,6 +745,11 @@ func (channel *Channel) insert(sourceID int) error {
 		if err := SyncGatewayChannels(tx, []int{channel.Id}); err != nil {
 			return err
 		}
+		if channel.Keys != nil {
+			if err := saveGatewayKeyPool(tx, channel); err != nil {
+				return err
+			}
+		}
 		if sourceID > 0 {
 			return copyModelRouteScheduling(tx, sourceID, channel.Id)
 		}
@@ -756,7 +782,13 @@ func (channel *Channel) UpdateWithCredential(overwrite bool, credential *string)
 		if err := channel.updateRaw(tx, overwrite); err != nil {
 			return err
 		}
-		return SyncGatewayChannels(tx, []int{channel.Id})
+		if err := SyncGatewayChannels(tx, []int{channel.Id}); err != nil {
+			return err
+		}
+		if channel.Keys != nil {
+			return saveGatewayKeyPool(tx, channel)
+		}
+		return nil
 	})
 	if err != nil {
 		return err

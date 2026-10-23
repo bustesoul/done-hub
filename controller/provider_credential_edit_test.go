@@ -94,19 +94,22 @@ func TestActiveProviderCredentialSecretRequiresAdmin(t *testing.T) {
 	router := gin.New()
 	router.Use(sessions.Sessions("test", cookie.NewStore([]byte("credential-test-session"))))
 	router.GET("/:id/credentials/active", middleware.AdminAuth(), GetActiveProviderCredentialSecret)
+	router.GET("/:id/keys", middleware.AdminAuth(), GetProviderConnectionKeys)
 	for _, token := range []string{"", "reader-token", "admin-token"} {
-		recorder := httptest.NewRecorder()
-		request := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/%d/credentials/active", channel.Id), nil)
-		if token != "" {
-			request.Header.Set("Authorization", "Bearer "+token)
-		}
-		router.ServeHTTP(recorder, request)
-		hasSecret := strings.Contains(recorder.Body.String(), "original-secret")
-		if hasSecret != (token == "admin-token") {
-			t.Fatalf("unexpected credential access for %q", token)
-		}
-		if token == "admin-token" && recorder.Header().Get("Cache-Control") != "no-store" {
-			t.Fatal("credential response must not be cached")
+		for _, suffix := range []string{"credentials/active", "keys"} {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/%d/%s", channel.Id, suffix), nil)
+			if token != "" {
+				request.Header.Set("Authorization", "Bearer "+token)
+			}
+			router.ServeHTTP(recorder, request)
+			hasSecret := strings.Contains(recorder.Body.String(), "original-secret")
+			if hasSecret != (token == "admin-token") {
+				t.Fatalf("unexpected credential access for %q", token)
+			}
+			if token == "admin-token" && recorder.Header().Get("Cache-Control") != "no-store" {
+				t.Fatal("credential response must not be cached")
+			}
 		}
 	}
 	for _, id := range []int{0, channel.Id + 1} {

@@ -103,6 +103,9 @@ func AddChannel(c *gin.Context) {
 	}
 	channel.CreatedTime = utils.GetTimestamp()
 	keys := strings.Split(channel.Key, "\n")
+	if channel.Keys != nil {
+		keys = []string{channel.Key}
+	}
 	allowEmptyCredential := providers.AllowsEmptyCredential(channel.Type)
 
 	baseUrls := []string{}
@@ -353,7 +356,7 @@ func UpdateChannel(c *gin.Context) {
 		}
 	}
 	var credential *string
-	if channel.Key != "" && channel.Key != oldChannel.Key {
+	if channel.Keys == nil && channel.Key != "" && channel.Key != oldChannel.Key {
 		newKey := channel.Key
 		credential = &newKey
 	} else {
@@ -365,7 +368,8 @@ func UpdateChannel(c *gin.Context) {
 		return
 	}
 	channel = channelToValidate
-	configChanged := credential != nil || providerConnectionProbeConfigChanged(oldChannel, &channel)
+	poolChanged := channel.Keys != nil && model.ChannelKeysNeedProbe(channel.Keys, oldChannel.CredentialPool)
+	configChanged := credential != nil || poolChanged || providerConnectionProbeConfigChanged(oldChannel, &channel)
 	if configChanged {
 		if channel.SaveUnverified {
 			channel.Status = config.ChannelStatusManuallyDisabled
@@ -392,6 +396,7 @@ func UpdateChannel(c *gin.Context) {
 		return
 	}
 	channel.Key = ""
+	channel.Keys = nil
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",

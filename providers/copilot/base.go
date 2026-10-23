@@ -2,6 +2,7 @@ package copilot
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"done-hub/common/logger"
 	"done-hub/common/requester"
@@ -24,16 +25,17 @@ import (
 
 var (
 	tokenCacheMu sync.RWMutex
-	tokenCache   = make(map[int]*CopilotToken) // channelID → cached token
+	tokenCache   = make(map[string]*CopilotToken) // channel + credential → cached token
 	sfGroup      singleflight.Group
 )
 
 // getOrExchangeToken returns a valid Copilot API token for the given channel.
 // It uses a read-first + singleflight pattern to avoid thundering-herd.
 func getOrExchangeToken(ctx context.Context, httpClient *http.Client, channelID int, githubToken string) (string, error) {
+	cacheID := fmt.Sprintf("%d:%x", channelID, sha256.Sum256([]byte(githubToken)))
 	// Fast path: valid cached token.
 	tokenCacheMu.RLock()
-	cached, ok := tokenCache[channelID]
+	cached, ok := tokenCache[cacheID]
 	tokenCacheMu.RUnlock()
 
 	if ok && cached != nil && !cached.IsExpired() && !cached.ShouldRefresh() {
@@ -41,11 +43,11 @@ func getOrExchangeToken(ctx context.Context, httpClient *http.Client, channelID 
 	}
 
 	// Slow path: exchange under singleflight.
-	key := fmt.Sprintf("exchange:%d", channelID)
+	key := "exchange:" + cacheID
 	val, err, _ := sfGroup.Do(key, func() (any, error) {
 		// Re-check under lock after entering singleflight.
 		tokenCacheMu.RLock()
-		cached, ok := tokenCache[channelID]
+		cached, ok := tokenCache[cacheID]
 		tokenCacheMu.RUnlock()
 		if ok && cached != nil && !cached.IsExpired() && !cached.ShouldRefresh() {
 			return cached.Token, nil
@@ -70,7 +72,7 @@ func getOrExchangeToken(ctx context.Context, httpClient *http.Client, channelID 
 		}
 
 		tokenCacheMu.Lock()
-		tokenCache[channelID] = newToken
+		tokenCache[cacheID] = newToken
 		tokenCacheMu.Unlock()
 
 		logger.SysLog(fmt.Sprintf("[Copilot] token refreshed for channel %d, expires at %s",
@@ -90,9 +92,10 @@ func getOrExchangeToken(ctx context.Context, httpClient *http.Client, channelID 
 }
 
 // invalidateToken removes the cached token for the given channel.
-func invalidateToken(channelID int) {
+func invalidateToken(channelID int, githubToken string) {
+	cacheID := fmt.Sprintf("%d:%x", channelID, sha256.Sum256([]byte(githubToken)))
 	tokenCacheMu.Lock()
-	delete(tokenCache, channelID)
+	delete(tokenCache, cacheID)
 	tokenCacheMu.Unlock()
 }
 

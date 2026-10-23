@@ -182,6 +182,7 @@ func SetApiRouter(router *gin.Engine) {
 			providerAdminRoute.POST("/provider-connections/:id/probe", controller.ProbeProviderConnection)
 			providerAdminRoute.GET("/provider-connections/:id/credentials", controller.ListProviderCredentials)
 			providerAdminRoute.GET("/provider-connections/:id/credentials/active", controller.GetActiveProviderCredentialSecret)
+			providerAdminRoute.GET("/provider-connections/:id/keys", controller.GetProviderConnectionKeys)
 			providerAdminRoute.POST("/provider-connections/:id/credentials", controller.CreateProviderCredential)
 			providerAdminRoute.POST("/provider-connections/:id/credentials/:credential_id/test", controller.TestProviderCredential)
 			providerAdminRoute.POST("/provider-connections/:id/credentials/:credential_id/activate", controller.ActivateProviderCredential)

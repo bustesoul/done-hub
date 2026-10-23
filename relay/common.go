@@ -289,10 +289,18 @@ func GetProvider(c *gin.Context, modelName string) (provider providersBase.Provi
 		c.Set("group_ratio", groupRatio.Ratio)
 	}
 
+	if _, pinned := c.Get("specific_credential_id"); pinned {
+		credentialID := c.GetUint("specific_credential_id")
+		channel, fail = model.PinGatewayCredential(channel, credentialID)
+		if fail != nil {
+			return
+		}
+	}
 	provider, fail = providers.GetProviderWithError(channel, providerRequestContext(c))
 	if fail != nil {
 		return
 	}
+	c.Set("selected_credential_id", provider.GetChannel().CredentialID)
 	provider.SetOriginalModel(modelName) // 保存用户原始请求的模型名称
 
 	newModelName, fail = provider.ModelMappingHandler(actualModelName) // 使用匹配到的模型名称进行映射
@@ -857,7 +865,16 @@ func processChannelRelayError(ctx context.Context, channelId int, channelName st
 //
 // 把两件事绑在一起，未来加新入口只要调一次，从机制上消除"漏调一个就丢 429 信号"的脆弱约定。
 func notifyChannelRelayError(ctx context.Context, c *gin.Context, channel *model.Channel, apiErr *types.OpenAIErrorWithStatusCode) {
-	go processChannelRelayError(ctx, channel.Id, channel.Name, apiErr, channel.Type)
+	pool := model.GatewayRoutes.GetChannel(channel.Id)
+	if channel.CredentialID != 0 && pool != nil && len(pool.CredentialPool) > 1 && controller.ShouldDisableChannel(channel.Type, apiErr) {
+		go func() {
+			if err := model.DisableGatewayCredential(channel.Id, channel.CredentialID); err != nil {
+				logger.LogError(ctx, "停用渠道 Key 失败: "+err.Error())
+			}
+		}()
+	} else {
+		go processChannelRelayError(ctx, channel.Id, channel.Name, apiErr, channel.Type)
+	}
 	if apiErr != nil && apiErr.StatusCode == http.StatusTooManyRequests {
 		c.Set("upstream_seen_429", true)
 	}

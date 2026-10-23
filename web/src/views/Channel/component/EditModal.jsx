@@ -42,7 +42,7 @@ import useCustomizeT from 'hooks/useCustomizeT';
 import { formatGroupLabel } from './batchHelpers';
 import ModelSelectorModal from './ModelSelectorModal';
 import ConnectionProfilePicker from './ConnectionProfilePicker';
-import CredentialRotation from './CredentialRotation';
+import ChannelKeysEditor, { createKeyRow } from './ChannelKeysEditor';
 import OAuthCredentialFlow from './OAuthCredentialFlow';
 import ChannelAdvancedSection from './ChannelAdvancedSection';
 import ChannelBillingSection from './ChannelBillingSection';
@@ -74,7 +74,8 @@ const draftProbePayload = (values) => ({
   name: normalizeDraftValue(values.name),
   type: values.type,
   protocol_profile_id: normalizeDraftValue(values.protocol_profile_id),
-  key: normalizeDraftValue(values.key),
+  key: normalizeDraftValue(values.keys?.[0]?.secret ?? values.key),
+  keys: values.keys?.map(({ id, secret, enabled }) => ({ id, secret: secret.trim(), enabled })),
   base_url: normalizeDraftBaseURL(values.base_url),
   proxy: normalizeDraftValue(values.proxy),
   other: normalizeDraftValue(values.other),
@@ -84,6 +85,11 @@ const draftProbeFingerprint = (values) => {
   const probeBoundConfig = draftProbePayload(values);
   delete probeBoundConfig.name;
   return JSON.stringify(probeBoundConfig);
+};
+const needsConnectionProbe = (values, initial) => {
+  const known = new Set((initial.keys || []).map((item) => item.secret.trim()));
+  if ((values.keys || []).some((item) => item.enabled && !known.has(item.secret.trim()))) return true;
+  return draftProbeFingerprint({ ...values, keys: initial.keys }) !== draftProbeFingerprint(initial);
 };
 const getValidationSchema = (t, providerDefinitions) =>
   Yup.object().shape({
@@ -128,7 +134,6 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
   const [initialInput, setInitialInput] = useState(defaultConfig.input);
   const [inputLabel, setInputLabel] = useState(defaultConfig.inputLabel); //
   const [inputPrompt, setInputPrompt] = useState(defaultConfig.prompt);
-  const [batchAdd, setBatchAdd] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const removeDuplicates = (array) => [...new Set(array)];
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
@@ -555,6 +560,8 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
           ? await API.put(baseApiUrl, { ...values, id: parseInt(channelId), models: modelsStr })
           : await API.patch(`${baseApiUrl}/${channelId}`, {
               ...values,
+              key: draftPayload.key,
+              keys: draftPayload.keys,
               id: parseInt(channelId),
               models: modelsStr,
               validation_token: draftValidationToken,
@@ -563,6 +570,8 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
       } else {
         res = await API.post(baseApiUrl, {
           ...values,
+          key: draftPayload.key,
+          keys: draftPayload.keys,
           base_url: draftPayload.base_url,
           test_model: draftPayload.test_model,
           models: modelsStr,
@@ -572,7 +581,7 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
       }
       const { success, message } = res.data;
       if (success) {
-        if (channelId && saveUnverified) {
+        if (channelId && saveUnverified && res.data.data?.status === 2) {
           showSuccess('连接配置已保存为未验证并保持停用，可随时通过列表开关启用。');
         } else if (channelId) {
           showSuccess(t('channel_edit.editSuccess'));
@@ -626,12 +635,14 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
       let res = await API.get(baseApiUrl);
       const { success, message, data } = res.data;
       if (success) {
-        if (!isTag && data.credential_configured) {
-          const credentialResponse = await API.get(`/api/admin/provider-connections/${channelId}/credentials/active`);
+        if (!isTag) {
+          const credentialResponse = await API.get(`/api/admin/provider-connections/${channelId}/keys`);
           if (!credentialResponse.data?.success) {
             throw new Error(credentialResponse.data?.message || '读取当前凭据失败');
           }
-          data.key = credentialResponse.data.data.secret;
+          data.keys = credentialResponse.data.data.keys;
+          data.key_strategy = credentialResponse.data.data.key_strategy;
+          data.key = data.keys.find((item) => item.enabled)?.secret || data.keys[0]?.secret || '';
         }
         if (data.models === '') {
           data.models = [];
@@ -644,14 +655,13 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
           data.groups = data.group.split(',');
         }
 
-        data.model_mapping =
-          data.model_mapping !== ''
-            ? Object.entries(JSON.parse(data.model_mapping)).map(([key, value], index) => ({
-                index,
-                key,
-                value
-              }))
-            : [];
+        data.model_mapping = data.model_mapping
+          ? Object.entries(JSON.parse(data.model_mapping)).map(([key, value], index) => ({
+              index,
+              key,
+              value
+            }))
+          : [];
 
         // 初始化模型原始映射关系
         const mapping = parseModelMapping(data.model_mapping);
@@ -669,18 +679,17 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
           setModelOriginalMapping({});
         }
         // if (data.model_headers) {
-        data.model_headers =
-          data.model_headers !== ''
-            ? Object.entries(JSON.parse(data.model_headers)).map(([key, raw], index) => {
-                const isObj = raw !== null && typeof raw === 'object';
-                return {
-                  index,
-                  key,
-                  value: isObj ? raw.value : raw,
-                  skip: isObj ? raw.skip === true : false
-                };
-              })
-            : [];
+        data.model_headers = data.model_headers
+          ? Object.entries(JSON.parse(data.model_headers)).map(([key, raw], index) => {
+              const isObj = raw !== null && typeof raw === 'object';
+              return {
+                index,
+                key,
+                value: isObj ? raw.value : raw,
+                skip: isObj ? raw.skip === true : false
+              };
+            })
+          : [];
         // }
 
         data.header_override = data.header_override
@@ -735,7 +744,6 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
   useEffect(() => {
     if (open) {
       loadProviderCatalog();
-      setBatchAdd(isTag);
       if (channelId) {
         loadChannel().then();
       } else {
@@ -815,9 +823,9 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
                       {touched.protocol_profile_id && errors.protocol_profile_id && (
                         <FormHelperText error>{errors.protocol_profile_id}</FormHelperText>
                       )}
-                      {channelId && draftProbeSignature !== draftProbeFingerprint(values) && (
+                      {channelId && needsConnectionProbe(values, initialInput) && draftProbeSignature !== draftProbeFingerprint(values) && (
                         <Alert severity="warning" sx={{ mb: 2 }}>
-                          上游连接配置已变更。请重新执行连接探测；也可直接保存为未验证，连接将自动停用。
+                          连接配置尚未测试。新增或修改已启用的 Key 后直接保存会停用渠道，可在列表随时启用。
                         </Alert>
                       )}
                     </>
@@ -1237,67 +1245,21 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
                         </Typography>
                       </Box>
                     </Box>
-                  ) : channelId ? (
-                    <CredentialRotation
-                      channelId={channelId}
-                      testModel={values.test_model}
-                      secret={values.key}
-                      onSecretChange={(secret, verified = false) => {
-                        setFieldValue('key', secret);
-                        if (verified) setDraftProbeSignature(draftProbeFingerprint({ ...values, key: secret }));
-                      }}
-                    />
                   ) : (
-                    <FormControl fullWidth error={Boolean(touched.key && errors.key)} sx={{ ...theme.typography.otherInput }}>
-                      {!batchAdd ? (
-                        <>
-                          <InputLabel htmlFor="channel-key-label">{customizeT(inputLabel.key)}</InputLabel>
-                          <OutlinedInput
-                            id="channel-key-label"
-                            label={customizeT(inputLabel.key)}
-                            type="text"
-                            value={values.key}
-                            name="key"
-                            onBlur={handleBlur}
-                            onChange={handleChange}
-                            inputProps={{}}
-                            aria-describedby="helper-text-channel-key-label"
-                          />
-                        </>
-                      ) : (
-                        <TextField
-                          multiline
-                          id="channel-key-label"
-                          label={customizeT(inputLabel.key)}
-                          value={values.key}
-                          name="key"
-                          onBlur={handleBlur}
-                          onChange={handleChange}
-                          aria-describedby="helper-text-channel-key-label"
-                          minRows={5}
-                          maxRows={15}
-                          placeholder={customizeT(inputPrompt.key) + t('channel_edit.batchKeytip')}
-                        />
-                      )}
-
-                      {touched.key && errors.key ? (
-                        <FormHelperText error id="helper-tex-channel-key-label">
-                          {errors.key}
-                        </FormHelperText>
-                      ) : (
-                        <FormHelperText id="helper-tex-channel-key-label">
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span>{customizeT(inputPrompt.key)}</span>
-                            {channelId === 0 && (
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                <Switch size="small" checked={Boolean(batchAdd)} onChange={(e) => setBatchAdd(e.target.checked)} />
-                                <Typography variant="body2">{t('channel_edit.batchAdd')}</Typography>
-                              </Box>
-                            )}
-                          </Box>
-                        </FormHelperText>
-                      )}
-                    </FormControl>
+                    <ChannelKeysEditor
+                      keys={values.keys || []}
+                      strategy={values.key_strategy}
+                      label={
+                        providerDefinitions.find((provider) => provider.channel_type === values.type)?.oauth
+                          ? '授权凭据'
+                          : customizeT(inputLabel.key)
+                      }
+                      onChange={(keys) => {
+                        setFieldValue('keys', keys);
+                        setFieldValue('key', keys.find((item) => item.enabled)?.secret || keys[0]?.secret || '');
+                      }}
+                      onStrategyChange={(strategy) => setFieldValue('key_strategy', strategy)}
+                    />
                   )}
 
                   <OAuthCredentialFlow
@@ -1305,10 +1267,16 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
                     channelId={channelId}
                     projectId={values.other}
                     proxy={values.proxy}
-                    disabled={batchAdd}
+                    disabled={isTag}
                     active={open}
                     onCredential={(credential, result) => {
-                      setFieldValue('key', credential);
+                      const existing = (values.keys || []).filter((item) => item.secret.trim());
+                      const matched = existing.some((item) => item.secret.trim() === credential.trim());
+                      const keys = matched
+                        ? existing.map((item) => (item.secret.trim() === credential.trim() ? { ...item, enabled: true } : item))
+                        : [...existing, createKeyRow(credential)];
+                      setFieldValue('keys', keys);
+                      setFieldValue('key', keys.find((item) => item.enabled)?.secret || '');
                       if (result?.project_id) setFieldValue('other', result.project_id);
                     }}
                   />
@@ -1421,7 +1389,7 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
                       variant="outlined"
                       startIcon={draftProbeWorking ? <Icon icon="svg-spinners:ring-resize" /> : <Icon icon="mdi:connection" />}
                     >
-                      连接探测
+                      测试连接
                     </Button>
                   )}
                   <Button
@@ -1431,7 +1399,7 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
                     variant="contained"
                     color="primary"
                   >
-                    {!isTag && draftProbeSignature !== draftProbeFingerprint(values) ? '保存为未验证' : t('common.submit')}
+                    保存
                   </Button>
                 </DialogActions>
               </form>
