@@ -1,209 +1,155 @@
 package image_test
 
 import (
+	"bytes"
 	"encoding/base64"
 	"image"
-	_ "image/gif"
-	_ "image/jpeg"
-	_ "image/png"
 	"io"
 	"net/http"
-	"strconv"
+	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
+	"done-hub/common/config"
 	img "done-hub/common/image"
-
 	"github.com/stretchr/testify/assert"
-	_ "golang.org/x/image/webp"
+	"github.com/stretchr/testify/require"
 )
 
-type CountingReader struct {
-	reader    io.Reader
-	BytesRead int
+var cases = []struct {
+	file, format  string
+	width, height int
+}{
+	{"sample.jpeg", "jpeg", 9, 6},
+	{"sample.png", "png", 7, 5},
+	{"sample.webp", "webp", 1080, 720},
+	{"sample.gif", "gif", 5, 4},
+	{"small.jpeg", "jpeg", 270, 230},
 }
 
-func (r *CountingReader) Read(p []byte) (n int, err error) {
-	n, err = r.reader.Read(p)
-	r.BytesRead += n
-	return n, err
+func fixture(t *testing.T, name string) []byte {
+	t.Helper()
+	data, err := os.ReadFile("testdata/" + name)
+	require.NoError(t, err)
+	return data
 }
 
-var (
-	cases = []struct {
-		url    string
-		format string
-		width  int
-		height int
-	}{
-		{"https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg", "jpeg", 2560, 1669},
-		{"https://upload.wikimedia.org/wikipedia/commons/9/97/Basshunter_live_performances.png", "png", 4500, 2592},
-		{"https://upload.wikimedia.org/wikipedia/commons/c/c6/TO_THE_ONE_SOMETHINGNESS.webp", "webp", 984, 985},
-		{"https://upload.wikimedia.org/wikipedia/commons/d/d0/01_Das_Sandberg-Modell.gif", "gif", 1917, 1533},
-		{"https://upload.wikimedia.org/wikipedia/commons/6/62/102Cervus.jpg", "jpeg", 270, 230},
-	}
-)
-
-func TestDecode(t *testing.T) {
-	// Bytes read: varies sometimes
-	// jpeg: 1063892
-	// png: 294462
-	// webp: 99529
-	// gif: 956153
-	// jpeg#01: 32805
+func imageServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
 	for _, c := range cases {
-		t.Run("Decode:"+c.format, func(t *testing.T) {
-			resp, err := http.Get(c.url)
-			assert.NoError(t, err)
-			defer resp.Body.Close()
-			reader := &CountingReader{reader: resp.Body}
-			img, format, err := image.Decode(reader)
-			assert.NoError(t, err)
-			size := img.Bounds().Size()
-			assert.Equal(t, c.format, format)
-			assert.Equal(t, c.width, size.X)
-			assert.Equal(t, c.height, size.Y)
-			t.Logf("Bytes read: %d", reader.BytesRead)
+		data := fixture(t, c.file)
+		mux.HandleFunc("/"+c.file, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "image/"+c.format)
+			_, _ = w.Write(data)
 		})
 	}
+	mux.HandleFunc("/text", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = io.WriteString(w, "not an image")
+	})
+	server := httptest.NewServer(mux)
+	oldClient, oldWorker := img.ImageHttpClients, config.CFWorkerImageUrl
+	img.ImageHttpClients, config.CFWorkerImageUrl = server.Client(), ""
+	t.Cleanup(func() {
+		server.Close()
+		img.ImageHttpClients, config.CFWorkerImageUrl = oldClient, oldWorker
+	})
+	return server
+}
 
-	// Bytes read:
-	// jpeg: 4096
-	// png: 4096
-	// webp: 4096
-	// gif: 4096
-	// jpeg#01: 4096
+func TestDecode(t *testing.T) {
 	for _, c := range cases {
-		t.Run("DecodeConfig:"+c.format, func(t *testing.T) {
-			resp, err := http.Get(c.url)
-			assert.NoError(t, err)
-			defer resp.Body.Close()
-			reader := &CountingReader{reader: resp.Body}
-			config, format, err := image.DecodeConfig(reader)
-			assert.NoError(t, err)
+		t.Run(c.file, func(t *testing.T) {
+			data := fixture(t, c.file)
+			decoded, format, err := image.Decode(bytes.NewReader(data))
+			require.NoError(t, err)
 			assert.Equal(t, c.format, format)
-			assert.Equal(t, c.width, config.Width)
-			assert.Equal(t, c.height, config.Height)
-			t.Logf("Bytes read: %d", reader.BytesRead)
+			assert.Equal(t, image.Pt(c.width, c.height), decoded.Bounds().Size())
+			dimensions, format, err := image.DecodeConfig(bytes.NewReader(data))
+			require.NoError(t, err)
+			assert.Equal(t, c.format, format)
+			assert.Equal(t, c.width, dimensions.Width)
+			assert.Equal(t, c.height, dimensions.Height)
 		})
 	}
 }
 
 func TestBase64(t *testing.T) {
-	// Bytes read:
-	// jpeg: 1063892
-	// png: 294462
-	// webp: 99072
-	// gif: 953856
-	// jpeg#01: 32805
 	for _, c := range cases {
-		t.Run("Decode:"+c.format, func(t *testing.T) {
-			resp, err := http.Get(c.url)
-			assert.NoError(t, err)
-			defer resp.Body.Close()
-			data, err := io.ReadAll(resp.Body)
-			assert.NoError(t, err)
-			encoded := base64.StdEncoding.EncodeToString(data)
-			body := base64.NewDecoder(base64.StdEncoding, strings.NewReader(encoded))
-			reader := &CountingReader{reader: body}
-			img, format, err := image.Decode(reader)
-			assert.NoError(t, err)
-			size := img.Bounds().Size()
+		t.Run(c.file, func(t *testing.T) {
+			encoded := base64.StdEncoding.EncodeToString(fixture(t, c.file))
+			reader := func() io.Reader { return base64.NewDecoder(base64.StdEncoding, strings.NewReader(encoded)) }
+			decoded, format, err := image.Decode(reader())
+			require.NoError(t, err)
 			assert.Equal(t, c.format, format)
-			assert.Equal(t, c.width, size.X)
-			assert.Equal(t, c.height, size.Y)
-			t.Logf("Bytes read: %d", reader.BytesRead)
-		})
-	}
-
-	// Bytes read:
-	// jpeg: 1536
-	// png: 768
-	// webp: 768
-	// gif: 1536
-	// jpeg#01: 3840
-	for _, c := range cases {
-		t.Run("DecodeConfig:"+c.format, func(t *testing.T) {
-			resp, err := http.Get(c.url)
-			assert.NoError(t, err)
-			defer resp.Body.Close()
-			data, err := io.ReadAll(resp.Body)
-			assert.NoError(t, err)
-			encoded := base64.StdEncoding.EncodeToString(data)
-			body := base64.NewDecoder(base64.StdEncoding, strings.NewReader(encoded))
-			reader := &CountingReader{reader: body}
-			config, format, err := image.DecodeConfig(reader)
-			assert.NoError(t, err)
+			assert.Equal(t, image.Pt(c.width, c.height), decoded.Bounds().Size())
+			dimensions, format, err := image.DecodeConfig(reader())
+			require.NoError(t, err)
 			assert.Equal(t, c.format, format)
-			assert.Equal(t, c.width, config.Width)
-			assert.Equal(t, c.height, config.Height)
-			t.Logf("Bytes read: %d", reader.BytesRead)
+			assert.Equal(t, c.width, dimensions.Width)
+			assert.Equal(t, c.height, dimensions.Height)
 		})
 	}
 }
 
 func TestGetImageSize(t *testing.T) {
-	for i, c := range cases {
-		t.Run("Decode:"+strconv.Itoa(i), func(t *testing.T) {
-			width, height, err := img.GetImageSize(c.url)
-			assert.NoError(t, err)
+	server := imageServer(t)
+	for _, c := range cases {
+		t.Run(c.file, func(t *testing.T) {
+			width, height, err := img.GetImageSize(server.URL + "/" + c.file)
+			require.NoError(t, err)
 			assert.Equal(t, c.width, width)
 			assert.Equal(t, c.height, height)
 		})
 	}
+	_, _, err := img.GetImageSize(server.URL + "/text")
+	assert.Error(t, err)
 }
 
 func TestGetImageSizeFromBase64(t *testing.T) {
-	for i, c := range cases {
-		t.Run("Decode:"+strconv.Itoa(i), func(t *testing.T) {
-			resp, err := http.Get(c.url)
-			assert.NoError(t, err)
-			defer resp.Body.Close()
-			data, err := io.ReadAll(resp.Body)
-			assert.NoError(t, err)
-			encoded := base64.StdEncoding.EncodeToString(data)
-			width, height, err := img.GetImageSizeFromBase64(encoded)
-			assert.NoError(t, err)
-			assert.Equal(t, c.width, width)
-			assert.Equal(t, c.height, height)
+	for _, c := range cases {
+		t.Run(c.file, func(t *testing.T) {
+			encoded := base64.StdEncoding.EncodeToString(fixture(t, c.file))
+			for _, input := range []string{encoded, "data:image/" + c.format + ";base64," + encoded} {
+				width, height, err := img.GetImageSizeFromBase64(input)
+				require.NoError(t, err)
+				assert.Equal(t, c.width, width)
+				assert.Equal(t, c.height, height)
+			}
 		})
 	}
 }
 
 func TestGetImageFromUrl(t *testing.T) {
-	for i, c := range cases {
-		t.Run("Decode:"+strconv.Itoa(i), func(t *testing.T) {
-			resp, err := http.Get(c.url)
-			assert.NoError(t, err)
-			defer resp.Body.Close()
-			data, err := io.ReadAll(resp.Body)
-			assert.NoError(t, err)
-			encoded := base64.StdEncoding.EncodeToString(data)
-
-			mimeType, base64Data, err := img.GetImageFromUrl(c.url)
-			assert.NoError(t, err)
-			assert.Equal(t, encoded, base64Data)
-			assert.Equal(t, "image/"+c.format, mimeType)
-
-			encodedBase64 := "data:image/" + c.format + ";base64," + encoded
-			mimeType, base64Data, err = img.GetImageFromUrl(encodedBase64)
-			assert.NoError(t, err)
-			assert.Equal(t, encoded, base64Data)
-			assert.Equal(t, "image/"+c.format, mimeType)
+	server := imageServer(t)
+	for _, c := range cases {
+		t.Run(c.file, func(t *testing.T) {
+			encoded := base64.StdEncoding.EncodeToString(fixture(t, c.file))
+			for _, input := range []string{server.URL + "/" + c.file, "data:image/" + c.format + ";base64," + encoded} {
+				mimeType, data, err := img.GetImageFromUrl(input)
+				require.NoError(t, err)
+				assert.Equal(t, encoded, data)
+				assert.Equal(t, "image/"+c.format, mimeType)
+			}
 		})
 	}
-
-	url := "https://raw.githubusercontent.com/bustesoul/done-hub/main/README.md"
-	_, _, err := img.GetImageFromUrl(url)
-	assert.Error(t, err)
-	encodedBase64 := "data:image/text;base64,"
-	_, _, err = img.GetImageFromUrl(encodedBase64)
-	assert.Error(t, err)
+	// This helper returns the content and MIME type; it does not decode images.
+	mimeType, data, err := img.GetImageFromUrl(server.URL + "/text")
+	require.NoError(t, err)
+	assert.Equal(t, "text/plain", mimeType)
+	assert.Equal(t, base64.StdEncoding.EncodeToString([]byte("not an image")), data)
+	for _, input := range []string{"invalid-url", "data:image/text;base64,"} {
+		_, _, err := img.GetImageFromUrl(input)
+		assert.Error(t, err)
+	}
 }
 
 func TestParseBase64File(t *testing.T) {
-	mimeType, data, err := img.ParseBase64File("data:audio/mpeg;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=")
-	assert.NoError(t, err)
+	encoded := base64.StdEncoding.EncodeToString(fixture(t, "sample.png"))
+	mimeType, data, err := img.ParseBase64File("data:audio/mpeg;base64," + encoded)
+	require.NoError(t, err)
 	assert.Equal(t, "audio/mpeg", mimeType)
-	assert.Equal(t, "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", data)
+	assert.Equal(t, encoded, data)
 }

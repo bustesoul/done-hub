@@ -2,6 +2,7 @@ package ali_test
 
 import (
 	"done-hub/common/config"
+	"done-hub/common/requester"
 	"done-hub/common/test"
 	"done-hub/model"
 	"net/http"
@@ -13,7 +14,12 @@ func setupAliTestServer() (baseUrl string, server *test.ServerTest, teardown fun
 		return test.OpenAICheck(w, r)
 	})
 	ts.Start()
-	teardown = ts.Close
+	oldClient := requester.HTTPClient
+	requester.HTTPClient = ts.Client()
+	teardown = func() {
+		ts.Close()
+		requester.HTTPClient = oldClient
+	}
 
 	baseUrl = ts.URL
 	return
