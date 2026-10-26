@@ -86,10 +86,11 @@ func getKeyConfig(vertexAI *VertexAIProvider) {
 }
 
 func (p *VertexAIProvider) GetFullRequestURL(modelName string, other string) string {
+	// VertexAI 的地址由区域和项目生成，不能使用切换渠道类型时残留的 BaseURL。
 	if p.Region == "global" {
-		return fmt.Sprintf(p.GetBaseURL(), "", p.ProjectID, p.Region, modelName, other)
+		return fmt.Sprintf(p.Config.BaseURL, "", p.ProjectID, p.Region, modelName, other)
 	}
-	return fmt.Sprintf(p.GetBaseURL(), p.Region+"-", p.ProjectID, p.Region, modelName, other)
+	return fmt.Sprintf(p.Config.BaseURL, p.Region+"-", p.ProjectID, p.Region, modelName, other)
 }
 
 func (p *VertexAIProvider) GetRequestHeaders() (headers map[string]string) {

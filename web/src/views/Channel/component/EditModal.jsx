@@ -58,12 +58,14 @@ const checkedIcon = <CheckBoxIcon fontSize="small" />;
 
 const filter = createFilterOptions();
 const normalizeDraftValue = (value) => (typeof value === 'string' ? value.trim() : value);
-const normalizeDraftBaseURL = (value) =>
-  String(value || '')
-    .split('\n')
-    .map((item) => item.trim().replace(/\/$/, ''))
-    .join('\n')
-    .trim();
+const normalizeDraftBaseURL = (value, channelType) =>
+  channelType === 42
+    ? ''
+    : String(value || '')
+        .split('\n')
+        .map((item) => item.trim().replace(/\/$/, ''))
+        .join('\n')
+        .trim();
 const resolveDraftTestModel = (values) => {
   const explicit = normalizeDraftValue(values.test_model);
   if (explicit) return explicit;
@@ -76,7 +78,7 @@ const draftProbePayload = (values) => ({
   protocol_profile_id: normalizeDraftValue(values.protocol_profile_id),
   key: normalizeDraftValue(values.keys?.[0]?.secret ?? values.key),
   keys: values.keys?.map(({ id, secret, enabled }) => ({ id, secret: secret.trim(), enabled })),
-  base_url: normalizeDraftBaseURL(values.base_url),
+  base_url: normalizeDraftBaseURL(values.base_url, values.type),
   proxy: normalizeDraftValue(values.proxy),
   other: normalizeDraftValue(values.other),
   test_model: resolveDraftTestModel(values)
@@ -354,6 +356,9 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
   };
 
   const handleTypeChange = (setFieldValue, typeValue, values) => {
+    if (typeValue === 42) {
+      setFieldValue('base_url', '');
+    }
     // 处理插件事务
     if (pluginList[typeValue]) {
       const newPluginValues = {};
@@ -560,6 +565,7 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
           ? await API.put(baseApiUrl, { ...values, id: parseInt(channelId), models: modelsStr })
           : await API.patch(`${baseApiUrl}/${channelId}`, {
               ...values,
+              base_url: draftPayload.base_url,
               key: draftPayload.key,
               keys: draftPayload.keys,
               id: parseInt(channelId),
@@ -713,7 +719,7 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, groupMap, is
           data.custom_parameter = '';
         }
 
-        data.base_url = data.base_url ?? '';
+        data.base_url = normalizeDraftBaseURL(data.base_url, data.type);
         data.cost_ratio = data.cost_ratio ?? 0;
         data.remark = data.remark ?? '';
         if (data.need2response_models === null || data.need2response_models === undefined) {
