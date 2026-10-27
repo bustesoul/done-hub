@@ -7,31 +7,40 @@ import (
 	"gorm.io/datatypes"
 )
 
-func TestOutputSpeedUsesTotalDurationAndExcludesReasoning(t *testing.T) {
+func TestOutputSpeedSubtractsFirstResponseAndExcludesReasoning(t *testing.T) {
 	for _, test := range []struct {
-		name     string
-		metadata map[string]any
-		want     float64
+		name       string
+		metadata   map[string]any
+		want       float64
+		wantStream float64
 	}{
-		{"reported historical log", map[string]any{"first_response": 2863, "reasoning_tokens": 64}, 1000.0 / 2879},
-		{"measured upstream", map[string]any{"first_response": 2863, "reasoning_tokens": 64, "upstream_response_ms": 2000}, 0.5},
-		{"first response irrelevant", map[string]any{"first_response": 1, "reasoning_tokens": 64, "upstream_response_ms": 2000}, 0.5},
-		{"no reasoning", map[string]any{"upstream_response_ms": 2000}, 32.5},
-		{"only reasoning", map[string]any{"reasoning_tokens": 65}, 0},
-		{"invalid reasoning", map[string]any{"reasoning_tokens": 100}, 0},
-		{"invalid timing must not fallback", map[string]any{"upstream_response_ms": 0}, 0},
+		{"reported historical log", map[string]any{"first_response": 2863, "reasoning_tokens": 64}, 1000.0 / 2879, 62.5},
+		{"legacy timings keep the same clock", map[string]any{"first_response": 2863, "reasoning_tokens": 64, "upstream_response_ms": 2000}, 0.5, 62.5},
+		{"first response affects speed", map[string]any{"first_response": 1, "reasoning_tokens": 64, "upstream_response_ms": 2000}, 0.5, 1000.0 / 2878},
+		{"current timings", map[string]any{"response_metrics_version": 2, "response_first_ms": 1500, "reasoning_tokens": 64, "upstream_response_ms": 2000}, 2, 2},
+		{"no output duration", map[string]any{"response_metrics_version": 2, "response_first_ms": 2000, "upstream_response_ms": 2000}, 0, 0},
+		{"legacy no output duration", map[string]any{"first_response": 2879, "reasoning_tokens": 64}, 1000.0 / 2879, 0},
+		{"no first response uses full duration", map[string]any{"upstream_response_ms": 2000}, 32.5, 32.5},
+		{"invalid first response uses full duration", map[string]any{"response_metrics_version": 2, "response_first_ms": 3000, "upstream_response_ms": 2000}, 32.5, 32.5},
+		{"only reasoning", map[string]any{"reasoning_tokens": 65}, 0, 0},
+		{"invalid reasoning", map[string]any{"reasoning_tokens": 100}, 0, 0},
+		{"invalid timing must not fallback", map[string]any{"upstream_response_ms": 0, "first_response": 1}, 0, 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			l := Log{Type: LogTypeConsume, RequestTime: 2879, CompletionTokens: 65, Metadata: datatypes.NewJSONType(test.metadata)}
 			for _, stream := range []bool{false, true} {
 				l.IsStream = stream
+				want := test.want
+				if stream {
+					want = test.wantStream
+				}
 				tokens, duration := LogOutputSpeedSample(&l)
 				var got float64
 				if duration > 0 {
 					got = float64(tokens) * 1000 / duration
 				}
-				if math.Abs(got-test.want) > 1e-9 {
-					t.Fatalf("stream=%v got %v want %v", stream, got, test.want)
+				if math.Abs(got-want) > 1e-9 {
+					t.Fatalf("stream=%v got %v want %v", stream, got, want)
 				}
 				s := ExplorerStats{}
 				s.add(&l)
@@ -39,8 +48,8 @@ func TestOutputSpeedUsesTotalDurationAndExcludesReasoning(t *testing.T) {
 				d := DashboardUsageTotals{}
 				d.add(&l)
 				d.finish()
-				if test.want > 0 {
-					if s.TPS == nil || math.Abs(*s.TPS-test.want) > 1e-9 || d.OutputSpeed == nil || math.Abs(*d.OutputSpeed-roundMetric(test.want)) > 1e-9 {
+				if want > 0 {
+					if s.TPS == nil || math.Abs(*s.TPS-want) > 1e-9 || d.OutputSpeed == nil || math.Abs(*d.OutputSpeed-roundMetric(want)) > 1e-9 {
 						t.Fatal("aggregate TPS differs from per-request calculation", s.TPS, d.OutputSpeed)
 					}
 				} else if s.TPS != nil || d.OutputSpeed != nil {

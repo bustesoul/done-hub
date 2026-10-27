@@ -6,9 +6,9 @@ import (
 	"math"
 )
 
-// LogOutputSpeedSample uses non-reasoning output and the complete upstream
-// response duration. Older logs fall back to the recorded total request time.
-// First response remains a separate latency metric and is never subtracted.
+// LogOutputSpeedSample excludes reasoning tokens and first-response latency.
+// Legacy stream timings use the request-entry clock for both endpoints. Logs
+// without a usable first response fall back to their complete recorded duration.
 func LogOutputSpeedSample(l *Log) (tokens int64, durationMs float64) {
 	if l == nil || l.Type != LogTypeConsume {
 		return
@@ -17,6 +17,12 @@ func LogOutputSpeedSample(l *Log) (tokens int64, durationMs float64) {
 	reasoning := max(metadataInt64(m, "reasoning_tokens"), 0)
 	tokens = max(int64(l.CompletionTokens)-reasoning, 0)
 	durationMs = LogResponseDurationMs(l)
+	if first := LogFirstResponseMs(l); durationMs > 0 && first > 0 {
+		if metadataNumber(m, "response_metrics_version") < 2 {
+			durationMs = float64(LogRequestTimeMs(l))
+		}
+		durationMs -= first
+	}
 	if tokens <= 0 || durationMs <= 0 || math.IsNaN(durationMs) || math.IsInf(durationMs, 0) {
 		return 0, 0
 	}

@@ -236,7 +236,7 @@ func TestExplorerHistoryAttributionCostsAndWindow(t *testing.T) {
 	if a.Ratio != nil || a.Ambiguous != 1 || h.Totals["b"].Ambiguous != 1 {
 		t.Fatal("ambiguous ratio presented as complete")
 	}
-	if a.FirstResponseMs == nil || *a.FirstResponseMs != 250 || a.LatencyMs == nil || *a.LatencyMs != 1500 || a.TPS == nil || *a.TPS != 250.0/3 {
+	if a.FirstResponseMs == nil || *a.FirstResponseMs != 250 || a.LatencyMs == nil || *a.LatencyMs != 1500 || a.TPS == nil || *a.TPS != 100 {
 		t.Fatalf("bad performance: %+v", a)
 	}
 	if h.Totals["empty"].Ratio != nil || h.Totals["b"].FirstResponseMs != nil {
