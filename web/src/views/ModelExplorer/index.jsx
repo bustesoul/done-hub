@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSelector } from 'react-redux';
 import { Link as RouterLink, Navigate } from 'react-router-dom';
 import { Icon } from '@iconify/react';
 import { alpha } from '@mui/material/styles';
@@ -18,6 +19,7 @@ import {
   IconButton,
   InputAdornment,
   List,
+  ListItem,
   ListItemButton,
   ListItemText,
   MenuItem,
@@ -35,7 +37,6 @@ import {
 import { useSnackbar } from 'notistack';
 import { renderQuota, useIsAdmin } from 'utils/common';
 import { API } from 'utils/api';
-import { groupAvailableModels } from 'utils/availableModels';
 import AdminContainer from 'ui-component/AdminContainer';
 import FilterCollapse from 'ui-component/FilterCollapse';
 import Label from 'ui-component/Label';
@@ -43,6 +44,7 @@ import TableHead from 'ui-component/TableHead';
 import BindingActions from './BindingActions';
 import { outputSpeedExplanation, responseTimeExplanation } from 'utils/outputSpeed';
 import { normalizeModel, normalizeHistory, eligible, missingReason, estimateExplanation } from './data';
+import { favoriteModelFamilies } from './favorites';
 const number = (n) => n.toLocaleString('en-US');
 const seconds = (n) => (n === null ? '—' : (n / 1000).toFixed(2) + ' 秒');
 const percent = (n) => (n === null ? '—' : n.toFixed(2) + '%');
@@ -69,6 +71,7 @@ const protocolName = {
 };
 export default function ModelExplorer() {
   const isAdmin = useIsAdmin();
+  const userID = useSelector((state) => state.account.user?.id);
   const [data, setData] = useState(null),
     [error, setError] = useState(''),
     [loading, setLoading] = useState(false);
@@ -144,6 +147,8 @@ export default function ModelExplorer() {
     );
   return (
     <ModelExplorerContent
+      key={userID}
+      userID={userID}
       models={data.models}
       usage={data.usage}
       loading={loading}
@@ -155,13 +160,13 @@ export default function ModelExplorer() {
   );
 }
 
-function ModelExplorerContent({ models, usage, loading, error, reload, updateBinding, updateScheduling }) {
+function ModelExplorerContent({ models, usage, loading, error, reload, updateBinding, updateScheduling, userID }) {
   const [selected, setSelected] = useState(models[0].id),
     [search, setSearch] = useState(''),
     [group, setGroup] = useState('all'),
     [protocol, setProtocol] = useState('all'),
     [rulesOpen, setRulesOpen] = useState(false),
-    [attention, setAttention] = useState(false),
+    [favoritesOnly, setFavoritesOnly] = useState(false),
     [familyClosed, setFamilyClosed] = useState({}),
     [localOpen, setLocalOpen] = useState(true),
     [globalOpen, setGlobalOpen] = useState(false),
@@ -169,15 +174,36 @@ function ModelExplorerContent({ models, usage, loading, error, reload, updateBin
     [pending, setPending] = useState(null),
     [saving, setSaving] = useState(false);
   const [probeResults, setProbeResults] = useState({});
-  const families = groupAvailableModels(Object.fromEntries(models.map((m) => [m.id, { owned_by: m.family }]))).map((g) => ({
-    id: g.provider,
-    name: g.provider,
-    provider: ''
-  }));
+  const favoritesKey = `model-explorer-favorites:${userID}`;
+  const [favorites, setFavorites] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(favoritesKey));
+      return Array.isArray(saved) ? saved.filter((id) => typeof id === 'string') : [];
+    } catch {
+      return [];
+    }
+  });
+  const families = favoriteModelFamilies(models, favorites)
+    .map((f) => ({
+      ...f,
+      models: f.models.filter(
+        (m) => (m.name + ' ' + m.id).toLowerCase().includes(search.toLowerCase()) && (!favoritesOnly || favorites.includes(m.id))
+      )
+    }))
+    .filter((f) => f.models.length);
   const groups = [...new Set(models.flatMap((m) => m.routes.flatMap((r) => r.groups)))].sort();
   const { enqueueSnackbar: enqueue } = useSnackbar();
   const enqueueSnackbar = (message, options) =>
     enqueue(message, { ...options, anchorOrigin: { vertical: 'bottom', horizontal: 'right' }, autoHideDuration: 3000 });
+  function toggleFavorite(id) {
+    const next = favorites.includes(id) ? favorites.filter((favorite) => favorite !== id) : [...favorites, id];
+    try {
+      localStorage.setItem(favoritesKey, JSON.stringify(next));
+      setFavorites(next);
+    } catch {
+      enqueueSnackbar('保存关注失败，请检查浏览器存储权限', { variant: 'error' });
+    }
+  }
   const model = models.find((m) => m.id === selected) || models[0],
     all = model.routes,
     scoped = all.filter((r) => (group === 'all' || r.groups.includes(group)) && (protocol === 'all' || r.protocols.includes(protocol))),
@@ -192,7 +218,7 @@ function ModelExplorerContent({ models, usage, loading, error, reload, updateBin
   const summary = (m) => {
     const rs = m.routes,
       n = rs.filter(eligible).length;
-    return { n, total: rs.length, warn: n < 2 || rs.some((r) => r.cool) };
+    return { n, total: rs.length };
   };
   function toggle(r) {
     if (!r.global || saving) return;
@@ -471,23 +497,17 @@ function ModelExplorerContent({ models, usage, loading, error, reload, updateBin
                 control={
                   <Switch
                     size="small"
-                    checked={attention}
-                    onChange={(e) => setAttention(e.target.checked)}
-                    inputProps={{ 'aria-label': '仅看需要关注' }}
+                    checked={favoritesOnly}
+                    onChange={(e) => setFavoritesOnly(e.target.checked)}
+                    inputProps={{ 'aria-label': '仅看已关注' }}
                   />
                 }
-                label={<Typography variant="body2">仅看需要关注</Typography>}
+                label={<Typography variant="body2">仅看已关注</Typography>}
               />
             </Box>
             <Box sx={{ maxHeight: { xs: 260, lg: 760 }, overflow: 'auto' }}>
               {families.map((f) => {
-                const items = models.filter(
-                  (m) =>
-                    m.family === f.id &&
-                    (m.name + ' ' + m.id).toLowerCase().includes(search.toLowerCase()) &&
-                    (!attention || summary(m).warn)
-                );
-                return items.length ? (
+                return (
                   <Box key={f.id}>
                     <ListItemButton
                       data-family={f.id}
@@ -501,46 +521,63 @@ function ModelExplorerContent({ models, usage, loading, error, reload, updateBin
                     </ListItemButton>
                     <Collapse in={!familyClosed[f.id]}>
                       <List disablePadding sx={{ px: 1, pb: 1 }}>
-                        {items.map((m) => {
+                        {f.models.map((m) => {
                           const s = summary(m);
+                          const favorite = favorites.includes(m.id);
                           return (
-                            <ListItemButton
-                              data-model={m.id}
+                            <ListItem
                               key={m.id}
-                              selected={model.id === m.id}
-                              onClick={() => setSelected(m.id)}
-                              sx={{
-                                borderRadius: 2,
-                                mb: 0.5,
-                                px: 1.5,
-                                py: 1.25,
-                                '&.Mui-selected': { bgcolor: (t) => alpha(t.palette.primary.main, 0.1), color: 'primary.main' }
-                              }}
+                              disablePadding
+                              sx={{ mb: 0.5 }}
+                              secondaryAction={
+                                <Tooltip title={favorite ? '取消关注' : '关注模型'}>
+                                  <IconButton
+                                    size="small"
+                                    aria-label={`${favorite ? '取消关注' : '关注'} ${m.name}`}
+                                    aria-pressed={favorite}
+                                    color={favorite ? 'warning' : 'default'}
+                                    sx={{ width: 32, height: 32, flexShrink: 0 }}
+                                    onClick={() => toggleFavorite(m.id)}
+                                  >
+                                    {icon(favorite ? 'solar:star-bold' : 'solar:star-linear', 18)}
+                                  </IconButton>
+                                </Tooltip>
+                              }
                             >
-                              <ListItemText
-                                primary={
-                                  <Typography variant="subtitle1" color="inherit">
-                                    {m.name}
-                                  </Typography>
-                                }
-                                secondary={
-                                  <Typography variant="caption">
-                                    {s.n} / {s.total} 渠道可用
-                                  </Typography>
-                                }
-                              />
-                              {s.warn && icon('solar:danger-circle-linear', 16)}
-                            </ListItemButton>
+                              <ListItemButton
+                                data-model={m.id}
+                                selected={model.id === m.id}
+                                onClick={() => setSelected(m.id)}
+                                sx={{
+                                  borderRadius: 2,
+                                  pl: 1.5,
+                                  pr: 6,
+                                  py: 1.25,
+                                  '&.Mui-selected': { bgcolor: (t) => alpha(t.palette.primary.main, 0.1), color: 'primary.main' }
+                                }}
+                              >
+                                <ListItemText
+                                  primary={
+                                    <Typography variant="subtitle1" color="inherit">
+                                      {m.name}
+                                    </Typography>
+                                  }
+                                  secondary={
+                                    <Typography variant="caption">
+                                      {s.n} / {s.total} 渠道可用
+                                    </Typography>
+                                  }
+                                />
+                              </ListItemButton>
+                            </ListItem>
                           );
                         })}
                       </List>
                     </Collapse>
                   </Box>
-                ) : null;
+                );
               })}
-              {!models.some(
-                (m) => (m.name + ' ' + m.id).toLowerCase().includes(search.toLowerCase()) && (!attention || summary(m).warn)
-              ) && (
+              {!families.length && (
                 <Typography sx={{ p: 3 }} color="text.secondary">
                   没有匹配的模型
                 </Typography>
