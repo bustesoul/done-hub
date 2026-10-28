@@ -77,7 +77,7 @@ func (w *FileWriter) Maintain(now time.Time) error {
 			return err
 		}
 	}
-	if !w.archiveEnabled || (!w.archive.openedAt.IsZero() && now.Sub(w.archive.openedAt) >= w.archive.interval) {
+	if !w.archiveEnabled || w.archive.size >= w.archive.maxBytes || (!w.archive.openedAt.IsZero() && now.Sub(w.archive.openedAt) >= w.archive.interval) {
 		return w.archive.seal()
 	}
 	return nil

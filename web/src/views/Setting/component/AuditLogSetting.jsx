@@ -169,7 +169,8 @@ export default function AuditLogSetting() {
         />
         {config.archive_enabled && (
           <Alert severity="warning">
-            请先配置宿主机备份任务。归档文件每 5 分钟或达到 100 MiB 时封口，Done Hub 不自动删除，请监控待备份积压与磁盘余量。
+            请先配置宿主机备份任务。归档文件达到 100 MiB 或自首条写入满 24 小时时封口，以先到者为准。Done Hub
+            不自动删除，请监控待备份积压与磁盘余量。
           </Alert>
         )}
         {status && (

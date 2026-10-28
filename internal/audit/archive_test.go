@@ -36,7 +36,7 @@ func fileBytes(t *testing.T, path string) []byte {
 func TestArchiveDefaultsAndSizeSealing(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit", "audit.log")
 	w := NewFileWriter(path)
-	if w.archive.maxBytes != 100<<20 || w.archive.interval != 5*time.Minute {
+	if w.archive.maxBytes != 100<<20 || w.archive.interval != 24*time.Hour {
 		t.Fatal("unexpected archive limits")
 	}
 	w.SetArchiveEnabled(true)
@@ -50,6 +50,9 @@ func TestArchiveDefaultsAndSizeSealing(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		if _, err := w.Write([]byte("{}\n")); err != nil {
 			t.Fatal(err)
+		}
+		if i == 1 && (len(archiveFiles(t, w.archive.dir, ".log")) != 1 || len(archiveFiles(t, w.archive.dir, ".open")) != 0) {
+			t.Fatal("exact size limit waited for another write before sealing")
 		}
 	}
 	if len(archiveFiles(t, w.archive.dir, ".log")) != 1 || len(archiveFiles(t, w.archive.dir, ".open")) != 1 {
@@ -86,7 +89,15 @@ func TestArchiveIdleRotationAndModeSwitchPreservePending(t *testing.T) {
 	if _, err := w.Write([]byte("old archive\n")); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.Maintain(now.Add(5 * time.Minute)); err != nil {
+	for _, elapsed := range []time.Duration{5 * time.Minute, 24*time.Hour - time.Nanosecond} {
+		if err := w.Maintain(now.Add(elapsed)); err != nil {
+			t.Fatal(err)
+		}
+		if len(archiveFiles(t, w.archive.dir, ".log")) != 0 || len(archiveFiles(t, w.archive.dir, ".open")) != 1 {
+			t.Fatal("under-limit file sealed before 24 hours")
+		}
+	}
+	if err := w.Maintain(now.Add(24 * time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	sealed := archiveFiles(t, w.archive.dir, ".log")
@@ -119,6 +130,43 @@ func TestArchiveIdleRotationAndModeSwitchPreservePending(t *testing.T) {
 	}
 	if string(fileBytes(t, sealed[0])) != "old archive\n" || len(archiveFiles(t, w.archive.dir, ".log")) != 2 {
 		t.Fatal("mode change removed or overwrote pending archives")
+	}
+}
+
+func TestArchiveDeadlineStartsWithFirstWriteAndResetsForNextFile(t *testing.T) {
+	w := NewFileWriter(filepath.Join(t.TempDir(), "audit.log"))
+	t.Cleanup(func() { _ = w.Close() })
+	now := time.Now()
+	w.archive.now = func() time.Time { return now }
+	w.SetArchiveEnabled(true)
+	// Time spent without any data must not count toward the file's lifetime.
+	if err := w.Maintain(now.Add(48 * time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(48 * time.Hour)
+	started := now
+	if _, err := w.Write([]byte("first\n")); err != nil {
+		t.Fatal(err)
+	}
+	now = started.Add(23 * time.Hour)
+	if _, err := w.Write([]byte("later\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Maintain(started.Add(24 * time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if len(archiveFiles(t, w.archive.dir, ".log")) != 1 || len(archiveFiles(t, w.archive.dir, ".open")) != 0 {
+		t.Fatal("later writes postponed the first file's deadline")
+	}
+	now = started.Add(72 * time.Hour)
+	if _, err := w.Write([]byte("next file\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Maintain(now.Add(24*time.Hour - time.Nanosecond)); err != nil {
+		t.Fatal(err)
+	}
+	if len(archiveFiles(t, w.archive.dir, ".log")) != 1 || len(archiveFiles(t, w.archive.dir, ".open")) != 1 {
+		t.Fatal("next file inherited the previous file's deadline")
 	}
 }
 

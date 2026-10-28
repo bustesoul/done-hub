@@ -27,7 +27,7 @@ type archiveWriter struct {
 }
 
 func newArchiveWriter(dir string) *archiveWriter {
-	return &archiveWriter{dir: dir, maxBytes: 100 << 20, interval: 5 * time.Minute, now: time.Now}
+	return &archiveWriter{dir: dir, maxBytes: 100 << 20, interval: 24 * time.Hour, now: time.Now}
 }
 
 func (w *archiveWriter) initialize() error {
@@ -87,6 +87,9 @@ func (w *archiveWriter) Write(data []byte) (int, error) {
 	w.size += int64(n)
 	if err == nil && n != len(data) {
 		err = io.ErrShortWrite
+	}
+	if err == nil && w.size >= w.maxBytes {
+		err = w.seal()
 	}
 	return n, err
 }
