@@ -2,6 +2,7 @@ package execution
 
 import (
 	"context"
+	"done-hub/internal/audit"
 	"errors"
 	"time"
 
@@ -141,7 +142,9 @@ func (c *GatewayEngine) Run(ctx context.Context, plan domain.RoutePlan, runner R
 			StartedAt: now(),
 		}
 		session := stream.NewSession()
+		finishAudit := audit.BeginAttempt(runCtx, attempt.Number, endpoint.ID)
 		attemptResult, upstreamErr := runner.Run(runCtx, attempt, session)
+		finishAudit()
 		attemptResult.Attempt = attempt
 		if attemptResult.CompletedAt.IsZero() {
 			attemptResult.CompletedAt = now()

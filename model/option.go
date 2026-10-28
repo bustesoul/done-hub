@@ -1,9 +1,11 @@
 package model
 
 import (
+	"context"
 	"done-hub/common"
 	"done-hub/common/config"
 	"done-hub/common/logger"
+	"done-hub/internal/audit"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -28,6 +30,13 @@ func GetOption(key string) (option Option, err error) {
 }
 
 func InitOptionMap() {
+	config.GlobalOption.RegisterCustom(audit.OptionKey, func() string { return audit.Default.ConfigJSON() }, func(value string) error {
+		c, err := audit.ParseConfig(value)
+		if err == nil {
+			audit.Default.Apply(c)
+		}
+		return err
+	}, "")
 
 	config.GlobalOption.RegisterBool("PasswordLoginEnabled", &config.PasswordLoginEnabled)
 	config.GlobalOption.RegisterBool("PasswordRegisterEnabled", &config.PasswordRegisterEnabled)
@@ -195,11 +204,18 @@ func InitOptionMap() {
 	config.GlobalOption.RegisterBool("ModelNameCaseInsensitiveEnabled", &config.ModelNameCaseInsensitiveEnabled)
 
 	loadOptionsFromDatabase()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	audit.Default.SetConfigError(ReloadAuditConfig(ctx))
 }
 
 func loadOptionsFromDatabase() {
 	options, _ := AllOption()
 	for _, option := range options {
+		// Audit has its own bounded reload, even with MEMORY_CACHE_ENABLED=false.
+		if option.Key == audit.OptionKey {
+			continue
+		}
 		err := config.GlobalOption.Set(option.Key, option.Value)
 		if err != nil {
 			logger.SysError("failed to update option map: " + err.Error())
@@ -216,6 +232,9 @@ func SyncOptions(frequency int) {
 }
 
 func UpdateOption(key string, value string) error {
+	if key == audit.OptionKey {
+		return saveAuditConfig(value)
+	}
 	// Save to database first
 	option := Option{
 		Key: key,

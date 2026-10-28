@@ -85,7 +85,9 @@ func (p *MidjourneyProvider) Send(timeout int, requestURL string) (*MidjourneyRe
 	fullRequestURL := p.GetFullRequestURL(requestURL, "")
 
 	var cancel context.CancelFunc
-	p.Requester.Context, cancel = context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+	// Preserve the values installed by BaseProvider.SetContext (including audit),
+	// while keeping the existing independent timeout and client-cancel behavior.
+	p.Requester.Context, cancel = context.WithTimeout(context.WithoutCancel(p.Requester.Context), time.Duration(timeout)*time.Second)
 	headers := p.GetRequestHeaders()
 	defer cancel()
 

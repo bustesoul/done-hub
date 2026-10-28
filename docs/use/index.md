@@ -9,6 +9,8 @@ lastUpdated: true
 
 系统本身开箱即用。
 
+按渠道或用户 API Key 记录原始请求、上游响应，请参阅[输出审计](./audit-log.md)。该功能默认关闭，支持配置热生效。
+
 你可以通过设置环境变量/命令行参数/配置文件进行配置。
 如果你要使用配置文件，请下载[config.example.yaml](https://raw.githubusercontent.com/MartialBE/one-api/main/config.example.yaml)，重命名为`config.yaml`，放在程序同目录下。
 

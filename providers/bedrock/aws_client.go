@@ -40,7 +40,7 @@ func (p *BedrockProvider) getAwsClient() (*bedrockruntime.Client, error) {
 
 	opts := bedrockruntime.Options{
 		Region:     p.Region,
-		HTTPClient: requester.HTTPClient,
+		HTTPClient: requester.ObservedClient{Client: requester.HTTPClient},
 		// 关闭 SDK 自带重试：done-hub 在 relay 层已有统一的多渠道重试/冷却逻辑，
 		// 不需要 SDK 再对单渠道做指数退避（否则单次请求墙钟被放大）。
 		Retryer:    aws.NopRetryer{},

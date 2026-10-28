@@ -16,6 +16,7 @@ import (
 	"done-hub/common/telegram"
 	"done-hub/controller"
 	"done-hub/cron"
+	"done-hub/internal/audit"
 	"done-hub/middleware"
 	"done-hub/model"
 	"done-hub/providers"
@@ -28,6 +29,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"syscall"
 	"time"
@@ -83,6 +85,24 @@ func main() {
 	model.InitInviteCodeLock()
 	// Initialize options
 	model.InitOptionMap()
+	// The worker opens the file lazily; default-off creates no audit files.
+	logDir := viper.GetString("log_dir")
+	if logDir == "" {
+		logDir = "./logs"
+	}
+	auditFile := audit.NewFileWriter(filepath.Join(logDir, "audit", "audit.log"))
+	auditRecorder := audit.NewRecorder(auditFile)
+	audit.Default.SetRecorder(auditRecorder)
+	auditCtx, stopAuditSync := context.WithCancel(context.Background())
+	go model.SyncAuditConfig(auditCtx)
+	defer func() {
+		stopAuditSync()
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := auditRecorder.Close(ctx); err == nil {
+			_ = auditFile.Close()
+		}
+	}()
 	// Initialize oidc
 	oidc.InitOIDCConfig()
 	model.NewPricing()

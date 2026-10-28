@@ -34,6 +34,7 @@ import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import ChatLinksDataGrid from './ChatLinksDataGrid';
+import AuditLogSetting from './AuditLogSetting';
 import dayjs from 'dayjs';
 import { LoadStatusContext } from 'contexts/StatusContext';
 import { useTranslation } from 'react-i18next';
@@ -826,6 +827,7 @@ const OperationSetting = () => {
           </Grid>
         </Grid>
       </SubCard>
+      <AuditLogSetting />
       <SubCard title={t('setting_index.operationSettings.otherSettings.title')}>
         <Grid container spacing={{ xs: 3, sm: 2, md: 4 }}>
           <Grid item xs={12} sm={6} md={3}>

@@ -105,7 +105,9 @@ func (r *HTTPRequester) SendRequest(req *http.Request, response any, outputResp 
 		// Decoder 已读取的部分，响应末尾字节（尾随 \n / 空白）可能不进副本，导致回填
 		// 给客户端的字节与上游不完全一致。指纹保真要求字节级一致，故整份读入后原样回填。
 		var bodyBytes []byte
-		bodyBytes, err = io.ReadAll(resp.Body)
+		originalBody := resp.Body
+		bodyBytes, err = io.ReadAll(originalBody)
+		_ = originalBody.Close()
 		if err != nil {
 			return nil, common.ErrorWrapper(err, "read_response_body_failed", http.StatusInternalServerError)
 		}
