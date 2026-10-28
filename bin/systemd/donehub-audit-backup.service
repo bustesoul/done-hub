@@ -1,0 +1,15 @@
+[Unit]
+Description=Back up sealed Done Hub audit logs
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/donehub/audit-backup.env
+ExecStart=/usr/bin/python3 /usr/local/lib/donehub/audit-backup.py
+UMask=0077
+Nice=10
+CPUQuota=25%
+MemoryMax=256M
+TimeoutStartSec=20min
+KillMode=control-group

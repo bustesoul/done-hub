@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
-import { Alert, Autocomplete, Button, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Autocomplete, Button, FormControlLabel, Stack, Switch, TextField, Typography } from '@mui/material';
 import SubCard from 'ui-component/cards/SubCard';
 import { API } from 'utils/api';
 import { showError, showSuccess } from 'utils/common';
@@ -67,7 +67,7 @@ TargetSelector.propTypes = {
 };
 
 export default function AuditLogSetting() {
-  const [config, setConfig] = useState({ channel_ids: [], token_ids: [] });
+  const [config, setConfig] = useState({ channel_ids: [], token_ids: [], archive_enabled: false });
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -154,10 +154,28 @@ export default function AuditLogSetting() {
             setDirty(true);
           }}
         />
+        <FormControlLabel
+          control={
+            <Switch
+              checked={Boolean(config.archive_enabled)}
+              disabled={loading || saving || !status}
+              onChange={(_, checked) => {
+                setConfig((current) => ({ ...current, archive_enabled: checked }));
+                setDirty(true);
+              }}
+            />
+          }
+          label="归档模式（由宿主机备份服务清理历史文件）"
+        />
+        {config.archive_enabled && (
+          <Alert severity="warning">
+            请先配置宿主机备份任务。归档文件每 5 分钟或达到 100 MiB 时封口，Done Hub 不自动删除，请监控待备份积压与磁盘余量。
+          </Alert>
+        )}
         {status && (
           <Typography variant="body2">
             当前实例：{status.enabled ? '已启用' : '已关闭'} · 丢弃事件 {status.dropped_events} · 写入失败 {status.write_errors} · 截断{' '}
-            {status.truncated_bodies}
+            {status.truncated_bodies} · 归档模式{status.config.archive_enabled ? '已开启' : '已关闭'}
           </Typography>
         )}
         {(status?.last_error || status?.config_error) && <Alert severity="warning">{status.config_error || status.last_error}</Alert>}
@@ -166,7 +184,7 @@ export default function AuditLogSetting() {
           <Button variant="contained" disabled={loading || saving || !status} onClick={() => save(config)}>
             保存审计配置
           </Button>
-          <Button disabled={loading || saving || !status} onClick={() => save({ channel_ids: [], token_ids: [] })}>
+          <Button disabled={loading || saving || !status} onClick={() => save({ ...config, channel_ids: [], token_ids: [] })}>
             关闭审计
           </Button>
           <Button disabled={loading || saving} onClick={() => refresh()}>

@@ -14,8 +14,9 @@ import (
 const OptionKey = "AuditLogConfig"
 
 type Config struct {
-	ChannelIDs []int `json:"channel_ids"`
-	TokenIDs   []int `json:"token_ids"`
+	ChannelIDs     []int `json:"channel_ids"`
+	TokenIDs       []int `json:"token_ids"`
+	ArchiveEnabled bool  `json:"archive_enabled"`
 }
 
 func ParseConfig(value string) (Config, error) {
@@ -96,7 +97,12 @@ func (s *Service) ConfigJSON() string {
 	return string(value)
 }
 
-func (s *Service) SetRecorder(r *Recorder) { s.recorder.Store(r) }
+func (s *Service) SetRecorder(r *Recorder) {
+	if r != nil {
+		r.service.Store(s)
+	}
+	s.recorder.Store(r)
+}
 
 type Status struct {
 	Enabled     bool   `json:"enabled"`

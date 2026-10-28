@@ -59,6 +59,7 @@ type Recorder struct {
 	truncated   atomic.Uint64
 	lastError   atomic.Pointer[string]
 	writer      io.Writer
+	service     atomic.Pointer[Service]
 }
 
 type Stats struct {
@@ -117,9 +118,53 @@ func (r *Recorder) enqueue(event Event) bool {
 
 func (r *Recorder) run() {
 	defer close(r.done)
-	for item := range r.queue {
-		r.write(item.event)
-		r.queued.Add(-item.cost)
+	if closer, ok := r.writer.(io.Closer); ok {
+		defer r.writerOperation(closer.Close)
+	}
+	var ticks <-chan time.Time
+	maintenance, maintains := r.writer.(interface{ Maintain(time.Time) error })
+	if maintains {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		ticks = ticker.C
+	}
+	for {
+		select {
+		case item, ok := <-r.queue:
+			if !ok {
+				return
+			}
+			r.write(item.event)
+			r.queued.Add(-item.cost)
+		case now := <-ticks:
+			r.writerOperation(func() error {
+				r.configureWriter()
+				return maintenance.Maintain(now)
+			})
+		}
+	}
+}
+
+// Configuration publication never waits for the disk. File lifecycle changes
+// run on this same worker, including idle time rotation and shutdown sealing.
+func (r *Recorder) configureWriter() {
+	if writer, ok := r.writer.(interface{ SetArchiveEnabled(bool) }); ok {
+		enabled := false
+		if service := r.service.Load(); service != nil {
+			enabled = service.config.Load().ArchiveEnabled
+		}
+		writer.SetArchiveEnabled(enabled)
+	}
+}
+
+func (r *Recorder) writerOperation(operation func() error) {
+	defer func() {
+		if recover() != nil {
+			r.recordError("审计 writer panic")
+		}
+	}()
+	if err := operation(); err != nil {
+		r.recordError(err.Error())
 	}
 }
 
@@ -130,6 +175,7 @@ func (r *Recorder) write(event Event) {
 			r.recordError("审计 writer panic")
 		}
 	}()
+	r.configureWriter()
 	data, err := json.Marshal(event)
 	if err == nil {
 		if r.writer == nil {

@@ -22,11 +22,15 @@
 
 `channel_ids` 和 `token_ids` 必须是正整数数组。`token_ids` 指调用 Done Hub 的用户令牌 ID，不是渠道凭据 ID。非法配置或数据库保存失败时保留原配置。后台同步失败时也保留最后一次有效配置。
 
+`archive_enabled` 是独立的文件管理开关，默认 `false`；旧配置省略该字段时继续使用普通模式。它不改变筛选语义，也不会单独启用审计。页面的「归档模式」随「保存审计配置」热生效。
+
 ## 文件与还原
 
-文件位于 `<log_dir>/audit/audit.log`；默认 Docker 镜像工作目录为 `/data`，所以默认是 `/data/logs/audit/audit.log`，现有 Compose 对应宿主机 `./data/logs/audit/audit.log`。审计关闭时不创建文件。目录以 `0700`、文件以 `0600` 创建，审计正文不写入系统日志或 stderr。
+普通模式文件位于 `<log_dir>/audit/audit.log`；默认 Docker 镜像工作目录为 `/data`，所以默认是 `/data/logs/audit/audit.log`，现有 Compose 对应宿主机 `./data/logs/audit/audit.log`。默认关闭且没有遗留归档时不创建文件。目录以 `0700`、文件以 `0600` 创建，审计正文不写入系统日志或 stderr。
 
 每个实例应使用独立日志目录，不要让多个进程轮转同一个文件。单文件上限 100 MB，最多 10 个备份，备份保留 7 天。轮转不是独立磁盘配额；共享磁盘仍需按常规方式监控可用空间。
+
+归档模式使用独立的 `<log_dir>/audit/archive/`，文件生命周期和宿主机备份说明见 [审计归档与备份](audit-backup.md)。普通模式的 7 天 / 10 份策略不作用于该目录；切回普通模式也不会删除待归档文件。
 
 格式为 JSONL，每行一个事件：
 

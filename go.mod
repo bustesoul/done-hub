@@ -55,6 +55,7 @@ require (
 	golang.org/x/image v0.28.0
 	golang.org/x/oauth2 v0.32.0
 	golang.org/x/sync v0.19.0
+	golang.org/x/sys v0.39.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gorm.io/driver/mysql v1.6.0
 	gorm.io/driver/postgres v1.6.0
@@ -158,7 +159,6 @@ require (
 	github.com/ugorji/go/codec v1.3.1 // indirect
 	golang.org/x/arch v0.23.0 // indirect
 	golang.org/x/net v0.48.0
-	golang.org/x/sys v0.39.0 // indirect
 	golang.org/x/text v0.32.0
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	gorm.io/datatypes v1.2.5

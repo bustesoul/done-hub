@@ -99,9 +99,9 @@ func main() {
 		stopAuditSync()
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		if err := auditRecorder.Close(ctx); err == nil {
-			_ = auditFile.Close()
-		}
+		// The worker closes/seals the writer before reporting completion. The
+		// deadline also bounds shutdown when sealing encounters a stalled disk.
+		_ = auditRecorder.Close(ctx)
 	}()
 	// Initialize oidc
 	oidc.InitOIDCConfig()

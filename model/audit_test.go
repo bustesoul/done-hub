@@ -37,11 +37,11 @@ func TestAuditOptionSaveValidatePersistAndHotReload(t *testing.T) {
 	if err := ReloadAuditConfig(ctx); err != nil || audit.Default.Status().Enabled {
 		t.Fatal("not default off", err)
 	}
-	valid := `{"channel_ids":[25],"token_ids":[7]}`
+	valid := `{"channel_ids":[25],"token_ids":[7],"archive_enabled":true}`
 	if err := UpdateOption(audit.OptionKey, valid); err != nil {
 		t.Fatal(err)
 	}
-	if !audit.Default.Config().Matches(25, 7) || audit.Default.Config().Matches(24, 7) {
+	if !audit.Default.Config().Matches(25, 7) || audit.Default.Config().Matches(24, 7) || !audit.Default.Config().ArchiveEnabled {
 		t.Fatal("save did not publish intersection")
 	}
 	if err := UpdateOption(audit.OptionKey, `{"token_ids":[-7]}`); err == nil {
@@ -68,6 +68,9 @@ func TestAuditOptionSaveValidatePersistAndHotReload(t *testing.T) {
 	}
 	if err = ReloadAuditConfig(ctx); err != nil || !audit.Default.Config().Matches(24, 9) {
 		t.Fatal("remote reload failed", err)
+	}
+	if audit.Default.Config().ArchiveEnabled {
+		t.Fatal("legacy configuration did not preserve normal-mode default")
 	}
 	if err = db.Save(&Option{Key: audit.OptionKey, Value: `broken`}).Error; err != nil {
 		t.Fatal(err)

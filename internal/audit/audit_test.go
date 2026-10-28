@@ -61,7 +61,7 @@ func TestConfigIntersectionAndValidation(t *testing.T) {
 			t.Errorf("%+v: got %v", item, got)
 		}
 	}
-	for _, value := range []string{"", "null", "[]", `{"token_ids":[0]}`, `{"channel_ids":[-1]}`, `{"token_ids":["sk-secret"]}`, `{"enabled":true}`, `{} {}`} {
+	for _, value := range []string{"", "null", "[]", `{"token_ids":[0]}`, `{"channel_ids":[-1]}`, `{"token_ids":["sk-secret"]}`, `{"archive_enabled":"true"}`, `{"enabled":true}`, `{} {}`} {
 		if _, err := ParseConfig(value); err == nil {
 			t.Errorf("accepted %q", value)
 		}
