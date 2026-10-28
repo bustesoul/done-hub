@@ -23,6 +23,8 @@ type GeminiStreamHandler struct {
 
 	Key     string
 	Context *base.RequestContext // 添加 Context 用于获取响应模型名称
+	// 每个 candidate 的工具下标跨 SSE chunk 递增。
+	toolCallCounts map[int]int
 }
 
 type OpenAIStreamHandler struct {
@@ -827,48 +829,89 @@ func (h *GeminiStreamHandler) convertToOpenaiStream(geminiResponse *GeminiChatRe
 		// Choices: choices,
 	}
 
-	choices := make([]types.ChatCompletionStreamChoice, 0, len(geminiResponse.Candidates))
-
-	isStop := false
+	toolStream := len(h.toolCallCounts) > 0
 	for _, candidate := range geminiResponse.Candidates {
-		if candidate.FinishReason != nil && *candidate.FinishReason == "STOP" {
-			isStop = true
-			candidate.FinishReason = nil
+		for _, part := range candidate.Content.Parts {
+			if part.FunctionCall != nil {
+				toolStream = true
+			}
 		}
-		choices = append(choices, candidate.ToOpenAIStreamChoice(h.Request))
-		// 累积流式内容到 TextBuilder，用于 UsageMetadata 缺失或不准确时的 token 计算备用
+	}
+	if !toolStream {
+		// 无工具请求沿用原分片布局，包括空 candidates、多个 choices 和非 STOP 结束。
+		choices := make([]types.ChatCompletionStreamChoice, 0, len(geminiResponse.Candidates))
+		isStop := false
+		for _, candidate := range geminiResponse.Candidates {
+			if candidate.FinishReason != nil && *candidate.FinishReason == "STOP" {
+				isStop = true
+				candidate.FinishReason = nil
+			}
+			choices = append(choices, candidate.ToOpenAIStreamChoice(h.Request))
+		}
+		streamResponse.Choices = choices
+		responseBody, _ := json.Marshal(streamResponse)
+		dataChan <- string(responseBody)
+		if isStop {
+			streamResponse.Choices = []types.ChatCompletionStreamChoice{{
+				FinishReason: types.FinishReasonStop,
+				Delta:        types.ChatCompletionStreamChoiceDelta{Role: types.ChatMessageRoleAssistant},
+			}}
+			responseBody, _ := json.Marshal(streamResponse)
+			dataChan <- string(responseBody)
+		}
+	} else {
+		for _, candidate := range geminiResponse.Candidates {
+			choice := candidate.ToOpenAIStreamChoice(h.Request)
+			offset := h.toolCallCounts[choice.Index]
+			count := len(choice.Delta.ToolCalls)
+			if choice.Delta.FunctionCall != nil {
+				count = 1
+			}
+			var choices []types.ChatCompletionStreamChoice
+			if count > 0 {
+				if h.toolCallCounts == nil {
+					h.toolCallCounts = make(map[int]int)
+				}
+				h.toolCallCounts[choice.Index] = offset + count
+				choices = choice.ConvertOpenaiStream()
+				// 拆包 helper 的终止片段只代表当前 chunk；等待 Google 的真正结束标记。
+				choices = choices[:len(choices)-1]
+				for i := range choices {
+					for _, tool := range choices[i].Delta.ToolCalls {
+						tool.Index += offset
+					}
+				}
+			} else {
+				choice.FinishReason = nil
+				choices = []types.ChatCompletionStreamChoice{choice}
+			}
+			if candidate.FinishReason != nil {
+				finish := ConvertFinishReason(*candidate.FinishReason)
+				if *candidate.FinishReason == "STOP" && offset+count > 0 {
+					finish = types.FinishReasonToolCalls
+					if h.Request.Functions != nil {
+						finish = types.FinishReasonFunctionCall
+					}
+				}
+				choices = append(choices, types.ChatCompletionStreamChoice{
+					Index: choice.Index, FinishReason: finish,
+					Delta: types.ChatCompletionStreamChoiceDelta{Role: types.ChatMessageRoleAssistant},
+				})
+			}
+			for _, converted := range choices {
+				streamResponse.Choices = []types.ChatCompletionStreamChoice{converted}
+				responseBody, _ := json.Marshal(streamResponse)
+				dataChan <- string(responseBody)
+			}
+		}
+	}
+	for _, candidate := range geminiResponse.Candidates {
+		// 累积正文，用于缺少 usage 时估算 tokens。
 		for _, part := range candidate.Content.Parts {
 			if part.Text != "" && !part.Thought {
 				h.Usage.TextBuilder.WriteString(part.Text)
 			}
 		}
-	}
-
-	if len(choices) > 0 && (choices[0].Delta.ToolCalls != nil || choices[0].Delta.FunctionCall != nil) {
-		choices := choices[0].ConvertOpenaiStream()
-		for _, choice := range choices {
-			chatCompletionCopy := streamResponse
-			chatCompletionCopy.Choices = []types.ChatCompletionStreamChoice{choice}
-			responseBody, _ := json.Marshal(chatCompletionCopy)
-			dataChan <- string(responseBody)
-		}
-	} else {
-		streamResponse.Choices = choices
-		responseBody, _ := json.Marshal(streamResponse)
-		dataChan <- string(responseBody)
-	}
-
-	if isStop {
-		streamResponse.Choices = []types.ChatCompletionStreamChoice{
-			{
-				FinishReason: types.FinishReasonStop,
-				Delta: types.ChatCompletionStreamChoiceDelta{
-					Role: types.ChatMessageRoleAssistant,
-				},
-			},
-		}
-		responseBody, _ := json.Marshal(streamResponse)
-		dataChan <- string(responseBody)
 	}
 
 	// 和ExecutableCode的tokens共用，所以跳过

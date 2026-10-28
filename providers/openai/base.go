@@ -368,6 +368,12 @@ func (p *OpenAIProvider) canReuseRequestBody(request any) bool {
 
 func (p *OpenAIProvider) GetRequestTextBody(relayMode int, ModelName string, request any) (outbound *http.Request, outboundErr *types.OpenAIErrorWithStatusCode) {
 	defer func() {
+		if outboundErr == nil && relayMode == config.RelayModeChatCompletions {
+			if err := stripGoogleSignatureForOfficialOpenAI(outbound); err != nil {
+				outbound = nil
+				outboundErr = common.ErrorWrapperLocal(err, "sanitize_tool_signature_failed", http.StatusInternalServerError)
+			}
+		}
 		protocol := ""
 		switch relayMode {
 		case config.RelayModeChatCompletions:

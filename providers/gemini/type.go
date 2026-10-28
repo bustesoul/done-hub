@@ -230,7 +230,7 @@ func (candidate *GeminiChatCandidate) ToOpenAIStreamChoice(request *types.ChatCo
 				choice.Delta.ToolCalls = make([]*types.ChatCompletionToolCalls, 0)
 			}
 			isTools = true
-			choice.Delta.ToolCalls = append(choice.Delta.ToolCalls, part.FunctionCall.ToOpenAITool())
+			choice.Delta.ToolCalls = append(choice.Delta.ToolCalls, part.toOpenAITool())
 		} else if part.InlineData != nil {
 			imgText := ""
 			if strings.HasPrefix(part.InlineData.MimeType, "image/") {
@@ -332,7 +332,7 @@ func (candidate *GeminiChatCandidate) ToOpenAIChoice(request *types.ChatCompleti
 				choice.Message.ToolCalls = make([]*types.ChatCompletionToolCalls, 0)
 			}
 			useTools = true
-			choice.Message.ToolCalls = append(choice.Message.ToolCalls, part.FunctionCall.ToOpenAITool())
+			choice.Message.ToolCalls = append(choice.Message.ToolCalls, part.toOpenAITool())
 		} else if part.InlineData != nil {
 			imgText := ""
 			if strings.HasPrefix(part.InlineData.MimeType, "image/") {
@@ -435,6 +435,22 @@ func (g *GeminiFunctionCall) ToOpenAITool() *types.ChatCompletionToolCalls {
 			Arguments: string(args),
 		},
 	}
+}
+
+type geminiToolExtraContent struct {
+	Google struct {
+		ThoughtSignature json.RawMessage `json:"thought_signature,omitempty"`
+	} `json:"google"`
+}
+
+func (part *GeminiPart) toOpenAITool() *types.ChatCompletionToolCalls {
+	tool := part.FunctionCall.ToOpenAITool()
+	if len(part.ThoughtSignature) > 0 {
+		extra := geminiToolExtraContent{}
+		extra.Google.ThoughtSignature = part.ThoughtSignature
+		tool.ExtraContent, _ = json.Marshal(extra)
+	}
+	return tool
 }
 
 type GeminiChatContent struct {
@@ -679,7 +695,11 @@ func OpenAIToGeminiChatContent(openaiContents []types.ChatCompletionMessage) ([]
 					json.Unmarshal([]byte(toolCall.Function.Arguments), &args)
 				}
 
+				var extra geminiToolExtraContent
+				// 非 Google 扩展保持宽松，不影响正常工具调用的解析。
+				_ = json.Unmarshal(toolCall.ExtraContent, &extra)
 				content.Parts = append(content.Parts, GeminiPart{
+					ThoughtSignature: extra.Google.ThoughtSignature,
 					FunctionCall: &GeminiFunctionCall{
 						Name: toolCall.Function.Name,
 						Args: args,

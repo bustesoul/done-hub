@@ -42,6 +42,8 @@ type ChatCompletionToolCalls struct {
 	Type     string                           `json:"type,omitempty"`
 	Function *ChatCompletionToolCallsFunction `json:"function"`
 	Index    int                              `json:"index"`
+	// 扩展内容由目标 provider 解释，避免共享解码器强制采用某个厂商的结构。
+	ExtraContent json.RawMessage `json:"extra_content,omitempty"`
 }
 
 type ChatCompletionMessage struct {
@@ -448,7 +450,8 @@ func (f *ChatCompletionToolCallsFunction) Split(c *ChatCompletionStreamChoice, s
 			}
 
 			if fIndex == 0 {
-				toolCalls.Id = c.Delta.ToolCalls[0].Id
+				toolCalls.Id = c.Delta.ToolCalls[index].Id
+				toolCalls.ExtraContent = c.Delta.ToolCalls[index].ExtraContent
 			}
 			choice.Delta.ToolCalls = []*ChatCompletionToolCalls{toolCalls}
 		}
